@@ -2,6 +2,10 @@
 
 For installation from source, tests and contributing, start with the [developer README](../README.md). This guide describes the application workflows and their limits. See the [beta notes](BETA_NOTES.md) for current release status.
 
+## Current app and documentation
+
+The app is **Db Commander**, developer-preview version 0.1.0. The supported profile types are PostgreSQL, MySQL, MariaDB, SQL Server, experimental Azure SQL, SQLite, Oracle Thin and DuckDB. [Screenshots of the current workbench](../README.md#screenshots) use an isolated demo database. Development, build/test commands and fork setup are in the [README](../README.md); CI is managed by [GitHub Actions](GITHUB_ACTIONS.md).
+
 ## Executing SQL
 
 **Run SQL** (`Cmd/Ctrl+Enter`) runs the selected SQL, or the script when there is no selection. **Query tools → Run current statement** (`Cmd/Ctrl+Shift+Enter`) runs the statement at the cursor. For SQL Server/Azure SQL this is **Run current batch**, preserving the entire GO-delimited batch and executing it once. **Run entire script** ignores the selection. These actions are also available in Commands.

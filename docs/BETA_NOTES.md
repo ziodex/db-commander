@@ -4,7 +4,7 @@ These notes describe the scope frozen on 20 October 2026. **No beta release has 
 
 ## Included workflows
 
-The beta keeps the existing SQL workbench: saved connections and optional native password storage, TLS/SSH, independent query sessions, SQL files and recovery, tabs/splits/windows, themes and shortcuts, formatting/completion, snippets/parameters, precise result values, explicit transactions/cancellation, browsing and conservative keyed editing, schema tools, diagrams/comparisons, plans, import/export, engine-specific backup/restore, session/lock tools and opt-in minimize to tray. See the [README](../README.md) for usage and engine-specific restrictions.
+The beta keeps the existing SQL workbench: saved connections and optional native password storage, TLS/SSH, independent query sessions, SQL files and recovery, tabs/splits/windows, themes and shortcuts, formatting/completion, snippets/parameters, precise result values, explicit transactions/cancellation, browsing and conservative keyed editing, schema tools, diagrams/comparisons, plans, import/export, engine-specific backup/restore, session/lock tools and opt-in minimize to tray. See the [user guide](USER_GUIDE.md) for usage and engine-specific restrictions, and the [README](../README.md) for fork/development setup and current app screenshots.
 
 Candidate engines are PostgreSQL, MySQL, MariaDB, SQL Server, SQLite, DuckDB and Oracle Thin mode. Local scale fixtures currently cover PostgreSQL 17, MySQL 8.4, MariaDB 11.4, SQL Server 2022, Oracle Free 26ai, DuckDB 1.5.6 and the SQLite versions bundled with tested runtimes. This is tested-version evidence, not a guarantee for every patch, deployment or authentication mode. Native platform and supported-version sign-off is still pending.
 

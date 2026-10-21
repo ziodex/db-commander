@@ -13,11 +13,32 @@ An open-source desktop SQL workbench for macOS, Windows and Linux, built with El
 
 For app instructions, keyboard shortcuts and database-specific limitations, read the [user guide](docs/USER_GUIDE.md).
 
+## Screenshots
+
+The running developer preview, using synthetic shop data in a temporary DuckDB database. No personal connections or production data are shown. [Capture details and regeneration](docs/screenshots/README.md).
+
+**Query workbench · dark theme** — SQL editing, schema navigation and exact query results in one workspace.
+
+![Db Commander in the dark theme, showing a revenue-by-market SQL query, eight result rows and the demo database explorer.](docs/screenshots/query-workbench-dark.png)
+
+<details>
+<summary>Table browsing and schema relationships · light theme</summary>
+
+**Table browser** — inspect keyed table data with pagination, filters, sorting and an explicit edit action.
+
+![Db Commander in the light theme, browsing eight demo products with column types, prices and table actions.](docs/screenshots/table-browser-light.png)
+
+**ER diagram** — explore table columns, keys and relationships from the live database catalog.
+
+![Db Commander ER diagram in the light theme, displaying customers, orders, order items and products connected by foreign keys.](docs/screenshots/schema-diagram-light.png)
+
+</details>
+
 ## Fork and run locally
 
 ### Prerequisites
 
-- **Node.js 22**, version 22.13 or newer within that major version, and Git.
+- **Node.js 22.13 or newer** and Git. Use Node.js 22.x to match CI; Electron supplies the app’s embedded runtime.
 - **pnpm 11.25.0**, the version pinned in `package.json`.
 - A graphical desktop session to run Electron.
 - Docker with Compose v2 **only if you want to run database contract tests or the supplied server fixtures**.
@@ -57,6 +78,7 @@ Docker is not needed for this check. Server databases can be connected through t
 | `pnpm test` | Run unit tests; no Docker required |
 | `pnpm build` | Lint, typecheck and build the application and SQLite worker |
 | `pnpm test:layout` | Build and test native window/layout behavior; no Docker required |
+| `pnpm screenshots` | Build the app and regenerate the README screenshots with disposable demo data |
 | `pnpm package` | Build an unpacked, unsigned app for the current OS and architecture |
 | `pnpm dist` | Build unsigned native installers into `release/candidate` |
 | `pnpm clean` | Remove generated builds, packages, reports and diagnostics; keep source and dependencies |

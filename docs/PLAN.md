@@ -4,6 +4,10 @@ Scope frozen on **20 October 2026**, starting from development runtime `5395b1f`
 
 Bug fixes, regression tests, qualification and release documentation remain in scope. New engines, expanded workflows and removal of the documented limits wait until after the initial beta. A runtime fix requires rebuilding the candidate and repeating affected checks; an earlier package's results do not certify changed bytes.
 
+## Current repository
+
+Development now takes place on [`ziodex/db-commander:development`](https://github.com/ziodex/db-commander/tree/development) with fresh Git history. Version 0.1.0 remains a developer preview with no published release. [GitHub Actions](GITHUB_ACTIONS.md) validates development/main pushes and pull requests; signing remains an explicit, gated main run. The earlier source SHAs and Azure results in this checklist refer to archived milestones and do not certify the current GitHub commit. The bootstrap `main` history still needs a deliberate maintainer migration before the first main release.
+
 ## Frozen scope
 
 | Area | Included in the initial beta |

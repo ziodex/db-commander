@@ -214,7 +214,7 @@ Use `pnpm test:desktop --driver <engine>` to run the driver contracts and select
 
 The native x64 Ubuntu CI matrix runs one job per server engine and separate SQLite and DuckDB container jobs, with unit/integration tests and selected Electron workflows under Xvfb. This lets existing drivers run independently when another fixture fails. Separate macOS, Windows, and Linux jobs build unsigned desktop packages and launch packaged SQLite/DuckDB smoke checks plus the saved-profile/multiple-tab and SQL language-tool DuckDB workflows. A local macOS run does not certify those other OS builds.
 
-The current matrix covers PostgreSQL 17, MySQL 8.4, MariaDB 11.4 and SQL Server 2022 (validation pending) , SQLite 3.53.4, Oracle Free 23.26.3 and DuckDB 1.5.6, including each tag's installed patch level. Additional minimum/current server versions, native packaged application workflows on every platform, long-running memory measurements, and cloud-only authentication remain release work. Local containers cannot certify Azure-specific authentication or networking.
+Current fixture definitions select PostgreSQL 17, MySQL 8.4, MariaDB 11.4, SQL Server 2022, Oracle Free 26ai (23.26.3), DuckDB Node 1.5.6-r.1, and the SQLite runtime bundled in Node 24.21.0/Electron 44.7.0. Mutable server tags and SQLite patch versions must be recorded from the actual run; fixture definitions alone do not establish a passing current matrix. Additional minimum/current server versions, native packaged application workflows on every platform, long-running memory measurements, and cloud-only authentication remain release work. Local containers cannot certify Azure-specific authentication or networking.
 
 ## Adding another engine
 

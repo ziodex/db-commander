@@ -4,6 +4,12 @@ Current beta status is tracked only in the [frozen scope and release checklist](
 
 This is a developer preview with PostgreSQL, MySQL, MariaDB, SQL Server/Azure SQL, SQLite, Oracle Database and DuckDB adapters, not the complete 1.0 plan. The SQL Server/Azure-profile baseline passed native x64 Azure CI; current platform/release qualification and live Azure service testing remain separate gates. Earlier milestone notes below describe the evidence available at their respective dates. The repository uses `src` modules until additional adapters justify extracting workspace packages.
 
+## Current repository and documentation — 21 October 2026
+
+The active source is now [ziodex/db-commander](https://github.com/ziodex/db-commander), branch `development`, with a fresh Git history. [GitHub Actions](GITHUB_ACTIONS.md) replaces Azure DevOps and validates development/main pushes and pull requests, including four native desktop targets and seven real-engine targets. Signed releases still require an explicit main dispatch and a protected release environment. No public release is published; version 0.1.0 remains a developer preview.
+
+The app includes startup/daily/overdue-after-sleep release checks, remembered per-version dismissal and **Help → Check for updates**. Installation stays manual. The [README](../README.md) covers fork setup, the [user guide](USER_GUIDE.md) covers app workflows, and [screenshots](screenshots/README.md) are captured from the running app with synthetic data. Older source SHAs, Azure run links and trigger descriptions below are historical evidence from the previous repository, not instructions for current CI.
+
 ## Db Commander identity — 21 October 2026
 
 The display name is now **Db Commander**, with package name `dbcommander`, app ID `org.dbcommander.desktop`, compact `DbCommander` executable and artifact names, and lowercase `dbcommander` on Linux. The renderer bridge, editor URI scheme, temporary files, database fixture identities, packaging tools and documentation use the new name. The mint application tile now contains a database cylinder and command prompt, with regenerated PNG, ICO, ICNS and monochrome tray assets plus the matching title-bar mark. Editable sources and regeneration instructions are in [build/icons](../build/icons/README.md).
@@ -268,7 +274,7 @@ The SQL Server suite now defines **22 contracts**, plus its native backup deskto
 
 `azure-pipelines.yml` is registered as [Db Commander CI (pipeline 19)](https://dev.azure.com/detegoprojects/SQL%20Commander/_build?definitionId=19). It has independent three-platform desktop and seven-driver Linux x64 stages. Shared steps install Node/pinned pnpm and native optional dependencies, cache the package store, prepare graphical/keyring dependencies and publish JUnit reports. Desktop jobs run unit tests, typecheck/build/package and native packaged workflows, then publish tested unsigned application archives. Driver jobs verify native x64 Docker, run real integration contracts and the selected Electron workflows, and remove their own containers and volumes.
 
-Work is pushed to `development` and merged into `main` through a pull request. Azure's push trigger includes only `main`, YAML PR triggers are disabled, and both stages require `Build.SourceBranch == refs/heads/main`. The Azure Repos PR build-validation policy is disabled. The GitHub mirror also triggers only on main pushes. Development pushes and PR creation produced no builds; PRs 129 and 130 automatically triggered main CI after merge. See [the pipeline guide](AZURE_PIPELINES.md).
+Work is pushed to `development` and merged into `main` through a pull request. Azure's push trigger includes only `main`, YAML PR triggers are disabled, and both stages require `Build.SourceBranch == refs/heads/main`. The Azure Repos PR build-validation policy is disabled. The GitHub mirror also triggers only on main pushes. Development pushes and PR creation produced no builds; PRs 129 and 130 automatically triggered main CI after merge. That Azure configuration has since been retired; see the [current GitHub Actions guide](GITHUB_ACTIONS.md).
 
 Hosted validation exposed and resolved these portability issues:
 

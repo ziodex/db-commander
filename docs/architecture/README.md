@@ -17,13 +17,15 @@ Db Commander keeps the desktop interface, native capabilities and database execu
 
 Database execution and backend services do not import React or Electron. The renderer has no generic filesystem, shell, database-driver or credential-reading API. Main validates IPC input and sender ownership; host handlers validate their requests independently. `HostContract` checks method names, request shapes and results across the internal transport. `DesktopApi` checks public handler results. Native capability checks remain at the boundary where the operation occurs.
 
-`pnpm lint` enforces static import boundaries, Hook ordering and effect dependencies. `pnpm typecheck` checks the whole project and separately checks the renderer without global Node types. Builds include these checks. Architecture regression tests exercise forbidden imports and Hook violations. CI triggers remain restricted to `main`.
+`pnpm lint` enforces static import boundaries, Hook ordering and effect dependencies. `pnpm typecheck` checks the whole project and separately checks the renderer without global Node types. Builds include these checks. Architecture regression tests exercise forbidden imports and Hook violations. [GitHub Actions](../GITHUB_ACTIONS.md) runs on pushes to `development` and `main`, and on pull requests targeting either branch. Signed releases remain explicit, main-only runs after all validation passes.
 
 ## Frontend ownership
 
 `App` composes the workspace and coordinates commands that cross features. `ConnectionDialog` owns connection form state and credential-store status. `useWorkspaceRecovery` owns loading, the serialized save queue, autosave and save-status announcements. Persisted workspaces contain buffers and non-secret settings; live connections, results and transactions remain volatile.
 
 `query-tabs` owns pure database-event transitions. Session and execution identities determine event ownership. `useJobFeed` combines the initial job list with subsequent events so an older list cannot replace a newer event. Effect Events read the current callback state without repeatedly replacing subscriptions. Cleanup closes the exact dialog element opened by that effect.
+
+`UpdateBanner` subscribes to the application-wide metadata status and owns its transient presentation/focus state. Main owns the startup/daily/resume schedule, version comparison and per-version dismissal. Only fixed GitHub release pages can be opened, and installation stays manual. The sandboxed preload validates update status without importing external runtime packages.
 
 Keep state with its feature. Extract a controller or hook when a feature has its own asynchronous lifecycle, rather than adding independent flags and effects to the workspace root. Keep SQL buffer changes in Monaco's existing edit/undo path.
 

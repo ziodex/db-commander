@@ -1,0 +1,17 @@
+{
+  "appVersion": "0.1.0",
+  "appSourceCommit": "cf0a0bbc7f7aeb83319c65c3ed6c4a823b5b27d7",
+  "capturedAt": "2026-10-21T13:45:10.060Z",
+  "platform": "darwin",
+  "arch": "arm64",
+  "viewport": {
+    "width": 1440,
+    "height": 960
+  },
+  "data": "Synthetic in-memory DuckDB shop, created by scripts/capture-screenshots.mjs",
+  "files": [
+    "query-workbench-dark.png",
+    "table-browser-light.png",
+    "schema-diagram-light.png"
+  ]
+}

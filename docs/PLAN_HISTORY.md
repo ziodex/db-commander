@@ -266,7 +266,7 @@ Verified base-table editors now stage insert/update/delete operations for all ei
 
 Docker contracts exercise all production adapters and include Azure-profile coverage against the SQL Server fixture. Desktop tests cover staged changes, tab isolation, commit/rollback, conflicts, draft recovery, and execution of a selected SELECT without an unselected DELETE. SQL Server/Azure SQL remain pending native x64 validation; the other six engines pass locally. The packaged-app test now includes the DuckDB grid workflow.
 
-The initial editor is deliberately limited to keyed base tables with supported values and a bounded preview. Arbitrary query results remain read-only. Pagination/server filters, primary-key changes, SQL change previews, binary/LOB/complex-value editors and applying within an already-open user transaction remain follow-up work. See [usage and limits](../README.md#edit-table-data), [implementation](IMPLEMENTATION.md#editable-grid-milestone) and [testing](DRIVER_TESTING.md#editable-result-grids).
+The initial editor is deliberately limited to keyed base tables with supported values and a bounded preview. Arbitrary query results remain read-only. Pagination/server filters, primary-key changes, SQL change previews, binary/LOB/complex-value editors and applying within an already-open user transaction remain follow-up work. See [usage and limits](USER_GUIDE.md#edit-table-data), [implementation](IMPLEMENTATION.md#editable-grid-milestone) and [testing](DRIVER_TESTING.md#editable-result-grids).
 
 ## Additional workbench requirements (2026-10-12)
 

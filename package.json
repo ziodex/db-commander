@@ -18,6 +18,7 @@
     "build": "pnpm lint && pnpm typecheck && electron-vite build && node scripts/build-sqlite-worker.mjs out/worker",
     "preview": "electron-vite preview",
     "icons": "electron scripts/generate-icons.cjs",
+    "screenshots": "pnpm build && node scripts/capture-screenshots.mjs",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.renderer.json",
     "lint": "eslint src --max-warnings 0",
     "test": "vitest run tests/unit",
