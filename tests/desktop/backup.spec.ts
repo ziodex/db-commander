@@ -61,7 +61,13 @@ for (const engine of ['sqlite', 'duckdb'] as const) test(`backup ${engine}: revi
     form = page.getByRole('dialog', { name: 'Database backup and restore', exact: true })
     await expect(form.locator('.backup-job-list button')).toHaveCount(3)
     expect(readFileSync(join(directory, 'backup-jobs.json'), 'utf8')).not.toContain('password')
-  } finally { if (app) await app.close().catch(() => {}); rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) }
+  } finally {
+    // A failed assertion can leave the app's guarded Quit dialog open. Teardown
+    // must not wait forever for an invisible native dialog on the CI desktop.
+    await app?.evaluate(({ app }) => app.exit(0)).catch(() => {})
+    await app?.close().catch(() => {})
+    rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+  }
 })
 
 test('backup recovery: interrupted restore is unknown after restart, never replayed', async () => {

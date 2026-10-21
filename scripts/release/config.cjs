@@ -138,6 +138,9 @@ function builderConfig(env = process.env) {
       deleteAppDataOnUninstall: false, runAfterFinish: false,
       createDesktopShortcut: false, createStartMenuShortcut: true, uninstallDisplayName: 'Db Commander'
     },
+    // The legacy AppImage desktop entry otherwise injects --no-sandbox even
+    // on systems with working user namespaces.
+    appImage: { executableArgs: [] },
     linux: {
       icon: 'build/icons',
       target: ['AppImage', 'deb', 'rpm'], category: 'Development',

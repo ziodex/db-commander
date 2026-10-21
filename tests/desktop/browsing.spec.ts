@@ -37,10 +37,15 @@ for (const engine of engineSchema.options) test(`browsing ${engine}: server page
     await form.getByRole('button', { name: 'Connect', exact: true }).click(); await expect(form).not.toBeVisible()
     const textType = ['sqlserver', 'azure-sql'].includes(engine) ? 'NVARCHAR' : 'VARCHAR'
     await run(`CREATE TABLE ${q(name)} (${q('id')} INTEGER PRIMARY KEY,${q('label')} ${textType}(100),${q('note')} ${textType}(20))`)
+    // These rows are a paging fixture. Embedded engines otherwise fsync every
+    // INSERT, which dominates the Windows run on the hosted runner's disk.
+    const embedded = engine === 'sqlite' || engine === 'duckdb'
+    if (embedded) await run('BEGIN TRANSACTION')
     for (let start = 0; start < 205; start += 100) await run(Array.from({ length: Math.min(100, 205 - start) }, (_, index) => {
       const i = start + index
       return `INSERT INTO ${q(name)} VALUES(${i},'${i === 203 ? "100%_[x] O''Brien" : `row ${i}`}',${i % 2 ? "'present'" : 'NULL'})`
     }).join(';'))
+    if (embedded) await run('COMMIT')
     if (engine === 'oracle') await run('COMMIT')
     await tableAction(page, `${name}`, 'Browse data'); await loaded('Rows 1–200')
     await expect(page.getByRole('table', { name: 'Table data', exact: true })).toHaveAttribute('aria-rowcount', '201')
