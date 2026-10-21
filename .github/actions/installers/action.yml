@@ -1,0 +1,23 @@
+name: Test installer lifecycle
+description: Install, upgrade, uninstall and reinstall only on disposable native CI workers
+runs:
+  using: composite
+  steps:
+    - name: Debian and AppImage lifecycle
+      if: runner.os == 'Linux'
+      shell: bash
+      env:
+        SQLCOMMANDER_DISPOSABLE_INSTALL_TEST: '1'
+      run: bash scripts/with-test-keyring.sh node scripts/with-test-desktop.mjs node scripts/test-installers.mjs
+    - name: Fedora RPM lifecycle
+      if: runner.os == 'Linux'
+      shell: bash
+      env:
+        SQLCOMMANDER_DISPOSABLE_INSTALL_TEST: '1'
+      run: node scripts/test-rpm.mjs
+    - name: macOS or Windows lifecycle
+      if: runner.os != 'Linux'
+      shell: pwsh
+      env:
+        SQLCOMMANDER_DISPOSABLE_INSTALL_TEST: '1'
+      run: node scripts/test-installers.mjs

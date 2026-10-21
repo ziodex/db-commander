@@ -1,100 +1,284 @@
-name: Validate
+name: CI
+
 on:
   push:
-    branches: [main]
+    branches: [main, development]
+  pull_request:
+    branches: [main, development]
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: Build signed release candidates after the full main CI matrix passes
+        type: boolean
+        default: false
+
 permissions:
   contents: read
+
+# Cancel obsolete validation, but let an explicitly requested release finish.
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}-${{ inputs.create_release || false }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+
+defaults:
+  run:
+    shell: pwsh
+
+env:
+  CI: 'true'
+  PLAYWRIGHT_JUNIT_OUTPUT_FILE: .test-artifacts/ci-results/desktop.xml
+
 jobs:
-  database-contracts:
-    # Microsoft SQL Server images require x86-64; do not use ARM runners.
-    runs-on: ubuntu-24.04
+  desktop:
+    name: Desktop (${{ matrix.platform }}-${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        driver: [postgres, mysql, mariadb, sqlserver, sqlite, oracle, duckdb]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11.25.0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm typecheck
-      - run: pnpm test
-      - name: Install Linux credential-store test dependencies
-        run: sudo apt-get update && sudo apt-get install -y dbus-x11 gnome-keyring libglib2.0-bin
-      - run: bash scripts/with-test-keyring.sh xvfb-run -a pnpm test:desktop --driver ${{ matrix.driver }}
-      - uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: desktop-test-results-${{ matrix.driver }}
-          path: test-results
-  desktop-build:
-    strategy:
-      matrix:
         include:
           - os: macos-15-intel
+            platform: darwin
             arch: x64
           - os: macos-15
+            platform: darwin
             arch: arm64
           - os: windows-2025
+            platform: win32
             arch: x64
           - os: ubuntu-24.04
+            platform: linux
             arch: x64
-    runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          version: 11.25.0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Install Linux credential-store test dependencies
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y dbus-x11 gnome-keyring libglib2.0-bin rpm libnotify4 libsecret-1-0 libxss1 libxtst6 xdg-utils
+          persist-credentials: false
+      - uses: ./.github/actions/setup
       - run: node scripts/check-release.mjs --arch ${{ matrix.arch }}
-      - run: pnpm package
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-      - name: Prepare Windows display for native window resize tests
+      - uses: ./.github/actions/linux-desktop
+        if: runner.os == 'Linux'
+        with:
+          packaging: 'true'
+      - name: Prepare Windows display
         if: runner.os == 'Windows'
         shell: powershell
         run: Set-DisplayResolution -Width 1920 -Height 1080 -Force
-      - name: Test packaged embedded engines, tabs, SQL language tools, editable grids, panel layout credential storage and database backup/restore (Linux)
+      - name: Unit tests
+        run: pnpm exec vitest run tests/unit --reporter=default --reporter=junit --outputFile.junit=.test-artifacts/ci-results/unit.xml
+      - name: Build and package the native application
+        run: pnpm package
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Packaged desktop tests (Linux)
         if: runner.os == 'Linux'
-        run: bash scripts/with-test-keyring.sh xvfb-run -a node scripts/smoke-package.mjs
-      - name: Test packaged embedded engines, tabs, SQL language tools, editable grids, panel layout credential storage and database backup/restore (macOS / Windows)
+        shell: bash
+        run: bash scripts/with-test-keyring.sh node scripts/with-test-desktop.mjs node scripts/smoke-package.mjs
+      - name: Packaged desktop tests (macOS / Windows)
         if: runner.os != 'Linux'
         run: node scripts/smoke-package.mjs
-      - name: Build installers and upgrade fixture
-        shell: pwsh
+      - name: Build unsigned installers and upgrade fixture
         run: |
           $PSNativeCommandUseErrorActionPreference = $true
           node scripts/build-release.mjs --fixture --arch ${{ matrix.arch }}
           node scripts/build-release.mjs --arch ${{ matrix.arch }}
-      - name: Test Debian and AppImage lifecycle
-        if: runner.os == 'Linux'
-        run: bash scripts/with-test-keyring.sh xvfb-run -a node scripts/test-installers.mjs
-        env:
-          SQLCOMMANDER_DISPOSABLE_INSTALL_TEST: '1'
-      - name: Test RPM lifecycle on Fedora
-        if: runner.os == 'Linux'
-        run: node scripts/test-rpm.mjs
-        env:
-          SQLCOMMANDER_DISPOSABLE_INSTALL_TEST: '1'
-      - name: Test macOS or Windows installer lifecycle
-        if: runner.os != 'Linux'
-        run: node scripts/test-installers.mjs
-        env:
-          SQLCOMMANDER_DISPOSABLE_INSTALL_TEST: '1'
-      - uses: actions/upload-artifact@v4
-        if: failure()
+      - uses: ./.github/actions/installers
+      - name: Stage tested unsigned installers
+        run: node scripts/stage-release.mjs --output .test-artifacts/staged-installers
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: packaged-test-results-${{ matrix.os }}
-          path: test-results
+          name: dbcommander-unsigned-${{ matrix.platform }}-${{ matrix.arch }}
+          path: .test-artifacts/staged-installers
+          include-hidden-files: true
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
+      - uses: ./.github/actions/reports
+        if: always()
+        with:
+          name: desktop-${{ matrix.platform }}-${{ matrix.arch }}
+
+  drivers:
+    name: Driver (${{ matrix.driver }})
+    # SQL Server containers and release qualification require native x64.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        driver: [sqlserver, postgres, mysql, mariadb, sqlite, oracle, duckdb]
+    env:
+      SQLCOMMANDER_TEST_REPORT_DIR: .test-artifacts/ci-results/integration
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify native Docker and prepare Oracle fixture storage
+        shell: bash
+        env:
+          DRIVER: ${{ matrix.driver }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = x86_64
+          docker version
+          docker compose version
+          case "$(docker info --format '{{.Architecture}}')" in
+            x86_64|amd64) ;;
+            *) echo 'Driver tests require a native Linux x64 Docker daemon.' >&2; exit 1 ;;
+          esac
+          if [[ "$DRIVER" == oracle ]]; then
+            sudo rm -rf /usr/local/lib/android /opt/ghc /usr/share/dotnet
+          fi
+          df -h /
+      - uses: ./.github/actions/setup
+      - uses: ./.github/actions/linux-desktop
+      - name: Build, test contracts and run Electron workflows
+        shell: bash
+        env:
+          DRIVER: ${{ matrix.driver }}
+        run: bash scripts/with-test-keyring.sh node scripts/with-test-desktop.mjs pnpm test:desktop --driver "$DRIVER"
+      - uses: ./.github/actions/reports
+        if: always()
+        with:
+          name: driver-${{ matrix.driver }}
+
+  release-request:
+    name: Validate signed release request
+    if: github.event_name == 'workflow_dispatch' && inputs.create_release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - run: node scripts/check-release.mjs --release-gate
+        env:
+          SQLCOMMANDER_RELEASE_GATE: main-ci-passed
+
+  release:
+    name: Signed release (${{ matrix.platform }}-${{ matrix.arch }})
+    needs: [desktop, drivers, release-request]
+    if: >-
+      github.event_name == 'workflow_dispatch' && inputs.create_release &&
+      github.ref == 'refs/heads/main' && needs.desktop.result == 'success' &&
+      needs.drivers.result == 'success' && needs.release-request.result == 'success'
+    environment: release
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15-intel
+            platform: darwin
+            arch: x64
+          - os: macos-15
+            platform: darwin
+            arch: arm64
+          - os: windows-2025
+            platform: win32
+            arch: x64
+          - os: ubuntu-24.04
+            platform: linux
+            arch: x64
+    env:
+      SQLCOMMANDER_RELEASE_GATE: main-ci-passed
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          node scripts/check-release.mjs --release-gate
+          node scripts/check-release.mjs --arch ${{ matrix.arch }}
+      - uses: ./.github/actions/linux-desktop
+        if: runner.os == 'Linux'
+        with:
+          packaging: 'true'
+      - name: Prepare Windows display
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: Set-DisplayResolution -Width 1920 -Height 1080 -Force
+      - name: Restore Apple signing files to temporary storage
+        if: runner.os == 'macOS'
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not $env:CERTIFICATE_BASE64 -or -not $env:API_KEY_BASE64) { throw 'Configure Apple signing file secrets in the release environment.' }
+          $directory = Join-Path $env:RUNNER_TEMP 'dbcommander-signing'
+          New-Item -ItemType Directory -Path $directory -Force | Out-Null
+          $certificate = Join-Path $directory 'developer-id.p12'
+          $apiKey = Join-Path $directory 'notarization.p8'
+          [IO.File]::WriteAllBytes($certificate, [Convert]::FromBase64String($env:CERTIFICATE_BASE64))
+          [IO.File]::WriteAllBytes($apiKey, [Convert]::FromBase64String($env:API_KEY_BASE64))
+          "CSC_LINK=$certificate" >> $env:GITHUB_ENV
+          "APPLE_API_KEY=$apiKey" >> $env:GITHUB_ENV
+      - name: Build and verify signed installers and upgrade fixture
+        env:
+          CSC_KEY_PASSWORD: ${{ matrix.platform == 'darwin' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          APPLE_API_KEY_ID: ${{ matrix.platform == 'darwin' && secrets.APPLE_API_KEY_ID || '' }}
+          APPLE_API_ISSUER: ${{ matrix.platform == 'darwin' && secrets.APPLE_API_ISSUER || '' }}
+          SQLCOMMANDER_APPLE_IDENTITY: ${{ matrix.platform == 'darwin' && secrets.SQLCOMMANDER_APPLE_IDENTITY || '' }}
+          SQLCOMMANDER_APPLE_TEAM_ID: ${{ matrix.platform == 'darwin' && secrets.SQLCOMMANDER_APPLE_TEAM_ID || '' }}
+          AZURE_TENANT_ID: ${{ matrix.platform == 'win32' && secrets.AZURE_TENANT_ID || '' }}
+          AZURE_CLIENT_ID: ${{ matrix.platform == 'win32' && secrets.AZURE_CLIENT_ID || '' }}
+          AZURE_CLIENT_SECRET: ${{ matrix.platform == 'win32' && secrets.AZURE_CLIENT_SECRET || '' }}
+          SQLCOMMANDER_SIGN_ENDPOINT: ${{ matrix.platform == 'win32' && secrets.SQLCOMMANDER_SIGN_ENDPOINT || '' }}
+          SQLCOMMANDER_SIGN_ACCOUNT: ${{ matrix.platform == 'win32' && secrets.SQLCOMMANDER_SIGN_ACCOUNT || '' }}
+          SQLCOMMANDER_SIGN_PROFILE: ${{ matrix.platform == 'win32' && secrets.SQLCOMMANDER_SIGN_PROFILE || '' }}
+          SQLCOMMANDER_SIGN_PUBLISHER: ${{ matrix.platform == 'win32' && secrets.SQLCOMMANDER_SIGN_PUBLISHER || '' }}
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          pnpm build
+          node scripts/build-release.mjs --signed --fixture --arch ${{ matrix.arch }}
+          node scripts/build-release.mjs --signed --arch ${{ matrix.arch }}
+      - uses: ./.github/actions/installers
+      - name: Stage verified release candidate
+        run: node scripts/stage-release.mjs --output .test-artifacts/release-candidate
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-${{ matrix.platform }}-${{ matrix.arch }}
+          path: .test-artifacts/release-candidate
+          include-hidden-files: true
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
+      - name: Remove temporary Apple signing files
+        if: always() && runner.os == 'macOS'
+        run: |
+          $directory = Join-Path $env:RUNNER_TEMP 'dbcommander-signing'
+          if (Test-Path -LiteralPath $directory) { Remove-Item -LiteralPath $directory -Recurse -Force }
+      - uses: ./.github/actions/reports
+        if: always()
+        with:
+          name: release-${{ matrix.platform }}-${{ matrix.arch }}
+
+  promote:
+    name: Verify complete release bundle
+    needs: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: release-*
+          path: .test-artifacts/release-input
+      - name: Require all targets, signatures, checksums, inventories and installer tests
+        run: node scripts/promote-release.mjs --input .test-artifacts/release-input --output .test-artifacts/promoted-release
+        env:
+          SQLCOMMANDER_RELEASE_GATE: main-ci-passed
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dbcommander-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .test-artifacts/promoted-release
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30

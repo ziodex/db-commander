@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mkdtemp, mkdir, writeFile, readFile, access, rm, symlink } from 'node:fs/promises'
-import { readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { parse } from 'yaml'
 import { createRequire } from 'node:module'
 import { builderConfig, signingSettings, artifactNames, safeArtifact } from '../../scripts/release/config.cjs'
-import { artifactRecords, readManifest, requireNativeWindowsX64 } from '../../scripts/release/common.mjs'
+import { artifactRecords, githubBuildId, readManifest, requireNativeWindowsX64 } from '../../scripts/release/common.mjs'
 import { validateReleaseGate } from '../../scripts/check-release.mjs'
 import { requireDisposableHost } from '../../scripts/release/install.mjs'
 import { releaseBuildEnvironment } from '../../scripts/build-release.mjs'
@@ -15,6 +15,7 @@ import { seedInventory } from '../fixtures/release-inventory.mjs'
 import { inventoryNames } from '../../scripts/release/inventory.mjs'
 
 const commit = 'a'.repeat(40), directories = []
+const releaseEnvironment = { GITHUB_ACTIONS: 'true', GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REF: 'refs/heads/main', GITHUB_SHA: commit, GITHUB_RUN_ID: '42', GITHUB_RUN_ATTEMPT: '1', SQLCOMMANDER_RELEASE_GATE: 'main-ci-passed' }
 const passedLifecycle = (platform, format) => ({ format, status: 'passed', chromiumSandbox: platform !== 'linux' ? 'platform-default' : format === 'rpm' ? 'disabled-disposable-container' : 'enforced' })
 afterEach(async () => { vi.unstubAllEnvs(); for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true }) })
 
@@ -85,10 +86,20 @@ describe('release safety and evidence', () => {
     expect(config.dmg.sign).toBe(true); expect(config.win.signExecutable).toBe(true)
     expect(config.win.azureSignOptions.publisherName).toBe('Example')
   })
-  it('requires main and a configured native ARM pool for a complete release', () => {
-    expect(() => validateReleaseGate({ BUILD_SOURCEBRANCH: 'refs/heads/development', BUILD_SOURCEVERSION: commit }, 'AppleSilicon')).toThrow('main')
-    expect(() => validateReleaseGate({ BUILD_SOURCEBRANCH: 'refs/heads/main', BUILD_SOURCEVERSION: commit }, '')).toThrow('native Apple Silicon')
-    expect(() => validateReleaseGate({ BUILD_SOURCEBRANCH: 'refs/heads/main', BUILD_SOURCEVERSION: commit }, 'AppleSilicon')).not.toThrow()
+  it('requires an explicit main GitHub Actions release with the same-run CI gate', () => {
+    expect(() => validateReleaseGate(releaseEnvironment)).not.toThrow()
+    for (const change of [
+      { GITHUB_REF: 'refs/heads/development' }, { GITHUB_REF: 'refs/pull/1/merge' },
+      { GITHUB_EVENT_NAME: 'pull_request' }, { GITHUB_EVENT_NAME: 'push' },
+      { GITHUB_ACTIONS: undefined }, { GITHUB_SHA: 'short-sha' },
+      { GITHUB_RUN_ID: '' }, { GITHUB_RUN_ATTEMPT: '0' }, { SQLCOMMANDER_RELEASE_GATE: '' }
+    ]) expect(() => validateReleaseGate({ ...releaseEnvironment, ...change })).toThrow()
+  })
+  it('binds GitHub manifests to both the workflow run and its attempt', () => {
+    expect(githubBuildId({})).toBe('local')
+    expect(githubBuildId(releaseEnvironment)).toBe('42.1')
+    expect(githubBuildId({ ...releaseEnvironment, GITHUB_RUN_ATTEMPT: '2' })).toBe('42.2')
+    for (const change of [{ GITHUB_RUN_ID: 'bad' }, { GITHUB_RUN_ID: '0' }, { GITHUB_RUN_ATTEMPT: undefined }]) expect(() => githubBuildId({ ...releaseEnvironment, ...change })).toThrow('run ID and attempt')
   })
   it('restricts installer formats and paths to the supported native targets', () => {
     expect(releaseTargets).toEqual(['darwin-x64', 'darwin-arm64', 'win32-x64', 'linux-x64'])
@@ -156,12 +167,12 @@ describe('release safety and evidence', () => {
   })
   it('promotes a complete same-run set and refuses changed bytes before creating any output', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'dbcommander-promotion-unit-')); directories.push(directory)
-    const env = { BUILD_SOURCEBRANCH: 'refs/heads/main', BUILD_SOURCEVERSION: commit, BUILD_BUILDID: '42' }
+    const env = releaseEnvironment
     for (const target of releaseTargets) {
       const [platform, arch] = target.split('-'), input = join(directory, `release-${target}`)
       await mkdir(input)
       for (const name of artifactNames('1.0.0', platform, arch)) await writeFile(join(input, name), `test artifact ${name}`)
-      const manifest = { schema: 1, version: '1.0.0', platform, arch, commit, buildId: '42', mode: 'signed', fixture: false, files: await artifactRecords(input, '1.0.0', platform, arch), verification: { codeSignature: platform !== 'linux', notarization: platform === 'darwin' } }
+      const manifest = { schema: 1, version: '1.0.0', platform, arch, commit, buildId: githubBuildId(env), mode: 'signed', fixture: false, files: await artifactRecords(input, '1.0.0', platform, arch), verification: { codeSignature: platform !== 'linux', notarization: platform === 'darwin' } }
       await seedInventory(input, manifest)
       await writeFile(join(input, 'manifest.json'), JSON.stringify(manifest))
       const formats = platform === 'darwin' ? ['dmg', 'zip'] : platform === 'win32' ? ['exe'] : ['deb', 'AppImage']
@@ -169,6 +180,9 @@ describe('release safety and evidence', () => {
       await writeFile(join(input, 'lifecycle.json'), JSON.stringify(report))
       if (platform === 'linux') await writeFile(join(input, 'lifecycle-rpm.json'), JSON.stringify({ ...report, tests: [passedLifecycle('linux', 'rpm')] }))
     }
+    const staleOutput = join(directory, 'stale-attempt')
+    await expect(promoteRelease(directory, staleOutput, { ...env, GITHUB_RUN_ATTEMPT: '2' })).rejects.toThrow('same main CI run')
+    await expect(access(staleOutput)).rejects.toThrow()
     const output = join(directory, 'promoted')
     await promoteRelease(directory, output, env)
     const release = JSON.parse(await readFile(join(output, 'release.json'), 'utf8'))
@@ -183,17 +197,71 @@ describe('release safety and evidence', () => {
   })
 })
 
-it('keeps releases downstream of both successful main CI stages and signing secrets out of ordinary builds', () => {
-  const pipeline = parse(readFileSync('azure-pipelines.yml', 'utf8'))
-  expect(pipeline.trigger.branches.include).toEqual(['main']); expect(pipeline.pr).toBe('none')
-  const releaseGroup = pipeline.stages.find(stage => stage['${{ if eq(parameters.createRelease, true) }}'])
-  const release = releaseGroup['${{ if eq(parameters.createRelease, true) }}'].find(stage => stage.stage === 'Release')
-  expect(release.dependsOn).toEqual(['Desktop', 'Drivers'])
-  for (const required of ["eq(dependencies.Desktop.result, 'Succeeded')", "eq(dependencies.Drivers.result, 'Succeeded')", "eq(variables['Build.SourceBranch'], 'refs/heads/main')", 'parameters.createRelease', "eq(parameters.validationScope, 'all')"]) expect(release.condition).toContain(required)
-  expect(pipeline.parameters.find(parameter => parameter.name === 'createRelease').default).toBe(false)
-  expect(pipeline.parameters.find(parameter => parameter.name === 'validationScope')).toMatchObject({ default: 'all', values: ['all', 'windows-startup', 'windows-installers'] })
-  expect(pipeline.stages.find(stage => stage.stage === 'Drivers').condition).toContain("eq(parameters.validationScope, 'all')")
-  const desktop = readFileSync('.azure-pipelines/jobs/desktop.yml', 'utf8')
-  expect(desktop).not.toMatch(/DownloadSecureFile|AZURE_CLIENT_SECRET|APPLE_CERTIFICATE_PASSWORD/)
-  for (const file of ['.azure-pipelines/jobs/desktop.yml', '.azure-pipelines/jobs/release.yml', '.azure-pipelines/steps/installers.yml']) expect(() => parse(readFileSync(file, 'utf8'))).not.toThrow()
+describe('GitHub Actions CI contracts', () => {
+  const workflow = parse(readFileSync('.github/workflows/ci.yml', 'utf8'))
+  const actions = readdirSync('.github/actions').map(name => parse(readFileSync(`.github/actions/${name}/action.yml`, 'utf8')))
+
+  it('covers native desktop targets and all real driver contracts on pushes and pull requests', () => {
+    expect(workflow.on.push.branches).toEqual(['main', 'development'])
+    expect(workflow.on.pull_request.branches).toEqual(['main', 'development'])
+    expect(workflow.on).not.toHaveProperty('pull_request_target')
+    const targets = workflow.jobs.desktop.strategy.matrix.include
+    expect(targets).toEqual([
+      { os: 'macos-15-intel', platform: 'darwin', arch: 'x64' },
+      { os: 'macos-15', platform: 'darwin', arch: 'arm64' },
+      { os: 'windows-2025', platform: 'win32', arch: 'x64' },
+      { os: 'ubuntu-24.04', platform: 'linux', arch: 'x64' }
+    ])
+    expect(workflow.jobs.release.strategy.matrix.include).toEqual(targets)
+    expect(workflow.jobs.drivers['runs-on']).toBe('ubuntu-24.04')
+    expect(new Set(workflow.jobs.drivers.strategy.matrix.driver)).toEqual(new Set(['postgres', 'mysql', 'mariadb', 'sqlserver', 'sqlite', 'oracle', 'duckdb']))
+    expect(workflow.jobs.drivers.strategy['max-parallel']).toBe(3)
+    expect(JSON.stringify(actions)).toContain('pnpm install --frozen-lockfile')
+    expect(JSON.stringify(workflow.jobs.drivers.steps)).toContain('scripts/with-test-desktop.mjs pnpm test:desktop --driver')
+    expect(existsSync('azure-pipelines.yml')).toBe(false)
+    expect(existsSync('.azure-pipelines')).toBe(false)
+  })
+
+  it('keeps signing opt-in, main-only and downstream of all validation, with no fork secrets', () => {
+    expect(workflow.permissions).toEqual({ contents: 'read' })
+    expect(workflow.on.workflow_dispatch.inputs.create_release.default).toBe(false)
+    const release = workflow.jobs.release
+    expect(release.needs).toEqual(['desktop', 'drivers', 'release-request'])
+    for (const required of ["github.event_name == 'workflow_dispatch'", 'inputs.create_release', "github.ref == 'refs/heads/main'", "needs.desktop.result == 'success'", "needs.drivers.result == 'success'", "needs.release-request.result == 'success'"]) expect(release.if).toContain(required)
+    expect(release.environment).toBe('release')
+    expect(JSON.stringify(release)).toContain('secrets.APPLE_CERTIFICATE_BASE64')
+    for (const [name, job] of Object.entries(workflow.jobs)) {
+      if (name !== 'release') expect(JSON.stringify(job)).not.toContain('secrets.')
+      for (const step of job.steps) if (step.uses?.startsWith('actions/checkout@')) expect(step.with['persist-credentials']).toBe(false)
+    }
+    for (const step of [...Object.values(workflow.jobs).flatMap(job => job.steps), ...actions.flatMap(action => action.runs.steps)]) if (step.uses && !step.uses.startsWith('./')) expect(step.uses).toMatch(/@[a-f0-9]{40}$/)
+  })
+
+  it('promotes only staged candidates from this run after every signed target succeeds', () => {
+    expect(workflow.jobs.promote.needs).toBe('release')
+    const download = workflow.jobs.promote.steps.find(step => step.uses?.startsWith('actions/download-artifact@'))
+    expect(download.with.pattern).toBe('release-*')
+    expect(download.with).not.toHaveProperty('run-id')
+    expect(download.with).not.toHaveProperty('repository')
+    const reports = parse(readFileSync('.github/actions/reports/action.yml', 'utf8'))
+    expect(reports.runs.steps[0].if).toBe('always()')
+    for (const job of [workflow.jobs.desktop, workflow.jobs.release]) {
+      const stage = job.steps.findIndex(step => step.run?.startsWith('node scripts/stage-release.mjs'))
+      expect(stage).toBeGreaterThan(job.steps.findIndex(step => step.uses === './.github/actions/installers'))
+      const upload = job.steps[stage + 1]
+      expect(upload.uses).toMatch(/^actions\/upload-artifact@/)
+      expect(upload.with.path).toMatch(/^\.test-artifacts\/(staged-installers|release-candidate)$/)
+      expect(job.steps.at(-1)).toMatchObject({ uses: './.github/actions/reports', if: 'always()' })
+    }
+  })
+
+  it('keeps manual Windows diagnostics unsigned and separate from release qualification', () => {
+    const diagnostic = parse(readFileSync('.github/workflows/windows-diagnostics.yml', 'utf8'))
+    expect(Object.keys(diagnostic.on)).toEqual(['workflow_dispatch'])
+    expect(diagnostic.on.workflow_dispatch.inputs.installers.default).toBe(false)
+    expect(diagnostic.permissions).toEqual({ contents: 'read' })
+    expect(JSON.stringify(diagnostic)).not.toContain('secrets.')
+    expect(JSON.stringify(diagnostic)).not.toContain('--signed')
+    expect(JSON.stringify(diagnostic)).toContain('SQLCOMMANDER_STARTUP_ONLY')
+  })
 })

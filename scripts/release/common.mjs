@@ -7,6 +7,11 @@ import { hashFile as sha256, verifyReleaseInventory } from './inventory.mjs'
 export { sha256 }
 
 export const root = fileURLToPath(new URL('../../', import.meta.url))
+export function githubBuildId(env = process.env) {
+  if (env.GITHUB_ACTIONS !== 'true') return 'local'
+  if (!/^[1-9]\d*$/.test(env.GITHUB_RUN_ID || '') || !/^[1-9]\d*$/.test(env.GITHUB_RUN_ATTEMPT || '')) throw new Error('A GitHub Actions run ID and attempt are required.')
+  return `${env.GITHUB_RUN_ID}.${env.GITHUB_RUN_ATTEMPT}`
+}
 export function run(command, args, options = {}) {
   const { capture = false, timeout = 15 * 60_000, ...rest } = options
   return new Promise((resolve, reject) => {

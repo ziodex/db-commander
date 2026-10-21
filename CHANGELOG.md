@@ -4,6 +4,8 @@
 
 No beta release has been declared. Package version 0.1.0 remains a developer preview; signed distribution and the final beta version are pending the [release gates](docs/PLAN.md#beta-release-checklist).
 
+- Moved CI and gated release builds to GitHub Actions, removed Azure DevOps pipeline configuration, and rewrote the README for fork-based development. Detailed application instructions now live in the user guide.
+
 - Added startup and daily GitHub release checks, a dismissible version banner and **Help → Check for updates**. Release notes and downloads open in the browser; installation and restart remain manual.
 
 - Renamed the app to Db Commander across its desktop identity, packages, tools and documentation, with a new database-and-command icon. Existing workspaces, saved passwords and portable exports remain accessible. CI configuration and environment-variable names are unchanged.

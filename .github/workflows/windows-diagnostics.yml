@@ -1,0 +1,66 @@
+name: Windows diagnostics
+
+on:
+  workflow_dispatch:
+    inputs:
+      installers:
+        description: Also build and test the unsigned NSIS installer pair
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: pwsh
+
+env:
+  CI: 'true'
+  PLAYWRIGHT_JUNIT_OUTPUT_FILE: .test-artifacts/ci-results/desktop.xml
+
+jobs:
+  windows:
+    runs-on: windows-2025
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - run: node scripts/check-release.mjs --arch x64
+      - name: Prepare Windows display
+        shell: powershell
+        run: Set-DisplayResolution -Width 1920 -Height 1080 -Force
+      - run: pnpm exec vitest run tests/unit --reporter=default --reporter=junit --outputFile.junit=.test-artifacts/ci-results/unit.xml
+      - run: pnpm package
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Packaged startup and native dependency diagnostics
+        run: node scripts/smoke-package.mjs
+        env:
+          SQLCOMMANDER_STARTUP_ONLY: 'true'
+      - name: Build unsigned NSIS installers and upgrade fixture
+        if: inputs.installers
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          node scripts/build-release.mjs --fixture --arch x64
+          node scripts/build-release.mjs --arch x64
+      - uses: ./.github/actions/installers
+        if: inputs.installers
+      - name: Stage tested unsigned installers
+        if: inputs.installers
+        run: node scripts/stage-release.mjs --output .test-artifacts/staged-installers
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: inputs.installers
+        with:
+          name: dbcommander-windows-diagnostic-installers
+          path: .test-artifacts/staged-installers
+          include-hidden-files: true
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
+      - uses: ./.github/actions/reports
+        if: always()
+        with:
+          name: windows-diagnostics

@@ -2,7 +2,7 @@
 
 The [frozen beta plan](PLAN.md#beta-release-checklist) is the single current release checklist. This guide describes the build/signing mechanisms; [beta notes](BETA_NOTES.md) define initial scope, accepted limits and manual updates.
 
-This milestone prepares the release path; it does not declare Db Commander production-ready. The maintainer confirmed on 20 October 2026 that Apple/Windows signing resources and the native Apple Silicon Azure pool are not configured. Ordinary main CI builds unsigned installers without loading signing resources. Signed releases are explicitly requested and require successful Desktop and Drivers stages for the same main commit.
+This milestone prepares the release path; it does not declare Db Commander production-ready. Apple/Windows signing resources remain unconfigured. GitHub Actions supplies all four native targets, including Apple Silicon, without an Azure agent pool. Ordinary CI builds unsigned installers without loading signing resources. Signed releases require an explicit main-branch manual run and successful desktop and driver jobs for the same commit and run attempt.
 
 ## Native targets and installers
 
@@ -25,58 +25,52 @@ Application identity is `org.dbcommander.desktop`, with display name `Db Command
 
 Windows defaults to a current-user installation, permits choosing the destination and retains application data on uninstall. Its installer and uninstaller refuse to proceed while Db Commander is running (exit code 2 for silent callers); they never force-close database sessions. Normal uninstall retries a locked executable for about ten seconds; a persistent deletion failure returns exit code 3 before removing other application files or installer registration, so the installation can be retried. Upgrade replacement retains builder's atomic rename/restore behavior. Close the application after settling transactions before an upgrade. Mac applications are replaced by copying the new app bundle. Linux DEB/RPM upgrades use the package manager; AppImage replacement is manual. Close the application before any replacement.
 
-## Azure setup
+## GitHub Actions release setup
 
-### Apple Silicon agent
-
-Create a dedicated native ARM64 macOS agent pool and authorize **SQLCommander CI** to use it. Supply its exact name as the `macArmPool` runtime parameter. The pool demands `Agent.OS=Darwin` and `Agent.OSArchitecture=ARM64`. Use an ARM64 Azure agent and native ARM64 Node; install PowerShell 7, Xcode command-line tools (including `notarytool`/`stapler`) and an interactive desktop/login keychain suitable for Electron and credential-store tests. Run under a dedicated test user, with no personal profiles or credentials. Restore a clean worker between jobs; a successful test removes its temporary fixtures, but failed runs intentionally retain diagnostics.
-
-As of 15 October 2026, Microsoft's hosted macOS ARM64 preview is paused for new organizations. The configurable pool avoids assuming access to that preview. With an empty pool parameter ordinary Azure CI covers the three x64 hosts; signed releases refuse to proceed without the fourth native target. Once the pool exists, set the YAML parameter default to its name if ARM64 should run on every main push. [Microsoft-hosted agent availability](https://learn.microsoft.com/en-us/azure/devops/pipelines/agents/hosted?view=azure-devops).
-
-The GitHub workflow also defines explicit Intel and Apple Silicon jobs, but signing/promotion is managed by Azure. Do not use a developer workstation as a Windows/Linux system-installer test worker.
+The [CI workflow](../.github/workflows/ci.yml) owns validation, signed builds and promotion. The [GitHub Actions guide](GITHUB_ACTIONS.md) describes native jobs and artifacts. Use hosted `macos-15-intel`, `macos-15`, `windows-2025` and `ubuntu-24.04` workers; no self-hosted Apple Silicon pool is required. Do not run Windows/Linux system-installer tests on a personal workstation.
 
 ### Signing resources
 
-In **Pipelines → Library**, create the variable group **SQLCommander-Release**. Authorize this pipeline only. Upload the two Apple files under **Secure files**, and authorize this pipeline to read them. Do not commit certificates, keys, secrets or filled-in environment files. Restrict editing/queuing of the release pipeline and access to these resources to release maintainers; apply resource branch checks for `refs/heads/main` where available. YAML conditions prevent accidental runs, while Azure permissions protect the credentials.
+Create a GitHub environment named **release** in **Settings → Environments**. Restrict deployment branches to `main`, limit who can change the workflow/environment, and configure required reviewers where available. Store the following as **environment secrets**, so ordinary pushes and fork pull requests cannot receive them. Do not place signing values in workflow YAML, repository files or uploaded artifacts.
 
-| Variable group entry | Value | Secret |
-| --- | --- | --- |
-| `APPLE_CERTIFICATE_FILE` | Secure-file name of the exported Developer ID Application `.p12`, including its private key | No; filename only |
-| `APPLE_CERTIFICATE_PASSWORD` | Password protecting that export | **Yes** |
-| `APPLE_API_KEY_FILE` | Secure-file name of the App Store Connect API `.p8` key | No; filename only |
-| `APPLE_API_KEY_ID` | API key ID | No |
-| `APPLE_API_ISSUER` | Issuer ID for the team API key | No |
-| `SQLCOMMANDER_APPLE_IDENTITY` | Full identity, e.g. `Developer ID Application: Your Organization (TEAMID)` | No |
-| `SQLCOMMANDER_APPLE_TEAM_ID` | Expected Apple developer team ID | No |
-| `AZURE_TENANT_ID` | Entra tenant ID used for Windows signing | No |
-| `AZURE_CLIENT_ID` | Signing service principal's application/client ID | No |
-| `AZURE_CLIENT_SECRET` | Service principal secret **value**, not its ID | **Yes** |
-| `SQLCOMMANDER_SIGN_ENDPOINT` | Account's HTTPS regional `*.codesigning.azure.net` endpoint | No |
-| `SQLCOMMANDER_SIGN_ACCOUNT` | Windows signing account name | No |
-| `SQLCOMMANDER_SIGN_PROFILE` | Public Trust certificate profile name | No |
-| `SQLCOMMANDER_SIGN_PUBLISHER` | Exact certificate subject Common Name | No |
+| Environment secret | Value |
+| --- | --- |
+| `APPLE_CERTIFICATE_BASE64` | Base64 of the exported Developer ID Application `.p12`, including its private key |
+| `APPLE_CERTIFICATE_PASSWORD` | Password protecting that export |
+| `APPLE_API_KEY_BASE64` | Base64 of the App Store Connect API `.p8` key |
+| `APPLE_API_KEY_ID` | Apple API key ID |
+| `APPLE_API_ISSUER` | Issuer ID for the team API key |
+| `SQLCOMMANDER_APPLE_IDENTITY` | Full identity, e.g. `Developer ID Application: Your Organization (TEAMID)` |
+| `SQLCOMMANDER_APPLE_TEAM_ID` | Expected Apple developer team ID |
+| `AZURE_TENANT_ID` | Entra tenant ID used for Windows signing |
+| `AZURE_CLIENT_ID` | Signing service principal's application/client ID |
+| `AZURE_CLIENT_SECRET` | Service principal secret value, not its ID |
+| `SQLCOMMANDER_SIGN_ENDPOINT` | Account's HTTPS regional `*.codesigning.azure.net` endpoint |
+| `SQLCOMMANDER_SIGN_ACCOUNT` | Windows signing account name |
+| `SQLCOMMANDER_SIGN_PROFILE` | Public Trust certificate profile name |
+| `SQLCOMMANDER_SIGN_PUBLISHER` | Exact certificate subject Common Name |
 
-For Apple, use an active Developer ID Application certificate and a team App Store Connect API key authorized for notarization. The build enables hardened runtime, applies the JIT entitlement, verifies the expected identity/team, checks the app with `codesign` and Gatekeeper, and validates its stapled ticket. It separately submits and staples the signed DMG. The ZIP contains the stapled app bundle. Missing credentials, rejected notarization or a mismatched signer fail the build. [Apple notarization](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution).
+The remaining `AZURE_*` values authenticate the Windows **Artifact Signing service**; they are not Azure DevOps configuration. The established `SQLCOMMANDER_*` variable names remain compatible with release tools.
+
+For Apple, use an active Developer ID Application certificate and a team App Store Connect API key authorized for notarization. The workflow decodes the two file secrets under `RUNNER_TEMP`, supplies their paths to builder, and removes them in an always-run cleanup step. Builder uses its temporary signing keychain. It enables hardened runtime, applies the JIT entitlement, verifies the expected identity/team, checks the app with `codesign` and Gatekeeper, and validates its stapled ticket. It separately submits and staples the signed DMG. The ZIP contains the stapled app bundle. Missing credentials, rejected notarization or a mismatched signer fail the build. [Apple notarization](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution).
 
 For Windows, configure an Azure Artifact Signing account (formerly Trusted Signing), complete identity validation, and create a **Public Trust** profile. Grant the service principal the **Artifact Signing Certificate Profile Signer** role on the intended profile. An Owner/Contributor role alone does not grant signing. See Microsoft's [account setup](https://learn.microsoft.com/en-us/azure/artifact-signing/quickstart) and [signing roles](https://learn.microsoft.com/en-us/azure/artifact-signing/concept-resources-roles).
 
 The pinned electron-builder 26 integration uses `win.azureSignOptions` and the three `AZURE_*` authentication values. The verifier checks both installed executable and installer for a valid Authenticode signature, expected publisher and timestamp. This does not certify SmartScreen reputation. Other HSM/certificate providers require a separate adapter. [electron-builder 26 Windows signing](https://www.electron.build/v26/docs/features/code-signing/code-signing-win/).
 
-Signing values are mapped only into the signing step. Apple files are downloaded with Azure's Secure Files task; builder uses its temporary signing keychain. Ordinary builds explicitly disable signing and strip credential environment variables before invoking builder. Do not publish the raw `release/` directory or builder debug configuration. Release staging copies only known installers, manifests, checksums and test reports.
-
-Linux packages receive SHA-256 checksums; they are not GPG-signed DEB/RPM repositories. The manifest's `mode: signed` denotes the release pipeline policy; Linux explicitly records `codeSignature: false`. Repository signing, a public download host and automatic installation remain separate work. The app checks public GitHub release metadata for notifications and keeps installation manual.
+Ordinary builds explicitly disable signing and strip credential environment variables before invoking builder. Release staging copies only known installers, manifests, inventory/notices, checksums and lifecycle reports. Never upload the raw `release/` directory or builder debug configuration. Linux packages receive SHA-256 checksums, not GPG-signed DEB/RPM repositories. The manifest's `mode: signed` denotes the release workflow policy; Linux explicitly records `codeSignature: false`. The app checks public GitHub release metadata for notifications and keeps installation manual.
 
 ### Running a release
 
-1. Finish and review the development changes, choose a new version, then merge into main through the existing workflow. Main-only CI and disabled automatic PR build validation remain unchanged.
-2. First run ordinary main CI with `createRelease=false`, supplying `macArmPool` to validate all four hosts. All seven Docker driver jobs must pass, including SQL Server and Azure SQL profile contracts on Linux x64.
-3. In **Db Commander CI → Run pipeline**, select **main**, enable `createRelease`, and supply the ARM64 pool. This run repeats the entire Desktop and Drivers stages; a previous green run alone cannot authorize a different source commit.
-4. Both stages must report **Succeeded**, not skipped or partially successful. The Release stage builds and verifies signed installers on Mac/Windows and release packages on Linux, then runs the installer lifecycle suite against those exact bytes. The initial upgrade fixture is signed too, keeping signer identity consistent across upgrades.
-5. **PromoteRelease** downloads only candidate artifacts from the current run and checks all four architectures, source commit, build ID, version, checksums, signatures/notarization and every installer format's lifecycle result. It rejects unsigned or fixture manifests and missing/mismatched evidence.
-6. Download **SQLCommander-release-<build number>** from that run. It includes eight installer/archive files, eight inventory/notice sidecars, `SHA256SUMS`, `release.json` and per-target manifests/reports. Keep the Azure run and release bundle; apply long-term retention before publishing externally. No public publishing or release tag is created automatically.
-7. When approved for public distribution, publish a stable release at [ziodex/db-commander](https://github.com/ziodex/db-commander/releases), tagged `v<package version>` (for example `v0.2.0`). Include release notes and the final qualified installers, checksums and notices, or links to those official downloads. The app uses GitHub's latest-release endpoint, ignores drafts/prereleases and only notifies when the semantic version is newer than the installed application. No credentials are shipped with the checker. Replacing CI artifacts or pushing a Git tag alone does not notify users.
+1. Finish and review the development changes, choose a semantic version in `package.json`, and establish the reviewed source on `main`. Because the fresh `development` history is independent of GitHub's bootstrap `main`, the first main update needs a deliberate maintainer migration; this CI change does not perform it. Workflows must also be on the repository's default branch before GitHub exposes manual dispatch.
+2. Configure and protect the `release` environment and its secrets. Ordinary unsigned CI can run before this setup is complete.
+3. In **Actions → CI → Run workflow**, select **main** and enable **create_release**. This run repeats all four desktop jobs and seven driver jobs; a previous green run cannot authorize a different commit.
+4. Every desktop and driver job must succeed. The signed matrix then builds/verifies installers and a different-version upgrade fixture, and runs the installer lifecycle suite against those exact bytes. Failed/skipped validation cannot enable signing.
+5. Promotion downloads only `release-<platform>-<arch>` candidates from the current run. It requires all four targets, matching version/source/run attempt, checksums, signatures/notarization, inventories and lifecycle evidence for every format. It rejects unsigned or fixture manifests and stale, incomplete or mismatched evidence. Rerun all jobs for a release; mixing successful artifacts from an earlier attempt with rerun targets is refused.
+6. Download **dbcommander-release-<run ID>-<attempt>**. It contains eight installer/archive files, eight inventory/notice sidecars, `SHA256SUMS`, `release.json` and per-target manifests/reports. Archive the bundle and Actions evidence before retention expires. No public publishing or release tag is created automatically.
+7. When approved for public distribution, publish a stable release at [ziodex/db-commander](https://github.com/ziodex/db-commander/releases), tagged `v<package version>` (for example `v0.2.0`). Include notes and the final qualified installers, checksums and notices, or links to official downloads. The app uses GitHub's latest-release endpoint, ignores drafts/prereleases and only notifies when the semantic version is newer than the installed application. No credentials are shipped with the checker. Uploading CI artifacts or pushing a tag alone does not notify users.
 
-The Release stage and its secure-file references are excluded at template expansion when `createRelease=false`. A missing signing group therefore does not block ordinary main CI. Enabling release before resources are configured will fail resource authorization or preflight; it will never fall back to unsigned output. A missing ARM pool blocks promotion even when the three x64 jobs are available.
+Signing is opt-in and main-only. Requests from another branch fail before secrets are accessed. Missing signing resources fail the release without falling back to unsigned output. Release manifests record `GITHUB_SHA` and `<GITHUB_RUN_ID>.<GITHUB_RUN_ATTEMPT>`; scripts no longer depend on Azure build variables.
 
 ## Local build and lifecycle tests
 

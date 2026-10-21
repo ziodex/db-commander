@@ -1,6 +1,8 @@
 # Contributing
 
-Install Node.js 22.13+, pnpm 11, and Docker with Compose. Run `pnpm install`, `pnpm test`, and `pnpm dev`. Use `pnpm test:desktop` for the database contracts and native Electron workflows; select individual engines with `--driver` as described in the driver testing guide.
+Start with the [fork and development setup](README.md#fork-and-run-locally). Use Node.js 22.13+ within the 22.x line, the pinned pnpm 11.25.0, and `pnpm install --frozen-lockfile`. Docker with Compose is needed only for real-engine contracts and the supplied server fixtures. Unit tests and `pnpm dev` do not require Docker. Use `pnpm test:desktop --driver <engine>` for selected contracts and native Electron workflows, as described in the [driver testing guide](docs/DRIVER_TESTING.md).
+
+Open contribution pull requests against `development`. [GitHub Actions](docs/GITHUB_ACTIONS.md) validates development/main pushes and pull requests to either branch with no signing secrets. Signed releases remain explicit main-only runs after the complete CI matrix passes.
 
 Run `pnpm clean` to remove generated builds, release packages, coverage, test results and local diagnostics (`out`, `release`, `coverage`, `test-results`, `playwright-report` and `.test-artifacts`). Archive any qualification evidence you need first. Source files and installed dependencies are kept. Typechecking rejects unused imports, local declarations and parameters.
 

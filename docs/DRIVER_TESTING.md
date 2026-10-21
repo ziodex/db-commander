@@ -210,7 +210,7 @@ Use `pnpm test:desktop --driver <engine>` to run the driver contracts and select
 
 ## CI and release coverage
 
-Azure DevOps uses [`azure-pipelines.yml`](../azure-pipelines.yml) for independent native macOS/Linux/Windows desktop builds and a seven-driver Linux x64 Docker/Electron matrix. It publishes JUnit results, failure diagnostics and unsigned desktop build archives. See [Azure pipeline setup and coverage](AZURE_PIPELINES.md) for registration, Azure Repos branch-policy validation, hosted-agent requirements and report settings. The existing GitHub Actions workflow remains available for mirrors.
+[GitHub Actions CI](../.github/workflows/ci.yml) runs on pushes to development/main and pull requests targeting either branch. It covers four native desktop targets, including Apple Silicon, and seven Linux x64 real-engine/Docker/Electron targets. Reports and tested unsigned installers are retained as run artifacts. See [GitHub Actions setup and coverage](GITHUB_ACTIONS.md) for fork setup, native workers, Linux desktop isolation, diagnostics and report settings. Signed main releases require an explicit request and the complete same-run matrix. Older provider-specific reports below are historical evidence, not current CI instructions.
 
 The native x64 Ubuntu CI matrix runs one job per server engine and separate SQLite and DuckDB container jobs, with unit/integration tests and selected Electron workflows under Xvfb. This lets existing drivers run independently when another fixture fails. Separate macOS, Windows, and Linux jobs build unsigned desktop packages and launch packaged SQLite/DuckDB smoke checks plus the saved-profile/multiple-tab and SQL language-tool DuckDB workflows. A local macOS run does not certify those other OS builds.
 

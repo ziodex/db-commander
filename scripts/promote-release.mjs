@@ -1,7 +1,8 @@
 import { mkdir, readFile, writeFile, copyFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
-import { readManifest, isMain } from './release/common.mjs'
+import { githubBuildId, readManifest, isMain } from './release/common.mjs'
+import { validateReleaseGate } from './check-release.mjs'
 import { inventoryNames } from './release/inventory.mjs'
 import { validateLifecycleReports } from './release/lifecycle.mjs'
 
@@ -18,12 +19,12 @@ export function validateCandidate(manifest, reports, expected) {
 }
 
 export async function promoteRelease(input, output, env = process.env) {
-  if (env.BUILD_SOURCEBRANCH !== 'refs/heads/main' || !/^[a-f0-9]{40}$/.test(env.BUILD_SOURCEVERSION || '') || !env.BUILD_BUILDID) throw new Error('Release promotion requires the main CI run identity.')
+  validateReleaseGate(env)
   const candidates = []
   let expected
   for (const target of releaseTargets) {
     const directory = join(input, `release-${target}`), manifest = await readManifest(directory)
-    expected ??= { commit: env.BUILD_SOURCEVERSION, buildId: env.BUILD_BUILDID, version: manifest.version }
+    expected ??= { commit: env.GITHUB_SHA, buildId: githubBuildId(env), version: manifest.version }
     const reports = [JSON.parse(await readFile(join(directory, 'lifecycle.json'), 'utf8'))]
     if (manifest.platform === 'linux') reports.push(JSON.parse(await readFile(join(directory, 'lifecycle-rpm.json'), 'utf8')))
     if (validateCandidate(manifest, reports, expected) !== target) throw new Error('Release directory/architecture mismatch.')

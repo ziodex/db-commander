@@ -1,8 +1,0 @@
-steps:
-  - bash: |
-      set -euo pipefail
-      sudo apt-get update
-      sudo apt-get install -y dbus-x11 gnome-keyring libglib2.0-bin xvfb xauth openbox x11-utils libgtk-3-0t64
-      pnpm exec playwright install-deps chromium
-    displayName: Install Linux desktop and isolated credential-store dependencies
-    condition: and(succeeded(), eq(variables['Agent.OS'], 'Linux'))

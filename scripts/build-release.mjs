@@ -3,7 +3,8 @@ import { dirname, join, resolve } from 'node:path'
 import { createRequire } from 'node:module'
 import { parseArgs } from 'node:util'
 import { artifactNames, signingSettings } from './release/config.cjs'
-import { root, run, nativeTarget, artifactRecords, appExecutable, isMain } from './release/common.mjs'
+import { root, run, nativeTarget, artifactRecords, appExecutable, githubBuildId, isMain } from './release/common.mjs'
+import { validateReleaseGate } from './check-release.mjs'
 import { writeReleaseInventory } from './release/inventory.mjs'
 import { inspectRuntime } from './release/runtime.mjs'
 
@@ -32,9 +33,11 @@ export async function buildRelease({ signed = false, fixture = false, output, ar
   const version = fixture ? '0.0.0' : metadata.version
   artifactNames(version, target.platform, target.arch)
   if (!fixture && version === '0.0.0') throw new Error('0.0.0 is reserved for installer test fixtures.')
+  const commit = await run('git', ['rev-parse', 'HEAD'], { capture: true })
+  const buildId = githubBuildId()
   if (signed) {
-    if (process.env.BUILD_SOURCEBRANCH !== 'refs/heads/main') throw new Error('Signed releases must be built by the main-branch release stage.')
-    if (process.env.SQLCOMMANDER_RELEASE_GATE !== 'main-ci-passed') throw new Error('Signed releases require successful Desktop and Drivers stages.')
+    validateReleaseGate(process.env)
+    if (commit !== process.env.GITHUB_SHA) throw new Error('The release checkout does not match the validated main commit.')
     if (await run('git', ['status', '--porcelain'], { capture: true })) throw new Error('Signed releases require a clean checkout of the validated main commit.')
     signingSettings(process.env, target.platform)
     if (target.platform === 'darwin') for (const key of ['CSC_LINK', 'APPLE_API_KEY']) await access(process.env[key])
@@ -66,9 +69,8 @@ export async function buildRelease({ signed = false, fixture = false, output, ar
       await run('pwsh', ['-NoProfile', '-File', join(root, 'scripts/release/verify-windows.ps1'), '-Application', appExecutable(destination), '-Installer', join(destination, artifactNames(version, target.platform, arch)[0])])
       verification = { codeSignature: true, notarization: false }
     }
-    const commit = await run('git', ['rev-parse', 'HEAD'], { capture: true })
-    if (signed && commit !== process.env.BUILD_SOURCEVERSION) throw new Error('The release checkout does not match the validated main commit.')
-    const manifest = { schema: 1, version, ...target, commit, buildId: process.env.BUILD_BUILDID || 'local', mode: signed ? 'signed' : 'unsigned', fixture,
+    if (signed && await run('git', ['rev-parse', 'HEAD'], { capture: true }) !== commit) throw new Error('The release checkout changed during packaging.')
+    const manifest = { schema: 1, version, ...target, commit, buildId, mode: signed ? 'signed' : 'unsigned', fixture,
       verification, tools: { electron: metadata.devDependencies.electron, builder: metadata.devDependencies['electron-builder'] },
       files: await artifactRecords(destination, version, target.platform, arch) }
     const resources = target.platform === 'darwin' ? join(dirname(appExecutable(destination)), '..', 'Resources') : join(dirname(appExecutable(destination)), 'resources')
