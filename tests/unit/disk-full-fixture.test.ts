@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest'
-import { detachDiskImage, verifyDiskImageDetached } from '../desktop/disk-full-fixture'
+import { detachDiskImage, ownedDiskImageDevice, verifyDiskImageDetached } from '../desktop/disk-full-fixture'
 
 it('retries a busy owned volume without forcing eject and succeeds when its handle is released', () => {
   const busy = Object.assign(new Error('hdiutil refusal'), { stderr: Buffer.from("hdiutil: couldn't eject disk2 - Resource busy\n") })
@@ -53,4 +53,27 @@ it('checks image identity as well as mount identity and refuses an incomplete di
     const execute = vi.fn().mockReturnValueOnce(Buffer.from('plist')).mockReturnValueOnce(Buffer.from(JSON.stringify(report)))
     expect(() => verifyDiskImageDetached(image, mount, execute)).toThrow('Cannot verify owned disk-image detachment')
   }
+})
+
+it('detaches the exact owned image device even after its filesystem is already unmounted', () => {
+  const image = '/private/fixture/volume.dmg'
+  const execute = vi.fn().mockReturnValueOnce(Buffer.from('plist')).mockReturnValueOnce(Buffer.from(JSON.stringify({ images: [
+    { 'image-path': '/other/image.dmg', 'system-entities': [{ 'dev-entry': '/dev/disk8' }] },
+    { 'image-path': image, 'system-entities': [{ 'dev-entry': '/dev/disk9' }, { 'dev-entry': '/dev/disk9s1' }] }
+  ] }))).mockReturnValue(Buffer.from('detached'))
+  const device = ownedDiskImageDevice(image, execute)
+  expect(device).toBe('/dev/disk9')
+  detachDiskImage(device!, execute, vi.fn())
+  expect(execute.mock.lastCall).toEqual(['hdiutil', ['detach', '/dev/disk9'], { stdio: 'pipe', timeout: 5000 }])
+})
+
+it('refuses ambiguous or unidentifiable image devices and never selects an unrelated image', () => {
+  const image = '/private/fixture/volume.dmg', entities = [{ 'dev-entry': '/dev/disk9' }]
+  const inspect = (images: unknown[]) => ownedDiskImageDevice(image, vi.fn().mockReturnValueOnce(Buffer.from('plist')).mockReturnValueOnce(Buffer.from(JSON.stringify({ images }))))
+  expect(inspect([{ 'image-path': '/other/image.dmg', 'system-entities': entities }])).toBeUndefined()
+  for (const images of [
+    [{ 'image-path': image, 'system-entities': [{ 'dev-entry': '/dev/disk9s1' }] }],
+    [{ 'image-path': image, 'system-entities': [...entities, { 'dev-entry': '/dev/disk10' }] }],
+    [{ 'image-path': image, 'system-entities': entities }, { 'image-path': image, 'system-entities': entities }]
+  ]) expect(() => inspect(images)).toThrow(/owned disk-image/)
 })
