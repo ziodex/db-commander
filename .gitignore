@@ -1,0 +1,10 @@
+node_modules/
+out/
+/release/
+coverage/
+test-results/
+playwright-report/
+.test-artifacts/
+.env
+.DS_Store
+*.log

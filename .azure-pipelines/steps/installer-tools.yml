@@ -1,0 +1,4 @@
+steps:
+  - bash: sudo apt-get install -y rpm libnotify4 libsecret-1-0 libxss1 libxtst6 xdg-utils
+    displayName: Install Linux package creation tools
+    condition: and(succeeded(), eq(variables['Agent.OS'], 'Linux'))

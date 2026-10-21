@@ -1,0 +1,8 @@
+ARG DATABASE_IMAGE=mysql:8.4
+FROM alpine:3.23 AS certificates
+RUN apk add --no-cache openssl && mkdir /tls && \
+    openssl req -x509 -nodes -newkey rsa:2048 -days 3650 \
+      -keyout /tls/server.key -out /tls/server.crt -subj '/CN=localhost' \
+      -addext 'subjectAltName=DNS:localhost' && chmod 600 /tls/server.key
+FROM ${DATABASE_IMAGE}
+COPY --from=certificates --chown=mysql:mysql /tls /etc/dbcommander/tls

@@ -1,0 +1,15 @@
+FROM alpine:3.23 AS certificates
+# This self-signed fixture is also the test trust anchor. BoringSSL (Electron)
+# requires its key usage to permit certificate signing; OpenSSL tolerated the
+# previous server-only key usage even though Basic Constraints marked it a CA.
+RUN apk add --no-cache openssl && mkdir /tls && \
+    openssl req -x509 -nodes -newkey rsa:2048 -days 3650 \
+      -keyout /tls/server.key -out /tls/server.crt -subj '/CN=localhost' \
+      -addext 'subjectAltName=DNS:localhost' \
+      -addext 'extendedKeyUsage=serverAuth' \
+      -addext 'basicConstraints=critical,CA:TRUE' \
+      -addext 'keyUsage=critical,digitalSignature,keyEncipherment,keyCertSign' && chmod 600 /tls/server.key
+FROM mcr.microsoft.com/mssql/server:2022-latest
+COPY --from=certificates --chown=mssql:root /tls /etc/dbcommander/tls
+COPY --chown=mssql:root tests/docker/mssql.conf /var/opt/mssql/mssql.conf
+COPY --chown=mssql:root tests/docker/sqlserver-init.sql /tmp/dbcommander-init.sql

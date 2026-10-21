@@ -1,0 +1,32 @@
+parameters:
+  - name: name
+    type: string
+
+steps:
+  - task: PublishTestResults@2
+    displayName: Publish ${{ parameters.name }} test results
+    condition: succeededOrFailed()
+    inputs:
+      testResultsFormat: JUnit
+      searchFolder: '$(Build.SourcesDirectory)/.test-artifacts/ci-results'
+      testResultsFiles: '**/*.xml'
+      testRunTitle: 'SQLCommander ${{ parameters.name }}'
+      mergeTestResults: false
+      failTaskOnFailedTests: true
+      failTaskOnFailureToPublishResults: true
+      failTaskOnMissingResultsFile: true
+      publishRunAttachments: true
+  - pwsh: |
+      $results = Join-Path $env:BUILD_SOURCESDIRECTORY 'test-results'
+      if (-not (Test-Path -LiteralPath $results)) {
+        New-Item -ItemType Directory -Path $results -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $results 'README.txt') -Value 'Desktop tests did not create any output. Inspect the pipeline job logs for the startup failure.'
+      }
+    displayName: Prepare ${{ parameters.name }} failure diagnostics
+    condition: failed()
+  - task: PublishPipelineArtifact@1
+    displayName: Publish ${{ parameters.name }} failure diagnostics
+    condition: failed()
+    inputs:
+      targetPath: '$(Build.SourcesDirectory)/test-results'
+      artifact: 'test-diagnostics-${{ parameters.name }}'

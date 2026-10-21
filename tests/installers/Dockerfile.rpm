@@ -1,0 +1,15 @@
+FROM fedora:43
+ARG TEST_UID=1001
+RUN dnf install -y nodejs sudo rpm dbus-x11 gnome-keyring glib2 \
+    xorg-x11-server-Xvfb xorg-x11-xauth openbox xprop gtk3 nss alsa-lib \
+    libXcomposite libXdamage libXrandr libXtst libXScrnSaver \
+    libdrm mesa-libgbm cups-libs at-spi2-atk at-spi2-core \
+    libnotify xdg-utils libuuid libsecret && dnf clean all \
+    && useradd --create-home --uid ${TEST_UID} tester \
+    && printf 'tester ALL=(root) NOPASSWD: /usr/bin/rpm\n' > /etc/sudoers.d/installer-test \
+    && chmod 0440 /etc/sudoers.d/installer-test
+USER tester
+WORKDIR /workspace
+# The namespace sandbox is unavailable inside this disposable container.
+# The installed Ubuntu tests still exercise the normal native sandbox.
+ENV CI=true SQLCOMMANDER_DISPOSABLE_INSTALL_TEST=1 SQLCOMMANDER_INSTALL_TEST_NO_SANDBOX=1

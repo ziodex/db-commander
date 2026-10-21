@@ -1,0 +1,16 @@
+steps:
+  - bash: bash scripts/with-test-keyring.sh node scripts/with-test-desktop.mjs node scripts/test-installers.mjs
+    displayName: Install, upgrade, uninstall and reinstall Debian and AppImage packages
+    condition: and(succeeded(), eq(variables['Agent.OS'], 'Linux'))
+    env:
+      SQLCOMMANDER_DISPOSABLE_INSTALL_TEST: '1'
+  - bash: node scripts/test-rpm.mjs
+    displayName: Install, upgrade, uninstall and reinstall RPM on Fedora
+    condition: and(succeeded(), eq(variables['Agent.OS'], 'Linux'))
+    env:
+      SQLCOMMANDER_DISPOSABLE_INSTALL_TEST: '1'
+  - pwsh: node scripts/test-installers.mjs
+    displayName: Install, upgrade, uninstall and reinstall native macOS or Windows packages
+    condition: and(succeeded(), ne(variables['Agent.OS'], 'Linux'))
+    env:
+      SQLCOMMANDER_DISPOSABLE_INSTALL_TEST: '1'

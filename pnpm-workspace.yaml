@@ -1,0 +1,17 @@
+packages:
+  - .
+overrides:
+  # ssh2 supports a pure-JavaScript fallback. Omit optional native accelerators
+  # so Electron packaging does not try to rebuild them on each platform.
+  'ssh2>cpu-features': '-'
+  'ssh2>nan': '-'
+allowBuilds:
+  electron: true
+  electron-winstaller: false
+  esbuild: true
+  oracledb: false # Thin mode needs no native install script.
+  ssh2: false # Pure JavaScript fallback; optional native acceleration is unnecessary.
+minimumReleaseAgeExclude:
+  - '@vitest/mocker@5.0.4'
+  - '@vitest/spy@5.0.4'
+  - vitest@5.0.4

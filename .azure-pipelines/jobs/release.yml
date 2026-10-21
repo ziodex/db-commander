@@ -1,0 +1,80 @@
+parameters:
+  - name: name
+    type: string
+  - name: platform
+    type: string
+  - name: arch
+    type: string
+    default: x64
+  - name: vmImage
+    type: string
+    default: ''
+  - name: pool
+    type: string
+    default: ''
+
+jobs:
+  - job: ${{ parameters.name }}
+    displayName: Release ${{ parameters.platform }} ${{ parameters.arch }}
+    dependsOn: ReleasePreflight
+    timeoutInMinutes: 120
+    pool:
+      ${{ if ne(parameters.vmImage, '') }}:
+        vmImage: ${{ parameters.vmImage }}
+      ${{ else }}:
+        name: ${{ parameters.pool }}
+        demands:
+          - Agent.OS -equals Darwin
+          - Agent.OSArchitecture -equals ARM64
+    steps:
+      - template: ../steps/setup.yml
+      - pwsh: node scripts/check-release.mjs --arch ${{ parameters.arch }}
+        displayName: Verify native release worker architecture
+      - template: ../steps/linux-desktop.yml
+      - template: ../steps/installer-tools.yml
+      - ${{ if eq(parameters.platform, 'darwin') }}:
+        - task: DownloadSecureFile@1
+          name: appleCertificate
+          displayName: Load Developer ID certificate
+          inputs:
+            secureFile: '$(APPLE_CERTIFICATE_FILE)'
+        - task: DownloadSecureFile@1
+          name: appleApiKey
+          displayName: Load Apple notarization API key
+          inputs:
+            secureFile: '$(APPLE_API_KEY_FILE)'
+      - pwsh: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          pnpm build
+          node scripts/build-release.mjs --signed --fixture --arch ${{ parameters.arch }}
+          node scripts/build-release.mjs --signed --arch ${{ parameters.arch }}
+        displayName: Build and verify signed release installers and upgrade fixture
+        env:
+          SQLCOMMANDER_RELEASE_GATE: main-ci-passed
+          ${{ if eq(parameters.platform, 'darwin') }}:
+            CSC_LINK: $(appleCertificate.secureFilePath)
+            CSC_KEY_PASSWORD: $(APPLE_CERTIFICATE_PASSWORD)
+            APPLE_API_KEY: $(appleApiKey.secureFilePath)
+            APPLE_API_KEY_ID: $(APPLE_API_KEY_ID)
+            APPLE_API_ISSUER: $(APPLE_API_ISSUER)
+            SQLCOMMANDER_APPLE_IDENTITY: $(SQLCOMMANDER_APPLE_IDENTITY)
+            SQLCOMMANDER_APPLE_TEAM_ID: $(SQLCOMMANDER_APPLE_TEAM_ID)
+          ${{ if eq(parameters.platform, 'win32') }}:
+            AZURE_TENANT_ID: $(AZURE_TENANT_ID)
+            AZURE_CLIENT_ID: $(AZURE_CLIENT_ID)
+            AZURE_CLIENT_SECRET: $(AZURE_CLIENT_SECRET)
+            SQLCOMMANDER_SIGN_ENDPOINT: $(SQLCOMMANDER_SIGN_ENDPOINT)
+            SQLCOMMANDER_SIGN_ACCOUNT: $(SQLCOMMANDER_SIGN_ACCOUNT)
+            SQLCOMMANDER_SIGN_PROFILE: $(SQLCOMMANDER_SIGN_PROFILE)
+            SQLCOMMANDER_SIGN_PUBLISHER: $(SQLCOMMANDER_SIGN_PUBLISHER)
+      - template: ../steps/installers.yml
+      - template: ../steps/test-results.yml
+        parameters:
+          name: release-${{ parameters.platform }}-${{ parameters.arch }}
+      - pwsh: node scripts/stage-release.mjs --output "$(Build.ArtifactStagingDirectory)/candidate"
+        displayName: Select verified release files
+      - task: PublishPipelineArtifact@1
+        displayName: Publish verified release candidate for promotion
+        inputs:
+          targetPath: '$(Build.ArtifactStagingDirectory)/candidate'
+          artifact: 'release-${{ parameters.platform }}-${{ parameters.arch }}'

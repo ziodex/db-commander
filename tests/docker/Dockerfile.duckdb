@@ -1,0 +1,11 @@
+# Real native DuckDB in an isolated Linux test process, not a network mock.
+FROM node:24.21.0-bookworm-slim
+WORKDIR /workspace
+RUN npm install --global pnpm@11.25.0
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+RUN pnpm install --frozen-lockfile --ignore-scripts
+COPY src ./src
+COPY tests ./tests
+COPY vitest.config.ts tsconfig.json ./
+ENV SQLCOMMANDER_TEST_DRIVERS=duckdb
+CMD ["pnpm", "exec", "vitest", "run", "tests/integration/duckdb.test.ts"]

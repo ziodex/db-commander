@@ -1,0 +1,100 @@
+name: Validate
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  database-contracts:
+    # Microsoft SQL Server images require x86-64; do not use ARM runners.
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        driver: [postgres, mysql, mariadb, sqlserver, sqlite, oracle, duckdb]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.25.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - name: Install Linux credential-store test dependencies
+        run: sudo apt-get update && sudo apt-get install -y dbus-x11 gnome-keyring libglib2.0-bin
+      - run: bash scripts/with-test-keyring.sh xvfb-run -a pnpm test:desktop --driver ${{ matrix.driver }}
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: desktop-test-results-${{ matrix.driver }}
+          path: test-results
+  desktop-build:
+    strategy:
+      matrix:
+        include:
+          - os: macos-15-intel
+            arch: x64
+          - os: macos-15
+            arch: arm64
+          - os: windows-2025
+            arch: x64
+          - os: ubuntu-24.04
+            arch: x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.25.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install Linux credential-store test dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y dbus-x11 gnome-keyring libglib2.0-bin rpm libnotify4 libsecret-1-0 libxss1 libxtst6 xdg-utils
+      - run: node scripts/check-release.mjs --arch ${{ matrix.arch }}
+      - run: pnpm package
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Prepare Windows display for native window resize tests
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: Set-DisplayResolution -Width 1920 -Height 1080 -Force
+      - name: Test packaged embedded engines, tabs, SQL language tools, editable grids, panel layout credential storage and database backup/restore (Linux)
+        if: runner.os == 'Linux'
+        run: bash scripts/with-test-keyring.sh xvfb-run -a node scripts/smoke-package.mjs
+      - name: Test packaged embedded engines, tabs, SQL language tools, editable grids, panel layout credential storage and database backup/restore (macOS / Windows)
+        if: runner.os != 'Linux'
+        run: node scripts/smoke-package.mjs
+      - name: Build installers and upgrade fixture
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          node scripts/build-release.mjs --fixture --arch ${{ matrix.arch }}
+          node scripts/build-release.mjs --arch ${{ matrix.arch }}
+      - name: Test Debian and AppImage lifecycle
+        if: runner.os == 'Linux'
+        run: bash scripts/with-test-keyring.sh xvfb-run -a node scripts/test-installers.mjs
+        env:
+          SQLCOMMANDER_DISPOSABLE_INSTALL_TEST: '1'
+      - name: Test RPM lifecycle on Fedora
+        if: runner.os == 'Linux'
+        run: node scripts/test-rpm.mjs
+        env:
+          SQLCOMMANDER_DISPOSABLE_INSTALL_TEST: '1'
+      - name: Test macOS or Windows installer lifecycle
+        if: runner.os != 'Linux'
+        run: node scripts/test-installers.mjs
+        env:
+          SQLCOMMANDER_DISPOSABLE_INSTALL_TEST: '1'
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: packaged-test-results-${{ matrix.os }}
+          path: test-results

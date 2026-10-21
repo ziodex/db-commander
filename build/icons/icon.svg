@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Db Commander</title>
+  <desc>A command prompt carved into a database cylinder on a mint tile.</desc>
+  <rect x="96" y="96" width="832" height="832" rx="186" fill="#a6dfc1"/>
+  <path d="M272 326c0-54 107-98 240-98s240 44 240 98v372c0 54-107 98-240 98s-240-44-240-98Z" fill="#182a2b"/>
+  <ellipse cx="512" cy="326" rx="184" ry="48" fill="#a6dfc1"/>
+  <path d="M326 674c39 25 107 40 186 40s147-15 186-40" fill="none" stroke="#a6dfc1" stroke-width="28" stroke-linecap="round"/>
+  <path d="m394 444 74 74-74 74m148 0h88" fill="none" stroke="#a6dfc1" stroke-width="44" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

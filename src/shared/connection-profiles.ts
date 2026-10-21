@@ -1,0 +1,20 @@
+import { profileSchema, type ConnectionConfig, type ConnectionProfile } from './contracts'
+
+export function connectionProfile(config: ConnectionConfig): ConnectionProfile {
+  const { password: _password, accessToken: _accessToken, sshSecrets: _sshSecrets, ...profile } = config
+  return profile
+}
+
+/** Reconnecting may reuse a profile; changing settings must not overwrite it.
+ * Schema order and explicit defaults make equivalent recovered/form values
+ * comparable without depending on object insertion order or secret values. */
+export function sameConnectionProfile(left: ConnectionProfile, right: ConnectionProfile): boolean {
+  const normalize = (profile: ConnectionProfile) => profileSchema.safeParse({ ...profile,
+    ca: profile.ca ?? '', authentication: profile.authentication ?? 'sql-password',
+    folder: profile.folder ?? '', favorite: profile.favorite ?? false, protected: profile.protected ?? false, recordHistory: profile.recordHistory ?? true,
+    sqliteMode: profile.engine === 'sqlite' ? profile.sqliteMode === 'create' ? 'read-write' : profile.sqliteMode ?? 'read-write' : profile.sqliteMode,
+    duckdbMode: profile.engine === 'duckdb' ? profile.duckdbMode === 'create' ? 'read-write' : profile.duckdbMode ?? 'read-write' : profile.duckdbMode
+  })
+  const a = normalize(left), b = normalize(right)
+  return a.success && b.success && JSON.stringify(a.data) === JSON.stringify(b.data)
+}

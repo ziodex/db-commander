@@ -1,0 +1,191 @@
+# Register this file as an Azure Repos YAML pipeline. CI runs only on main;
+# development work is tested by CI after its pull request is merged into main.
+name: $(Date:yyyyMMdd).$(Rev:r)
+
+trigger:
+  batch: true
+  branches:
+    include:
+      - main
+
+pr: none
+
+parameters:
+  - name: validationScope
+    displayName: Validation scope (Windows startup is diagnostic only)
+    type: string
+    default: all
+    values:
+      - all
+      - windows-startup
+      - windows-installers
+  - name: createRelease
+    displayName: Build a signed release after all main CI checks pass
+    type: boolean
+    default: false
+  - name: macArmPool
+    displayName: Native Apple Silicon agent pool (required for signed releases)
+    type: string
+    default: ''
+
+variables:
+  CI: 'true'
+  NODE_VERSION: '22.x'
+  PNPM_VERSION: '11.25.0'
+  PNPM_STORE_PATH: '$(Pipeline.Workspace)/.pnpm-store'
+  PLAYWRIGHT_JUNIT_OUTPUT_FILE: '$(Build.SourcesDirectory)/.test-artifacts/ci-results/desktop.xml'
+
+stages:
+  - stage: Desktop
+    displayName: Native desktop builds and tests
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - ${{ if eq(parameters.validationScope, 'all') }}:
+        - template: .azure-pipelines/jobs/desktop.yml
+          parameters:
+            name: macOS_x64
+            vmImage: macOS-15
+        - template: .azure-pipelines/jobs/desktop.yml
+          parameters:
+            name: Linux_x64
+            vmImage: ubuntu-24.04
+      - template: .azure-pipelines/jobs/desktop.yml
+        parameters:
+          name: Windows_x64
+          vmImage: windows-2025
+          startupOnly: ${{ ne(parameters.validationScope, 'all') }}
+          installerChecks: ${{ ne(parameters.validationScope, 'windows-startup') }}
+      - ${{ if and(eq(parameters.validationScope, 'all'), ne(parameters.macArmPool, '')) }}:
+        - template: .azure-pipelines/jobs/desktop.yml
+          parameters:
+            name: macOS_arm64
+            arch: arm64
+            pool: ${{ parameters.macArmPool }}
+
+  - stage: Drivers
+    displayName: Docker driver integration and desktop tests
+    dependsOn: []
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'), ${{ eq(parameters.validationScope, 'all') }})
+    jobs:
+      - job: Driver
+        displayName: Linux x64 driver
+        timeoutInMinutes: 60
+        cancelTimeoutInMinutes: 5
+        pool:
+          vmImage: ubuntu-24.04
+        strategy:
+          maxParallel: 3
+          matrix:
+            # Validate TDS on native Linux x64 early; ARM developer machines
+            # cannot reliably exercise SQL Server's container runtime.
+            SQLServer:
+              driver: sqlserver
+            PostgreSQL:
+              driver: postgres
+            MySQL:
+              driver: mysql
+            MariaDB:
+              driver: mariadb
+            SQLite:
+              driver: sqlite
+            Oracle:
+              driver: oracle
+            DuckDB:
+              driver: duckdb
+        variables:
+          SQLCOMMANDER_TEST_REPORT_DIR: '$(Build.SourcesDirectory)/.test-artifacts/ci-results/integration'
+        steps:
+          - bash: |
+              set -euo pipefail
+              test "$(uname -m)" = x86_64
+              docker version
+              docker compose version
+              case "$(docker info --format '{{.Architecture}}')" in
+                x86_64|amd64) ;;
+                *) echo 'Driver tests require a native Linux x64 Docker daemon.' >&2; exit 1 ;;
+              esac
+              # Oracle's full/slim image pair needs extra disk. Removing these
+              # unused SDKs is expensive, so keep it scoped to that fixture.
+              if [[ "$SQLCOMMANDER_TEST_DRIVER" == oracle ]]; then
+                sudo rm -rf /usr/local/lib/android /opt/ghc /usr/share/dotnet
+              fi
+              df -h /
+            displayName: Verify native x64 Docker and prepare fixture storage
+            env:
+              SQLCOMMANDER_TEST_DRIVER: $(driver)
+          - template: .azure-pipelines/steps/setup.yml
+          - template: .azure-pipelines/steps/linux-desktop.yml
+          - bash: bash scripts/with-test-keyring.sh node scripts/with-test-desktop.mjs pnpm test:desktop --driver "$(driver)"
+            displayName: Build and test the $(driver) driver against Docker and Electron
+          - template: .azure-pipelines/steps/test-results.yml
+            parameters:
+              name: driver-$(driver)
+
+  # Exclude signing resources entirely from ordinary main CI runs.
+  - ${{ if eq(parameters.createRelease, true) }}:
+    - stage: Release
+      displayName: Signed release installers
+      dependsOn:
+        - Desktop
+        - Drivers
+      condition: and(succeeded(), eq(dependencies.Desktop.result, 'Succeeded'), eq(dependencies.Drivers.result, 'Succeeded'), eq(variables['Build.SourceBranch'], 'refs/heads/main'), ${{ eq(parameters.createRelease, true) }}, ${{ eq(parameters.validationScope, 'all') }})
+      variables:
+        - ${{ if eq(parameters.createRelease, true) }}:
+          - group: SQLCommander-Release
+      jobs:
+        - job: ReleasePreflight
+          displayName: Require complete native coverage and main source identity
+          pool:
+            vmImage: ubuntu-24.04
+          steps:
+            - template: .azure-pipelines/steps/setup.yml
+            - pwsh: node scripts/check-release.mjs --release-gate --arm-pool "$env:SQLCOMMANDER_MAC_ARM_POOL"
+              env:
+                SQLCOMMANDER_MAC_ARM_POOL: ${{ parameters.macArmPool }}
+        - template: .azure-pipelines/jobs/release.yml
+          parameters:
+            name: ReleaseMacX64
+            platform: darwin
+            vmImage: macOS-15
+        - ${{ if ne(parameters.macArmPool, '') }}:
+          - template: .azure-pipelines/jobs/release.yml
+            parameters:
+              name: ReleaseMacArm64
+              platform: darwin
+              arch: arm64
+              pool: ${{ parameters.macArmPool }}
+        - template: .azure-pipelines/jobs/release.yml
+          parameters:
+            name: ReleaseWindows
+            platform: win32
+            vmImage: windows-2025
+        - template: .azure-pipelines/jobs/release.yml
+          parameters:
+            name: ReleaseLinux
+            platform: linux
+            vmImage: ubuntu-24.04
+        - job: PromoteRelease
+          displayName: Promote the complete verified release
+          dependsOn:
+            - ReleaseMacX64
+            - ReleaseWindows
+            - ReleaseLinux
+            - ${{ if ne(parameters.macArmPool, '') }}:
+              - ReleaseMacArm64
+          condition: succeeded()
+          pool:
+            vmImage: ubuntu-24.04
+          steps:
+            - template: .azure-pipelines/steps/setup.yml
+            - task: DownloadPipelineArtifact@2
+              inputs:
+                buildType: current
+                itemPattern: 'release-*/**'
+                targetPath: '$(Pipeline.Workspace)/release-input'
+            - pwsh: node scripts/promote-release.mjs --input "$(Pipeline.Workspace)/release-input" --output "$(Build.ArtifactStagingDirectory)/release"
+              displayName: Require all architectures, signatures, checksums and installer tests
+            - task: PublishPipelineArtifact@1
+              displayName: Publish versioned release bundle
+              inputs:
+                targetPath: '$(Build.ArtifactStagingDirectory)/release'
+                artifact: SQLCommander-release-$(Build.BuildNumber)

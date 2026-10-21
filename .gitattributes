@@ -1,0 +1,2 @@
+# Vendored notice hashes refer to exact upstream bytes on every build host.
+build/vendor-notices/* -text
