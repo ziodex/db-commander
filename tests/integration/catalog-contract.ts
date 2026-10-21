@@ -58,7 +58,7 @@ export async function verifyCatalog(config: ConnectionConfig) {
     expect(object).toBeDefined(); expect(events).toHaveLength(before)
     if (engine === 'oracle') {
       expect(objects.every(o => o.schema === config.user.toUpperCase())).toBe(true)
-      await expect(detail({ ...object, schema: 'SQLCOMMANDER_COMPARE' })).rejects.toThrow(/no longer visible/)
+      await expect(detail({ ...object, schema: 'DBCOMMANDER_COMPARE' })).rejects.toThrow(/no longer visible/)
     }
     if (['postgres','oracle'].includes(engine)) {
       const materialized = objects.filter(o => o.name === prefix+'_mv')
@@ -125,13 +125,13 @@ export async function verifyCatalog(config: ConnectionConfig) {
       oracleOther = (await driver.connect({ ...config, user: 'dbcommander_compare' })).id
       await run(`CREATE TABLE ${q(table)} (${q('id')} INTEGER PRIMARY KEY)`, oracleOther)
       await run(`GRANT SELECT, REFERENCES ON ${q(table)} TO ${q(config.user.toUpperCase())}`, oracleOther)
-      await run(`ALTER TABLE ${q(table)} ADD CONSTRAINT ${q(prefix+'_other_fk')} FOREIGN KEY (${q('id')}) REFERENCES ${q('SQLCOMMANDER_COMPARE')}.${q(table)} (${q('id')})`)
+      await run(`ALTER TABLE ${q(table)} ADD CONSTRAINT ${q(prefix+'_other_fk')} FOREIGN KEY (${q('id')}) REFERENCES ${q('DBCOMMANDER_COMPARE')}.${q(table)} (${q('id')})`)
       const scoped = await driver.schema(session.id)
       expect(scoped.catalog?.notice).not.toContain('unavailable')
       expect(scoped.catalog?.objects.every(o => o.schema === config.user.toUpperCase())).toBe(true)
       const crossOwner = await detail(object)
       expect(crossOwner.definition.sql, crossOwner.definition.notice).toContain('CREATE TABLE')
-      expect(crossOwner.sections.find(s => s.title === 'Foreign keys')?.rows).toContainEqual([prefix+'_other_fk', 'id', 'SQLCOMMANDER_COMPARE', table, 'id', 'NO ACTION'])
+      expect(crossOwner.sections.find(s => s.title === 'Foreign keys')?.rows).toContainEqual([prefix+'_other_fk', 'id', 'DBCOMMANDER_COMPARE', table, 'id', 'NO ACTION'])
     }
     if (engine === 'postgres') {
       const restricted = await driver.connect({ ...config, user: 'browser_user', password: 'local-test-only' })

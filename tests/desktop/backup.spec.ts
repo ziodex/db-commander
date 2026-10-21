@@ -56,12 +56,19 @@ for (const engine of ['sqlite', 'duckdb'] as const) test(`backup ${engine}: revi
     await expect(form.locator('.backup-status')).toHaveText('failed'); await expect(form).toContainText('already exists'); expect(readFileSync(restored)).toEqual(before)
     await page.screenshot({ path: testInfo.outputPath(`backup-${engine}.png`) })
     await form.getByRole('button', { name: 'Close backup dialog' }).click()
+    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
     await app!.close(); app = undefined
     page = await launch(); await openBackup(page)
     form = page.getByRole('dialog', { name: 'Database backup and restore', exact: true })
     await expect(form.locator('.backup-job-list button')).toHaveCount(3)
     expect(readFileSync(join(directory, 'backup-jobs.json'), 'utf8')).not.toContain('password')
-  } finally { if (app) await app.close().catch(() => {}); rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) }
+  } finally {
+    // A failed assertion can leave the app's guarded Quit dialog open. Teardown
+    // must not wait forever for an invisible native dialog on the CI desktop.
+    await app?.evaluate(({ app }) => app.exit(0)).catch(() => {})
+    await app?.close().catch(() => {})
+    rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+  }
 })
 
 test('backup recovery: interrupted restore is unknown after restart, never replayed', async () => {
@@ -104,7 +111,7 @@ for (const engine of ['postgres', 'mysql', 'mariadb', 'sqlserver', 'oracle'] as 
     const form = page.getByRole('dialog', { name: 'Database backup and restore', exact: true })
     await expect(form).toContainText(engineNames[engine as DatabaseEngine])
     await form.getByLabel(engine === 'oracle' ? 'Dump filename' : engine === 'sqlserver' ? 'Backup file on database server' : 'Backup file', { exact: true }).fill(artifact)
-    if (engine === 'oracle') await form.getByLabel('Source schema').fill('SQLCOMMANDER')
+    if (engine === 'oracle') await form.getByLabel('Source schema').fill('DBCOMMANDER')
     if (['postgres', 'mysql', 'mariadb'].includes(engine)) await form.getByLabel('Native tools directory (optional)').fill(process.env[`SQLCOMMANDER_${prefix}_TOOLS`]!)
     await form.getByRole('button', { name: 'Review job' }).click(); await form.getByRole('checkbox').check(); await form.getByRole('button', { name: 'Start backup' }).click()
     await expect(form.locator('.backup-status')).toHaveText('completed', { timeout: 90000 })

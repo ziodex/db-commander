@@ -178,12 +178,17 @@ describe('Docker Oracle driver contracts', () => {
   })
   it('discovers quoted tables and views without changing the console transaction', async () => {
     const created = await execute('CREATE TABLE "Contract quoted table"(n NUMBER); UPDATE retained SET value=46')
-    expect(created.complete.status, created.complete.error).toBe('completed')
-    const tables = await driver.tables(session.id)
-    expect(tables).toContainEqual({ schema: 'SQLCOMMANDER', name: 'Contract quoted table', kind: 'table' })
-    expect(tables).toContainEqual({ schema: 'SQLCOMMANDER', name: 'CUSTOMER_NAMES', kind: 'view' })
-    expect(driver.getSession(session.id).transaction).toBe('transaction')
-    await execute('ROLLBACK; DROP TABLE "Contract quoted table"')
+    try {
+      expect(created.complete.status, created.complete.error).toBe('completed')
+      const tables = await driver.tables(session.id)
+      expect(tables).toContainEqual({ schema: config.user.toUpperCase(), name: 'Contract quoted table', kind: 'table' })
+      expect(tables).toContainEqual({ schema: config.user.toUpperCase(), name: 'CUSTOMER_NAMES', kind: 'view' })
+      expect(driver.getSession(session.id).transaction).toBe('transaction')
+    } finally {
+      // A catalog assertion must not leak this update into later CSV/rollback
+      // contracts and turn one failure into misleading downstream failures.
+      await execute('ROLLBACK; DROP TABLE "Contract quoted table"')
+    }
   })
   it('bounds rows and LOB bytes, closes truncated cursors and can run the next statement', async () => {
     const result = await execute('SELECT n FROM numbers ORDER BY n; SELECT binary_value FROM large_lob', 50)

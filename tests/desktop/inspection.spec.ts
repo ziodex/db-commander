@@ -116,5 +116,11 @@ for (const engine of engineSchema.options) test(`inspection ${engine}: values, c
     const pinnedHeader=results.getByRole('columnheader').nth(1)
     await expect(pinnedHeader).toContainText('label')
     await expect.poll(()=>pinnedHeader.evaluate(node=>{const r=node.getBoundingClientRect();return document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.closest('[role="columnheader"]')?.textContent??''})).toContain('label')
-  }finally{await app.close();rmSync(directory,{recursive:true,force:true})}
+  } finally {
+    // A failed UI assertion may leave edits/transactions behind. Do not let
+    // the application's native Quit confirmation hide the original failure.
+    await app.evaluate(({ app }) => app.exit(0)).catch(() => {})
+    await app.close().catch(() => {})
+    rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+  }
 })

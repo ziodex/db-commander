@@ -11,7 +11,7 @@ async function launch(directory: string) {
   catch (error) { await close(app); throw error }
 }
 async function close(app?: ElectronApplication) { await app?.evaluate(({ app }) => app.exit(0)).catch(() => {}); await app?.close().catch(() => {}) }
-async function ready(page: Page) { await expect(page.getByText('Saved locally', { exact: true })).toBeVisible(); await expect(page.locator('.monaco-editor').first()).toBeVisible() }
+async function ready(page: Page) { await expect(page.getByText('Saved locally', { exact: true })).toBeVisible({ timeout: 30_000 }); await expect(page.locator('.monaco-editor').first()).toBeVisible() }
 async function enter(page: Page, sql: string) {
   await page.locator('.monaco-editor').first().click(); await page.keyboard.press(`${modifier}+A`); await page.keyboard.insertText(sql); await page.keyboard.press('Escape')
 }

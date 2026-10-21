@@ -7,9 +7,9 @@ import type { CatalogObject } from '../../src/shared/catalog'
 // The wire date decoder has separate tests; these fake readers have no TTC wire.
 vi.mock('../../src/driver/oracle-values', () => ({ enableExactOracleDates: vi.fn() }))
 
-const object: CatalogObject = { schema: 'SQLCOMMANDER', name: 'sample', kind: 'table', identity: '42' }
-const ddl = 'CREATE TABLE "SQLCOMMANDER"."sample" ("id" NUMBER PRIMARY KEY)'
-const config = connectionSchema.parse({ engine: 'oracle', name: 'Oracle', host: 'localhost', port: 1521, database: 'FREEPDB1', user: 'SQLCOMMANDER', password: '', tls: 'disable' })
+const object: CatalogObject = { schema: 'DBCOMMANDER', name: 'sample', kind: 'table', identity: '42' }
+const ddl = 'CREATE TABLE "DBCOMMANDER"."sample" ("id" NUMBER PRIMARY KEY)'
+const config = connectionSchema.parse({ engine: 'oracle', name: 'Oracle', host: 'localhost', port: 1521, database: 'FREEPDB1', user: 'DBCOMMANDER', password: '', tls: 'disable' })
 const drivers: OracleDriver[] = []
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -52,7 +52,7 @@ it('overlaps full native DDL with metadata on isolated readers and drains the bo
   const inspection = driver.explore(session.id, object)
   await vi.waitFor(() => expect(primary.execute.mock.calls.some(([sql]) => sql.includes('FROM user_triggers'))).toBe(true))
   expect(lob.getData).toHaveBeenCalledWith(1, 1_000_001)
-  expect(secondary.execute.mock.calls.find(([sql]) => sql.includes('DBMS_METADATA.GET_DDL'))?.[1]).toEqual(['TABLE', 'sample', 'SQLCOMMANDER'])
+  expect(secondary.execute.mock.calls.find(([sql]) => sql.includes('DBMS_METADATA.GET_DDL'))?.[1]).toEqual(['TABLE', 'sample', 'DBCOMMANDER'])
   expect(primary.execute.mock.calls.some(([sql]) => sql.includes('DBMS_METADATA'))).toBe(false)
   expect(console.execute.mock.calls.some(([sql]) => sql.includes('user_') || sql.includes('DBMS_METADATA'))).toBe(false)
   expect(primary.close).not.toHaveBeenCalled(); expect(secondary.close).not.toHaveBeenCalled()

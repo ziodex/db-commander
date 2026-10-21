@@ -3,11 +3,24 @@ import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-export function verifyDiskImageDetached(image: string, mount: string, execute = execFileSync) {
+function diskImageReport(execute: typeof execFileSync) {
   const plist = execute('hdiutil', ['info', '-plist'], { stdio: 'pipe', timeout: 5000, maxBuffer: 1024 * 1024 })
   const report = JSON.parse(String(execute('plutil', ['-convert', 'json', '-o', '-', '-'], { input: plist, stdio: 'pipe', timeout: 5000, maxBuffer: 1024 * 1024 })))
   if (!Array.isArray(report.images) || report.images.some((entry: any) => typeof entry['image-path'] !== 'string' || !Array.isArray(entry['system-entities']))) throw new Error('Cannot verify owned disk-image detachment.')
-  return !report.images.some((entry: any) => entry['image-path'] === image || entry['system-entities'].some((entity: any) => entity['mount-point'] === mount))
+  return report.images as { 'image-path': string, 'system-entities': { 'dev-entry'?: string, 'mount-point'?: string }[] }[]
+}
+
+export function verifyDiskImageDetached(image: string, mount: string, execute = execFileSync) {
+  return !diskImageReport(execute).some(entry => entry['image-path'] === image || entry['system-entities'].some(entity => entity['mount-point'] === mount))
+}
+
+export function ownedDiskImageDevice(image: string, execute = execFileSync) {
+  const images = diskImageReport(execute).filter(entry => entry['image-path'] === image)
+  if (images.length > 1) throw new Error('Ambiguous owned disk-image identity.')
+  if (!images.length) return undefined
+  const devices = images[0]['system-entities'].map(entity => entity['dev-entry']).filter((device): device is string => typeof device === 'string' && /^\/dev\/disk\d+$/.test(device))
+  if (devices.length !== 1) throw new Error('Cannot identify the owned disk-image device.')
+  return devices[0]
 }
 
 export function detachDiskImage(mount: string, execute = execFileSync, pause = (ms: number) => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms) }, verifyDetached?: () => boolean) {
@@ -32,7 +45,13 @@ export function diskFullFixture() {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'dbcommander-disk-full-'))), mount = join(root, 'volume'), image = join(root, 'volume.dmg'), filler = join(mount, 'filler')
   let mounted = false
   const dispose = () => {
-    if (mounted) { detachDiskImage(mount, execFileSync, undefined, () => verifyDiskImageDetached(image, mount)); mounted = false }
+    if (mounted) {
+      // ENOSPC can unmount HFS+ before cleanup while its image is still attached.
+      // Resolve the whole device from this exact image, never a stale mount or
+      // another volume. Keep the no-force detach and independent absence check.
+      const target = ownedDiskImageDevice(image) ?? mount
+      detachDiskImage(target, execFileSync, undefined, () => verifyDiskImageDetached(image, mount)); mounted = false
+    }
     rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
   }
   try {

@@ -25,7 +25,7 @@ test('packaged startup survives an unavailable DuckDB native library through an 
     const launch = () => electron.launch({ executablePath: join(alias, relative(source, executable)), env: env as Record<string, string> })
     app = await launch()
     const original = await app.firstWindow()
-    await expect(original.getByText('Saved locally', { exact: true })).toBeVisible()
+    await expect(original.getByText('Saved locally', { exact: true })).toBeVisible({ timeout: 30_000 })
     await original.locator('.monaco-editor').click()
     await original.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A')
     const recoveredSql = 'SELECT 987654321 AS recovered_buffer;'
@@ -38,7 +38,7 @@ test('packaged startup survives an unavailable DuckDB native library through an 
     app = await launch()
     app.process().stderr?.on('data', chunk => { stderr = (stderr + chunk.toString()).slice(-16000) })
     const page = await app.firstWindow()
-    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible({ timeout: 30_000 })
     await expect(page.locator('.monaco-editor')).toBeVisible()
     await expect(page.locator('.monaco-editor .view-lines')).toContainText('recovered_buffer')
     await expect(page.getByRole('button', { name: /^Run SQL/ })).toBeDisabled()

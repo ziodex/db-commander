@@ -20,6 +20,8 @@ test('application icon: runtime image and packaged Finder identity use the Db Co
       if (image.isEmpty()) throw new Error('The Db Commander runtime icon is empty.')
       return { name: app.getName(), packaged: app.isPackaged, size: image.getSize(), resources: process.resourcesPath, bundlePath: path.join(process.resourcesPath, '../..') }
     })
+    // This test inspects branding, not the guarded workspace Quit flow.
+    await app.evaluate(({ app }) => app.exit(0))
     await app.close()
     let bundleIcon: string | undefined, brandedFraction: number | undefined
     if (report.packaged && process.platform === 'darwin') {

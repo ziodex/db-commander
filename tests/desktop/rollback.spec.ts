@@ -34,7 +34,7 @@ for(const engine of engineSchema.options)test(`rollback inspection ${engine}: re
     holder=(await page.evaluate(c=>window.dbCommander.connect(c),actorConfig)).id
     nativeHolder=(await page.evaluate(sessionId=>window.dbCommander.inspectActivity({sessionId,includeSql:false}),holder)).currentSessionId
     if(!embedded){
-      const schema=engine==='postgres'?'public':tds?'dbo':engine==='oracle'?'SQLCOMMANDER':'dbcommander';table=`${q(schema)}.${q('rollback_ui_'+Date.now())}`
+      const schema=engine==='postgres'?'public':tds?'dbo':engine==='oracle'?'DBCOMMANDER':'dbcommander';table=`${q(schema)}.${q('rollback_ui_'+Date.now())}`
       await execute(page,holder,`CREATE TABLE ${table} (${q('id')} INTEGER PRIMARY KEY,${q('value')} INTEGER)`);await execute(page,holder,`INSERT INTO ${table} VALUES(1,10)`);if(engine==='oracle')await execute(page,holder,'COMMIT')
       await execute(page,holder,begin);await execute(page,holder,`UPDATE ${table} SET ${q('value')}=11 WHERE ${q('id')}=1`)
     }
@@ -53,7 +53,17 @@ for(const engine of engineSchema.options)test(`rollback inspection ${engine}: re
       await execute(page,holder,begin);await execute(page,holder,`UPDATE ${table} SET ${q('value')}=12 WHERE ${q('id')}=1`)
       await refresh();await expect(panel).toContainText('Captured transaction no longer visible');await expect(panel.locator('.rollback-identity')).toHaveText(identity)
       await inspector.getByRole('button',{name:'Refresh sessions and locks',exact:true}).click();await expect(inspector.getByRole('status')).toHaveText('Inspection complete. No session was changed.');await expect(panel.locator('.rollback-identity')).toHaveText(identity)
-      await select();await inspector.getByRole('button',{name:'Inspect rollback progress',exact:true}).click();await expect(panel).toContainText('Transaction observed');await expect(panel.locator('.rollback-identity')).not.toHaveText(identity)
+      // InnoDB's diagnostic cache can still contain the preceding empty
+      // snapshot immediately after UPDATE. Start a new manual inspection until
+      // the new transaction is observable; refreshing the old capture above
+      // must continue to retain its original identity.
+      await expect(async () => {
+        await select()
+        const inspect = inspector.getByRole('button', { name: 'Inspect rollback progress', exact: true })
+        await inspect.click(); await expect(inspect).toBeEnabled()
+        expect(await panel.locator('strong').innerText()).toBe('Transaction observed')
+        expect(await panel.locator('.rollback-identity').innerText()).not.toBe(identity)
+      }).toPass({ timeout: 10_000, intervals: [250, 500, 1000] })
     }
     await panel.scrollIntoViewIfNeeded();await page.screenshot({path:testInfo.outputPath(`${engine}-rollback.png`)})
     if(engine==='postgres'||engine==='duckdb'){

@@ -5,7 +5,7 @@
 ## Use CI in a fork
 
 1. Fork all branches, including `development`, and enable workflows in your fork's **Actions** tab if GitHub asks.
-2. Push to `development` or `main`, or open a pull request targeting one of those branches. Ordinary validation requires no repository secrets or cloud service connections.
+2. Push a feature branch and open a pull request targeting `development`. The upstream `development` and `main` branches require pull requests and owner review. Ordinary validation requires no repository secrets or cloud service connections.
 3. Open the run in **Actions → CI**. First-time external contributors may need a maintainer to approve their run under the repository's Actions policy.
 4. Download reports and tested unsigned installers from the run's **Artifacts** section. These builds are developer test output, not signed public releases.
 
@@ -25,7 +25,7 @@ Node.js 22, the pnpm version in `package.json`, and `pnpm install --frozen-lockf
 
 Host preflight refuses emulated or mismatched architectures. Driver concurrency is capped at three, with each fixture isolated to its job. Oracle alone removes unused hosted SDK directories to make room for its images. Linux Docker must report native x64; the SQL Server fixture also exercises Azure SQL profile paths, without claiming live Azure service qualification.
 
-Windows prepares a 1920×1080 display for native resizing tests. macOS uses the hosted console and keychain; the tests still require the logged-in, unlocked desktop and real focus behavior. Job limits remain 90 minutes for desktop/installer validation, 60 for drivers and 120 for signed release targets. Ordinary validation jobs run independently and retain other targets' results after one fails.
+Windows and macOS prepare a display of at least 1920×1080 for native resizing tests. The macOS display script is restricted to disposable GitHub-hosted runners. macOS uses the hosted console and keychain; the tests still require the logged-in, unlocked desktop and real focus behavior. Job limits remain 90 minutes for desktop/installer validation, 60 for drivers and 120 for signed release targets. Ordinary validation jobs run independently and retain other targets' results after one fails.
 
 ### Linux desktop tests
 
@@ -35,7 +35,9 @@ The [Linux setup action](../.github/actions/linux-desktop/action.yml) installs X
 bash scripts/with-test-keyring.sh node scripts/with-test-desktop.mjs pnpm test:desktop --driver postgres
 ```
 
-The outer wrapper creates a disposable credential store. The desktop wrapper owns a private Xvfb display and window manager, waits for readiness, preserves the command's exit status and cleans up its children. Bare `xvfb-run` does not provide the window-manager behavior required by minimize/focus tests. No host sandbox policy is weakened; the documented disposable Fedora RPM exception remains explicit in lifecycle reports.
+The outer wrapper creates a disposable credential store. The desktop wrapper owns a private Xvfb display and window manager, waits for readiness, preserves the command's exit status and cleans up its children. Bare `xvfb-run` does not provide the window-manager behavior required by minimize/focus tests.
+
+For installer qualification, the Linux setup action verifies `unshare -Ur true`. When Ubuntu's AppArmor restriction blocks it, the action permits unprivileged user namespaces on the disposable GitHub-hosted worker only. It refuses to make that change on a developer or self-hosted machine. This allows AppRun's namespace probe to succeed without adding `--no-sandbox`. The AppImage desktop entry also omits electron-builder's legacy sandbox-disabling default argument. DEB/AppImage lifecycle tests still require the actual installed application to run with Chromium sandboxing enabled; the separate Fedora RPM exception remains explicit in lifecycle reports.
 
 ## Reports and artifacts
 
@@ -45,6 +47,8 @@ The outer wrapper creates a disposable credential store. The desktop wrapper own
 - `dbcommander-release-<run ID>-<attempt>` is the complete promoted bundle with all four targets and eight installer/archive formats.
 
 Reports and per-target packages are retained for 14 days, and the promoted bundle for 30 days. Download and archive evidence before expiry. Uploads never include the raw `release/` directory, signing files, unpacked applications or upgrade fixtures. There is no automatic release publication, tag creation or installation.
+
+Playwright retains traces and screenshots on failure. Hosted Windows runs allow 15 seconds for ordinary UI/backend assertions, including cold workspace loading and native disk operations; explicit test deadlines and measured performance budgets stay unchanged. Tests that do not exercise graceful Quit force-exit their private application so an unrelated native confirmation cannot obscure the original failure.
 
 Manifest `buildId` is `<GITHUB_RUN_ID>.<GITHUB_RUN_ATTEMPT>`, with `GITHUB_SHA` binding signed output to the checked-out main commit. Promotion downloads only this run's release candidates and verifies all targets, version, source, run/attempt, checksums, signatures, inventories and installer lifecycle evidence. Rerunning only failed release jobs can leave older-attempt artifacts; promotion deliberately rejects a mixed set. For a release, rerun **all jobs** or start a new manual run.
 

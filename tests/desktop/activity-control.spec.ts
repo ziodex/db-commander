@@ -39,7 +39,7 @@ for(const engine of engineSchema.options)test(`session controls ${engine}: revie
     nativeHolder=(await page.evaluate(sessionId=>window.dbCommander.inspectActivity({sessionId,includeSql:false}),holder)).currentSessionId
     if(!embedded){
       waiter=(await page.evaluate(c=>window.dbCommander.connect(c),actorConfig)).id;nativeWaiter=(await page.evaluate(sessionId=>window.dbCommander.inspectActivity({sessionId,includeSql:false}),waiter)).currentSessionId
-      const schema=engine==='postgres'?'public':tds?'dbo':engine==='oracle'?'SQLCOMMANDER':'dbcommander';table=`${q(schema)}.${q('control_ui_'+Date.now())}`
+      const schema=engine==='postgres'?'public':tds?'dbo':engine==='oracle'?'DBCOMMANDER':'dbcommander';table=`${q(schema)}.${q('control_ui_'+Date.now())}`
       await execute(page,holder,`CREATE TABLE ${table} (${q('id')} INTEGER PRIMARY KEY,${q('value')} INTEGER)`);await execute(page,holder,`INSERT INTO ${table} VALUES(1,10)`);if(engine==='oracle')await execute(page,holder,'COMMIT')
       await execute(page,holder,begin);await execute(page,holder,`UPDATE ${table} SET ${q('value')}=11 WHERE ${q('id')}=1`);await startWait()
     }

@@ -20,7 +20,7 @@ for(const engine of engineSchema.options)test(`session inspection ${engine}: liv
   const fixture=activityMonitor(config),env:Record<string,string|undefined>={...process.env,SQLCOMMANDER_USER_DATA:directory};delete env.ELECTRON_RUN_AS_NODE
   const app=await electron.launch({...process.env.SQLCOMMANDER_TEST_EXECUTABLE?{executablePath:process.env.SQLCOMMANDER_TEST_EXECUTABLE}:{args:[resolve('.')]},env:env as Record<string,string>}),page=await app.firstWindow(),dialog=page.getByRole('dialog',{name:'Sessions and locks',exact:true})
   let holder:string|undefined,waiter:string|undefined,waitingId='',table=''
-  const q=(s:string)=>quoteIdentifier(s,engine),name='inspect_ui_'+Date.now(),schema=engine==='postgres'?'public':['sqlserver','azure-sql'].includes(engine)?'dbo':engine==='oracle'?'SQLCOMMANDER':embedded?'main':'dbcommander'
+  const q=(s:string)=>quoteIdentifier(s,engine),name='inspect_ui_'+Date.now(),schema=engine==='postgres'?'public':['sqlserver','azure-sql'].includes(engine)?'dbo':engine==='oracle'?'DBCOMMANDER':embedded?'main':'dbcommander'
   const begin=engine==='oracle'?'SAVEPOINT INSPECT_UI':['sqlserver','azure-sql'].includes(engine)?'BEGIN TRANSACTION':'BEGIN'
   async function open(){await page.locator('.database-node.current > button').first().click({button:'right'});await page.getByRole('menuitem',{name:'Sessions and locks',exact:true}).click();await expect(dialog).toBeVisible();await expect(dialog.getByRole('status')).toHaveText('Inspection complete. No session was changed.',{timeout:30000})}
   async function refresh(){await dialog.getByRole('button',{name:'Refresh sessions and locks',exact:true}).click();await expect(dialog.getByRole('status')).toHaveText('Inspection complete. No session was changed.',{timeout:30000})}

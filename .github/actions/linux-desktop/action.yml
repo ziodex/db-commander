@@ -17,4 +17,14 @@ runs:
         pnpm exec playwright install-deps chromium
         if [[ "$INSTALL_PACKAGING" == true ]]; then
           sudo apt-get install -y rpm libnotify4 libsecret-1-0 libxss1 libxtst6 xdg-utils
+          # AppRun probes user namespaces and otherwise silently adds --no-sandbox.
+          # Ubuntu 24.04 restricts this probe through AppArmor. Enable namespaces
+          # only on disposable hosted runners; the installed Electron sandbox
+          # remains required and is checked by the lifecycle tests.
+          if ! unshare -Ur true; then
+            test "${GITHUB_ACTIONS:-}" = true
+            test "${RUNNER_ENVIRONMENT:-}" = github-hosted
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+            unshare -Ur true
+          fi
         fi

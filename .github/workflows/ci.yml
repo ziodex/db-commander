@@ -63,6 +63,9 @@ jobs:
         if: runner.os == 'Windows'
         shell: powershell
         run: Set-DisplayResolution -Width 1920 -Height 1080 -Force
+      - name: Prepare macOS display
+        if: runner.os == 'macOS'
+        run: swift scripts/prepare-macos-ci-display.swift
       - name: Unit tests
         run: pnpm exec vitest run tests/unit --reporter=default --reporter=junit --outputFile.junit=.test-artifacts/ci-results/unit.xml
       - name: Build and package the native application
@@ -201,6 +204,9 @@ jobs:
         if: runner.os == 'Windows'
         shell: powershell
         run: Set-DisplayResolution -Width 1920 -Height 1080 -Force
+      - name: Prepare macOS display
+        if: runner.os == 'macOS'
+        run: swift scripts/prepare-macos-ci-display.swift
       - name: Restore Apple signing files to temporary storage
         if: runner.os == 'macOS'
         env:

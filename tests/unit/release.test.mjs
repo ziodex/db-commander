@@ -63,6 +63,7 @@ describe('release safety and evidence', () => {
     expect(config.mac.identity).toBeNull(); expect(config.mac.notarize).toBe(false)
     expect(config.win.signExecutable).toBe(false); expect(config.forceCodeSigning).toBe(false)
     expect(config.publish).toBeNull(); expect(config.nsis.deleteAppDataOnUninstall).toBe(false)
+    expect(config.appImage.executableArgs).toEqual([])
     expect(JSON.stringify(config)).not.toContain('secret')
   })
   it('fails closed for missing or unresolved signing secrets and wrong identity/endpoint', () => {
