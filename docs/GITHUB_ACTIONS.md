@@ -48,6 +48,8 @@ For installer qualification, the Linux setup action verifies `unshare -Ur true`.
 
 Reports and per-target packages are retained for 14 days, and the promoted bundle for 30 days. Download and archive evidence before expiry. Uploads never include the raw `release/` directory, signing files, unpacked applications or upgrade fixtures. There is no automatic release publication, tag creation or installation.
 
+Playwright retains traces and screenshots on failure. Hosted Windows runs allow 15 seconds for ordinary UI/backend assertions, including cold workspace loading and native disk operations; explicit test deadlines and measured performance budgets stay unchanged. Tests that do not exercise graceful Quit force-exit their private application so an unrelated native confirmation cannot obscure the original failure.
+
 Manifest `buildId` is `<GITHUB_RUN_ID>.<GITHUB_RUN_ATTEMPT>`, with `GITHUB_SHA` binding signed output to the checked-out main commit. Promotion downloads only this run's release candidates and verifies all targets, version, source, run/attempt, checksums, signatures, inventories and installer lifecycle evidence. Rerunning only failed release jobs can leave older-attempt artifacts; promotion deliberately rejects a mixed set. For a release, rerun **all jobs** or start a new manual run.
 
 ## Manual Windows diagnostics

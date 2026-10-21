@@ -56,6 +56,7 @@ for (const engine of ['sqlite', 'duckdb'] as const) test(`backup ${engine}: revi
     await expect(form.locator('.backup-status')).toHaveText('failed'); await expect(form).toContainText('already exists'); expect(readFileSync(restored)).toEqual(before)
     await page.screenshot({ path: testInfo.outputPath(`backup-${engine}.png`) })
     await form.getByRole('button', { name: 'Close backup dialog' }).click()
+    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
     await app!.close(); app = undefined
     page = await launch(); await openBackup(page)
     form = page.getByRole('dialog', { name: 'Database backup and restore', exact: true })
