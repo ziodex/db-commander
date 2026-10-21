@@ -39,7 +39,7 @@ The running developer preview, using synthetic shop data in a temporary DuckDB d
 ### Prerequisites
 
 - **Node.js 22.13 or newer** and Git. Use Node.js 22.x to match CI; Electron supplies the app’s embedded runtime.
-- **pnpm 11.25.0**, the version pinned in `package.json`.
+- **pnpm 12.14.0**, the version pinned in `package.json` and used by CI.
 - A graphical desktop session to run Electron.
 - Docker with Compose v2 **only if you want to run database contract tests or the supplied server fixtures**.
 
@@ -53,12 +53,15 @@ The active source branch is **`development`**. When creating your GitHub fork, u
 git clone --branch development https://github.com/YOUR_ACCOUNT/db-commander.git
 cd db-commander
 git remote add upstream https://github.com/ziodex/db-commander.git
-npm install --global pnpm@11.25.0
+npm install --global pnpm@12.14.0
+pnpm --version
 pnpm install --frozen-lockfile
 pnpm dev
 ```
 
 If you are working directly in the upstream repository, clone `https://github.com/ziodex/db-commander.git` with `--branch development` and omit `git remote add upstream`.
+
+Check that `pnpm --version` prints `12.14.0`. npm is used above to install pnpm; use pnpm for project dependencies and commands so the lockfile and native dependency settings are applied consistently.
 
 `pnpm dev` starts Electron with live rebuilding. For a first check, open a new SQLite or DuckDB in-memory connection and run:
 

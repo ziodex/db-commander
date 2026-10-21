@@ -1,6 +1,6 @@
 # Contributing
 
-Start with the [fork and development setup](README.md#fork-and-run-locally). Use Node.js 22.13 or newer (22.x matches CI), the pinned pnpm 11.25.0, and `pnpm install --frozen-lockfile`. Docker with Compose is needed only for real-engine contracts and the supplied server fixtures. Unit tests and `pnpm dev` do not require Docker. Use `pnpm test:desktop --driver <engine>` for selected contracts and native Electron workflows, as described in the [driver testing guide](docs/DRIVER_TESTING.md).
+Start with the [fork and development setup](README.md#fork-and-run-locally). Use Node.js 22.13 or newer (22.x matches CI), the pinned pnpm 12.14.0, and `pnpm install --frozen-lockfile`. Docker with Compose is needed only for real-engine contracts and the supplied server fixtures. Unit tests and `pnpm dev` do not require Docker. Use `pnpm test:desktop --driver <engine>` for selected contracts and native Electron workflows, as described in the [driver testing guide](docs/DRIVER_TESTING.md).
 
 Open contribution pull requests against `development`. [GitHub Actions](docs/GITHUB_ACTIONS.md) validates development/main pushes and pull requests to either branch with no signing secrets. Signed releases remain explicit main-only runs after the complete CI matrix passes.
 
