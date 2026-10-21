@@ -13,7 +13,7 @@ for (const engine of engineSchema.options) test(`data comparison ${engine}: boun
   delete env.ELECTRON_RUN_AS_NODE
   const app = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: process.env.SQLCOMMANDER_TEST_EXECUTABLE } : { args: [resolve('.')] }), env: env as Record<string,string> }), page = await app.firstWindow()
   const embedded = ['sqlite', 'duckdb'].includes(engine), prefix = 'dc_ui_' + Date.now(), source = prefix + '_source', target = prefix + '_target'
-  const schema = engine === 'postgres' ? 'public' : ['sqlserver', 'azure-sql'].includes(engine) ? 'dbo' : engine === 'oracle' ? 'SQLCOMMANDER' : ['mysql', 'mariadb'].includes(engine) ? 'dbcommander' : 'main'
+  const schema = engine === 'postgres' ? 'public' : ['sqlserver', 'azure-sql'].includes(engine) ? 'dbo' : engine === 'oracle' ? 'DBCOMMANDER' : ['mysql', 'mariadb'].includes(engine) ? 'dbcommander' : 'main'
   const q = (name: string) => quoteIdentifier(name, engine), full = (name: string) => `${q(schema)}.${q(name)}`
   async function run(sql: string) {
     await expect(page.getByRole('button', { name: /^Run SQL/ })).toBeEnabled()

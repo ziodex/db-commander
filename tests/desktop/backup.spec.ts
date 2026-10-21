@@ -111,7 +111,7 @@ for (const engine of ['postgres', 'mysql', 'mariadb', 'sqlserver', 'oracle'] as 
     const form = page.getByRole('dialog', { name: 'Database backup and restore', exact: true })
     await expect(form).toContainText(engineNames[engine as DatabaseEngine])
     await form.getByLabel(engine === 'oracle' ? 'Dump filename' : engine === 'sqlserver' ? 'Backup file on database server' : 'Backup file', { exact: true }).fill(artifact)
-    if (engine === 'oracle') await form.getByLabel('Source schema').fill('SQLCOMMANDER')
+    if (engine === 'oracle') await form.getByLabel('Source schema').fill('DBCOMMANDER')
     if (['postgres', 'mysql', 'mariadb'].includes(engine)) await form.getByLabel('Native tools directory (optional)').fill(process.env[`SQLCOMMANDER_${prefix}_TOOLS`]!)
     await form.getByRole('button', { name: 'Review job' }).click(); await form.getByRole('checkbox').check(); await form.getByRole('button', { name: 'Start backup' }).click()
     await expect(form.locator('.backup-status')).toHaveText('completed', { timeout: 90000 })

@@ -13,8 +13,8 @@ for(const engine of engineSchema.options) test(`schema comparison ${engine}: con
   const directory=mkdtempSync(join(tmpdir(),'dbcommander-compare-ui-')),env:Record<string,string|undefined>={...process.env,SQLCOMMANDER_USER_DATA:directory};delete env.ELECTRON_RUN_AS_NODE
   const app=await electron.launch({...process.env.SQLCOMMANDER_TEST_EXECUTABLE?{executablePath:process.env.SQLCOMMANDER_TEST_EXECUTABLE}:{args:[resolve('.')]},env:env as Record<string,string>}),page=await app.firstWindow()
   const q=(s:string)=>quoteIdentifier(s,engine),prefix='cmp_ui_'+Date.now(),name=prefix+'_table',extra=prefix+'_extra',embedded=['sqlite','duckdb'].includes(engine),separateSchema=['postgres','sqlserver','azure-sql'].includes(engine)
-  const sourceSchema=engine==='postgres'?'public':['sqlserver','azure-sql'].includes(engine)?'dbo':engine==='oracle'?'SQLCOMMANDER':['mysql','mariadb'].includes(engine)?'dbcommander':'main'
-  const targetSchema=separateSchema?prefix:engine==='oracle'?'SQLCOMMANDER_COMPARE':['mysql','mariadb'].includes(engine)?'comparison_target':'main'
+  const sourceSchema=engine==='postgres'?'public':['sqlserver','azure-sql'].includes(engine)?'dbo':engine==='oracle'?'DBCOMMANDER':['mysql','mariadb'].includes(engine)?'dbcommander':'main'
+  const targetSchema=separateSchema?prefix:engine==='oracle'?'DBCOMMANDER_COMPARE':['mysql','mariadb'].includes(engine)?'comparison_target':'main'
   const full=(schema:string,n:string)=>`${q(schema)}.${q(n)}`
   async function run(sql:string){await expect(page.getByRole('button',{name:/^Run SQL/})).toBeEnabled();await page.locator('.monaco-editor').click();await page.keyboard.press(process.platform==='darwin'?'Meta+A':'Control+A');await page.keyboard.insertText(sql);await page.keyboard.press('Escape');await page.getByRole('button',{name:/^Run SQL/}).click();await expect(page.locator('.status-text')).toHaveText('Completed');await expect(page.getByRole('button',{name:/^Run SQL/})).toBeEnabled()}
   async function configure(target=false){
