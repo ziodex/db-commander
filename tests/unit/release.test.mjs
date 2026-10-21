@@ -21,7 +21,7 @@ afterEach(async () => { vi.unstubAllEnvs(); for (const directory of directories.
 
 describe('release safety and evidence', () => {
   it('retains pnpm collection when a workspace probe returns an unreadable path', async () => {
-    const env = releaseBuildEnvironment({ packageManager: 'pnpm@11.25.0' }, { destination: 'output' }, { npm_config_user_agent: 'npm/11.0.0', npm_execpath: 'npm-cli.js' })
+    const env = releaseBuildEnvironment({ packageManager: 'pnpm@12.14.0' }, { destination: 'output' }, { npm_config_user_agent: 'npm/11.0.0', npm_execpath: 'npm-cli.js' })
     for (const key of ['npm_config_user_agent', 'npm_execpath', 'npm_package_json', 'INIT_CWD']) vi.stubEnv(key, env[key])
     const builderRequire = createRequire(createRequire(import.meta.url).resolve('electron-builder'))
     const { detectPackageManager } = builderRequire('app-builder-lib/out/node-module-collector/packageManager.js')
@@ -31,10 +31,10 @@ describe('release safety and evidence', () => {
   })
   it('keeps standalone pnpm builds unsigned and does not inherit a stale fixture version', () => {
     const inherited = { CSC_LINK: 'private.p12', AZURE_CLIENT_SECRET: 'private', SQLCOMMANDER_FIXTURE_VERSION: '0.0.0' }
-    const env = releaseBuildEnvironment({ packageManager: 'pnpm@11.25.0' }, { destination: 'output' }, inherited)
+    const env = releaseBuildEnvironment({ packageManager: 'pnpm@12.14.0' }, { destination: 'output' }, inherited)
     expect(env).toMatchObject({ SQLCOMMANDER_SIGNED_RELEASE: '0', CSC_IDENTITY_AUTO_DISCOVERY: 'false' })
     for (const key of Object.keys(inherited)) expect(env).not.toHaveProperty(key)
-    expect(releaseBuildEnvironment({ packageManager: 'pnpm@11.25.0' }, { destination: 'output', fixture: true }, inherited).SQLCOMMANDER_FIXTURE_VERSION).toBe('0.0.0')
+    expect(releaseBuildEnvironment({ packageManager: 'pnpm@12.14.0' }, { destination: 'output', fixture: true }, inherited).SQLCOMMANDER_FIXTURE_VERSION).toBe('0.0.0')
     expect(() => releaseBuildEnvironment({ packageManager: 'npm@11.0.0' }, { destination: 'output' })).toThrow('pinned pnpm')
     expect(inherited.CSC_LINK).toBe('private.p12')
   })

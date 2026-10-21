@@ -1,8 +1,9 @@
 # Real native DuckDB in an isolated Linux test process, not a network mock.
 FROM node:24.21.0-bookworm-slim
 WORKDIR /workspace
-RUN npm install --global pnpm@11.25.0
+RUN npm install --global pnpm@12.14.0
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+COPY patches ./patches
 RUN pnpm install --frozen-lockfile --ignore-scripts
 COPY src ./src
 COPY tests ./tests
