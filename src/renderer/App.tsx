@@ -13,6 +13,7 @@ import { QueryTabStrip } from './QueryTabStrip'
 import { moveTab, setTabPinned } from '../shared/tab-order'
 import { CommandPalette } from './CommandPalette'
 import { useAppearance } from './appearance'
+import { MaterialIcon } from './MaterialIcon'
 import { DEFAULT_EDITOR_SHORTCUTS, shortcutLabel } from '../shared/editor-shortcuts'
 import { WorkspaceWindowsDialog } from './WorkspaceWindowsDialog'
 import { EditorSettingsDialog } from './EditorSettingsDialog'
@@ -41,7 +42,7 @@ import { BackupDialog } from './BackupDialog'
 import { TransferDialog } from './TransferDialog'
 import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from 'react'
 import type * as Monaco from 'monaco-editor'
-import { PanelLeft, PanelBottom, Maximize2, Minimize2, Search, Activity, ArrowDownToLine, Save, Check, Database, FolderOpen, History, LockKeyhole, Play, Plus, Settings2, Square, Table2, Terminal, Unplug, X } from 'lucide-react'
+import { PanelLeft, PanelBottom, Maximize2, Minimize2, Search, Activity, ArrowDownToLine, Save, Check, Database, FolderOpen, History, LockKeyhole, Play, Plus, Settings2, Square, Table2, Terminal, Unplug, X } from './WorkbenchIcons'
 import type { ConnectionConfig, ConnectionProfile, HistoryEntry } from '../shared/contracts'
 import { DEFAULT_PROFILE, MAX_PROFILES, MAX_TABS, engineNames, type DatabaseEngine, type Workspace, type WorkspaceTab, type SavedConnectionProfile } from '../shared/contracts'
 import { tablePreviewSql } from '../shared/sql/common'
@@ -742,7 +743,7 @@ export function App() {
             onDelete={savedProfile => { setDialogError(''); setDeleteProfileId(savedProfile.id) }}
             onFavorite={(id, favorite) => changeWorkspace(previous => ({ ...previous, profiles: previous.profiles.map(profile => profile.id === id ? { ...profile, config: { ...profile.config, favorite } } : profile) }))}/>
           <div className="connection-group"><span>Current connection</span></div>
-          <button className={`connection-item ${session ? 'connected' : ''}`} onClick={() => { if (!session) setDialog(true) }}><Database size={18} /><span><strong>{session?.name ?? profile.name}</strong><small>{session ? ['sqlite', 'duckdb'].includes(session.engine) ? session.host : `${session.host}:${session.port}` : 'Not connected'}</small></span><i className={session ? 'online-dot' : 'offline-dot'} /></button>
+          <button className={`connection-item ${session ? 'connected' : ''}`} onClick={() => { if (!session) setDialog(true) }}><MaterialIcon name="database" size={18} /><span><strong>{session?.name ?? profile.name}</strong><small>{session ? ['sqlite', 'duckdb'].includes(session.engine) ? session.host : `${session.host}:${session.port}` : 'Not connected'}</small></span><i className={session ? 'online-dot' : 'offline-dot'} /></button>
           {session ? <DatabaseExplorer onActivity={()=>setActivityOpen({tabId,sessionId:session.id})} onBuilder={table=>setBuilderOpen({tabId,sessionId:session.id,table})} onCompareData={table=>session&&setDataCompareOpen({tabId,sessionId:session.id,table})} key={tabId} state={state} onBackup={()=>setBackupOpen(true)} onCompare={()=>setCompareOpen({tabId,sessionId:session.id})} onDiagram={() => setDiagramOpen({tabId,sessionId:session.id})} onSchemaChange={target => setSchemaEditor({ tabId, sessionId: session.id, target })} onInspect={object => void inspectObject(object)} onRefreshDatabases={() => void refreshDatabases()} onRefreshSchema={() => void refreshTables()} onSwitch={requestSwitch} onFilter={setTableSearch} onAppendSelect={appendSelect} onEdit={table => void openGrid(table)} onBrowse={table => void openGrid(table, 'browse')} /> : <p className="sidebar-description">Connect to load databases.</p>}
         </>}
       </aside>

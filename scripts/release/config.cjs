@@ -103,6 +103,8 @@ function builderConfig(env = process.env) {
       { from: 'build/icons/1024x1024.png', to: 'icon.png' },
       { from: 'build/icons/trayTemplate.png', to: 'trayTemplate.png' },
       { from: 'build/icons/trayTemplate@2x.png', to: 'trayTemplate@2x.png' },
+      { from: 'src/renderer/themes/LICENSE.txt', to: 'licenses/VSCode-theme-LICENSE.txt' },
+      { from: 'src/renderer/assets/material-icons/LICENSE.txt', to: 'licenses/Material-Icon-Theme-LICENSE.txt' },
       ...runtimeNotices.map(file => ({ from: `node_modules/electron/dist/${file.source}`, to: file.destination })),
       ...dependencyNoticeSources().map(file => ({ from: file.sourcePath, to: file.destination })),
       ...nativeDependencyNoticeSources(process.platform, process.arch).map(file => ({ from: file.sourcePath, to: file.destination }))

@@ -33,7 +33,7 @@ async function appearance(page: Page, theme: 'light' | 'dark') {
   await form.getByLabel('Appearance', { exact: true }).selectOption(theme)
   await form.getByRole('button', { name: 'Apply settings', exact: true }).click()
   await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
-  await expect.poll(() => page.locator('.monaco-editor-background').first().evaluate(element => getComputedStyle(element).backgroundColor)).toBe(theme === 'light' ? 'rgb(255, 255, 255)' : 'rgb(19, 25, 32)')
+  await expect.poll(() => page.locator('.monaco-editor-background').first().evaluate(element => getComputedStyle(element).backgroundColor)).toBe(theme === 'light' ? 'rgb(255, 255, 255)' : 'rgb(18, 19, 20)')
 }
 async function enter(page: Page, sql: string) {
   await page.locator('.monaco-editor').click(); await page.keyboard.press(`${modifier}+A`); await page.keyboard.insertText(sql); await page.keyboard.press('Escape')
@@ -87,7 +87,21 @@ test('design polish preserves readable themes, visible settings actions and comp
         expect(tokens.some(token => token.text.includes('Customer revenue'))).toBe(true)
         expect(tokens.some(token => token.text.includes('LEFT'))).toBe(true)
         expect(tokens.some(token => token.text.includes("'paid'"))).toBe(true)
-        const background = theme === 'light' ? 'rgb(255, 255, 255)' : 'rgb(19, 25, 32)'
+        if (theme === 'dark') {
+          // Verify rendered roles, rather than only inspecting the token file:
+          // an old component override must not silently reintroduce old colors.
+          for (const [selector, background] of [
+            ['.titlebar', 'rgb(25, 26, 27)'], ['.activity-bar', 'rgb(25, 26, 27)'],
+            ['.sidebar', 'rgb(25, 26, 27)'], ['.editor-tabs', 'rgb(25, 26, 27)'],
+            ['.editor-tab.selected', 'rgb(18, 19, 20)'], ['.query-toolbar', 'rgb(18, 19, 20)'],
+            ['.results-region', 'rgb(18, 19, 20)'], ['.statusbar', 'rgb(25, 26, 27)']
+          ]) await expect(page.locator(selector)).toHaveCSS('background-color', background)
+          expect(tokens.find(token => token.text.includes('LEFT'))?.color).toBe('rgb(255, 123, 114)')
+          expect(tokens.find(token => token.text.includes("'paid'"))?.color).toBe('rgb(165, 214, 255)')
+          expect(await page.locator('.query-tab-list .material-icon').first().evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true)
+          expect(await page.evaluate(() => document.fonts.check('16px codicon'))).toBe(true)
+        }
+        const background = theme === 'light' ? 'rgb(255, 255, 255)' : 'rgb(18, 19, 20)'
         for (const token of tokens) expect(contrast(token.color, background), `${theme}: ${token.text}`).toBeGreaterThanOrEqual(4.5)
         expect(numberedLines.map(row => row.line).sort()).toEqual(['1', '2', '3'])
         const gutter = numberedLines.map(row => row.color)
@@ -112,7 +126,9 @@ test('design polish preserves readable themes, visible settings actions and comp
         expect(colors.focused).toBe(true)
         for (const bg of [colors.input, colors.dialog]) {
           expect(contrast(colors.focus, bg)).toBeGreaterThanOrEqual(3)
-          expect(contrast(colors.border, bg)).toBeGreaterThanOrEqual(3)
+          // VS Code 2026 Dark intentionally uses its subtle #333536 input border.
+          if (theme === 'dark') expect(colors.border).toBe('rgb(51, 53, 54)')
+          else expect(contrast(colors.border, bg)).toBeGreaterThanOrEqual(3)
         }
         await input.fill('18'); await expect(form.getByRole('button', { name: 'Apply settings', exact: true })).toBeInViewport({ ratio: 1 })
         await form.locator('.editor-settings-fields').evaluate(element => { element.scrollTop = element.scrollHeight })

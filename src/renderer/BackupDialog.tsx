@@ -1,6 +1,6 @@
 import { ModalDialog } from './ModalDialog'
 import { useState } from 'react'
-import { X, FolderOpen } from 'lucide-react'
+import { X, FolderOpen } from './WorkbenchIcons'
 import { backupCapabilities, type BackupJob, type BackupRequest } from '../shared/backup'
 import { engineNames, type SessionInfo } from '../shared/contracts'
 

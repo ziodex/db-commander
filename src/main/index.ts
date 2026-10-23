@@ -505,7 +505,7 @@ async function saveBeforeQuit(): Promise<boolean> {
   })
 }
 async function createWindow(): Promise<void> {
-  window = new BrowserWindow({ width: 1440, height: 940, minWidth: 1024, minHeight: 700, title: `Db Commander — ${record.name}`, backgroundColor: '#11151c',
+  window = new BrowserWindow({ width: 1440, height: 940, minWidth: 1024, minHeight: 700, title: `Db Commander — ${record.name}`, backgroundColor: '#121314',
     icon: app.isPackaged ? join(process.resourcesPath, 'icon.png') : join(app.getAppPath(), 'build/icons/1024x1024.png'),
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default', ...(process.platform === 'darwin' ? { trafficLightPosition: { x: 18, y: 18 } } : {}),
     webPreferences: { preload: join(__dirname, '../preload/index.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true } })

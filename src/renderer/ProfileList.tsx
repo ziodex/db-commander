@@ -1,4 +1,5 @@
-import { Database, LockKeyhole, MoreHorizontal, Plus, Star } from 'lucide-react'
+import { LockKeyhole, MoreHorizontal, Plus, Star } from './WorkbenchIcons'
+import { MaterialFolderIcon, MaterialIcon } from './MaterialIcon'
 import { useState } from 'react'
 import { engineNames, type SavedConnectionProfile } from '../shared/contracts'
 import { protectedProfile } from '../shared/connection-options'
@@ -14,7 +15,7 @@ export function ProfileList({ profiles, full, ready, onNew, onOpen, onEdit, onDe
         const protectedConnection = protectedProfile(profile.config)
         const description = [engineNames[profile.config.engine], profile.config.environment, protectedConnection && 'Protected connection', profile.config.ssh && 'SSH', profile.config.favorite && 'Favorite'].filter(Boolean).join(' · ')
         return <div className="profile-row" key={profile.id}>
-          <button className="profile-open" aria-label={`Open ${profile.config.name} in new tab`} aria-description={description} title={`${profile.config.name}\n${description}\nOpen in a new tab with a separate session`} disabled={full} onClick={() => onOpen(profile)}><Database size={14}/><span><strong>{profile.config.name}</strong><small>{engineNames[profile.config.engine]}{profile.config.ssh ? ' · SSH' : ''}</small>{(profile.config.environment || protectedConnection) && <span className="profile-safety">{profile.config.environment && <span>{profile.config.environment}</span>}{protectedConnection && <span><LockKeyhole size={11}/>Protected</span>}</span>}</span></button>
+          <button className="profile-open" aria-label={`Open ${profile.config.name} in new tab`} aria-description={description} title={`${profile.config.name}\n${description}\nOpen in a new tab with a separate session`} disabled={full} onClick={() => onOpen(profile)}><MaterialIcon name="database"/><span><strong>{profile.config.name}</strong><small>{engineNames[profile.config.engine]}{profile.config.ssh ? ' · SSH' : ''}</small>{(profile.config.environment || protectedConnection) && <span className="profile-safety">{profile.config.environment && <span>{profile.config.environment}</span>}{protectedConnection && <span><LockKeyhole size={11}/>Protected</span>}</span>}</span></button>
           <button aria-label={`Favorite ${profile.config.name}`} title={`${profile.config.favorite ? 'Remove favorite' : 'Favorite'} ${profile.config.name}`} aria-pressed={Boolean(profile.config.favorite)} onClick={() => onFavorite(profile.id, !profile.config.favorite)}><Star size={13} fill={profile.config.favorite ? 'currentColor' : 'none'}/></button>
           <ActionMenu label={`Actions for ${profile.config.name}`} items={[
             { label: `Edit profile ${profile.config.name}`, action: () => onEdit(profile) },
@@ -22,7 +23,7 @@ export function ProfileList({ profiles, full, ready, onNew, onOpen, onEdit, onDe
           ]}><MoreHorizontal size={15}/></ActionMenu>
         </div>
       })
-      return !folder && folders.length === 1 ? <div key={folder}>{rows}</div> : <details className="profile-folder" key={folder} open><summary>{folder || 'Unfiled'} <small>{rows.length}</small></summary>{rows}</details>
+      return !folder && folders.length === 1 ? <div key={folder}>{rows}</div> : <details className="profile-folder" key={folder} open><summary><MaterialFolderIcon/>{folder || 'Unfiled'} <small>{rows.length}</small></summary>{rows}</details>
     })}{!visible.length && <p className="sidebar-description">{favorites ? 'No favorite profiles.' : 'No saved connections.'}</p>}
   </div></>
 }

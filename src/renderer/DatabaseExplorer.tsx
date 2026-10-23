@@ -3,7 +3,8 @@ import { explorerTree } from './explorer-tree'
 import { ExplorerCatalogActions, ExplorerCatalogTree } from './ExplorerCatalogTree'
 import { useCallback, useEffect, useMemo, useState, type MouseEvent, type KeyboardEvent } from 'react'
 import { objectKinds, objectKey, type CatalogObject } from '../shared/catalog'
-import { ChevronDown, ChevronRight, Database, RefreshCw, Search } from 'lucide-react'
+import { ChevronDown, ChevronRight, RefreshCw, Search } from './WorkbenchIcons'
+import { MaterialIcon } from './MaterialIcon'
 import type { GridTable } from '../shared/contracts'
 import { canSwitchDatabase, type QueryTabState } from './query-tabs'
 
@@ -100,7 +101,7 @@ export function DatabaseExplorer({ state, onRefreshDatabases, onRefreshSchema, o
     {names.map(name => <div className="database-branch" key={name}>
       <div className={`database-node ${name === session.database ? 'current' : ''}`}>
         <button aria-label={`Switch to database ${name}`} aria-current={name === session.database ? 'true' : undefined} aria-disabled={name !== session.database && (!catalog?.switchable || Boolean(reason))} aria-haspopup="menu" onContextMenu={e=>context(e,{kind:'database',name})} onKeyDown={e=>context(e,{kind:'database',name})} title={name === session.database ? 'Current database · Right-click for actions (Shift+F10)' : reason ?? 'Open this database with a fresh session'} onClick={() => { if(name!==session.database && catalog?.switchable && !reason) onSwitch(name) }}>
-          {name === session.database ? <ChevronDown size={13} /> : <ChevronRight size={13} />}<Database size={13} /><span>{name}</span>
+          {name === session.database ? <ChevronDown size={13} /> : <ChevronRight size={13} />}<MaterialIcon name="database"/><span>{name}</span>
         </button>
         {name === session.database && <button aria-label="Refresh schema" disabled={busy} onClick={onRefreshSchema}><RefreshCw size={12} /></button>}
       </div>

@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef } from 'react'
 import type * as Monaco from 'monaco-editor'
-import { X } from 'lucide-react'
+import { X } from './WorkbenchIcons'
 import type { WorkspaceTab } from '../shared/contracts'
 import { engineNames } from '../shared/database-engines'
 import type { EditorSettings } from '../shared/editor-settings'

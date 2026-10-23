@@ -1,33 +1,33 @@
 @import url('monaco-editor/min/vs/editor/editor.main.css');
 
 :root { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: var(--text); background: var(--background); font-size: 12px; font-synthesis: none; color-scheme: dark;
-  --background: #11151c;
-  --surface: #171e27;
-  --surface-raised: #1c2631;
-  --surface-hover: #26313d;
-  --text: #d9e2ec;
-  --muted: #91a0b0;
-  --border: #354352;
-  --border-strong: #526575;
-  --control-border: #697e90;
-  --focus: #a4d8bb;
-  --accent: #a4d8bb;
-  --accent-background: #a4d8bb;
-  --on-accent: #14251f;
-  --success: #b1dcc4;
-  --success-background: #23312d;
-  --success-border: #537b70;
-  --warning: #f6c98d;
-  --warning-background: #403c29;
-  --warning-border: #9b7a47;
-  --danger: #efb3a5;
-  --danger-background: #392526;
-  --danger-border: #895d54;
-  --info: #a9c8ff;
-  --info-background: #202d40;
-  --info-border: #668da6;
-  --overlay: #080c12b8;
-  --selection: #a4d8bb30;
+  --background: var(--vscode-editor-background);
+  --surface: var(--vscode-sideBar-background);
+  --surface-raised: var(--vscode-editorWidget-background);
+  --surface-hover: var(--vscode-list-hoverBackground);
+  --text: var(--vscode-foreground);
+  --muted: var(--vscode-descriptionForeground);
+  --border: var(--vscode-sideBar-border);
+  --border-strong: var(--vscode-widget-border);
+  --control-border: var(--vscode-input-border);
+  --focus: var(--vscode-focusBorder);
+  --accent: var(--vscode-textLink-foreground);
+  --accent-background: var(--vscode-button-background);
+  --on-accent: var(--vscode-button-foreground);
+  --success: var(--vscode-gitDecoration-addedResourceForeground);
+  --success-background: var(--vscode-diffEditor-insertedLineBackground);
+  --success-border: var(--vscode-editorGutter-addedBackground);
+  --warning: var(--vscode-list-warningForeground);
+  --warning-background: var(--vscode-inputValidation-warningBackground);
+  --warning-border: var(--vscode-inputValidation-warningBorder);
+  --danger: var(--vscode-errorForeground);
+  --danger-background: var(--vscode-inputValidation-errorBackground);
+  --danger-border: var(--vscode-inputValidation-errorBorder);
+  --info: var(--vscode-textLink-foreground);
+  --info-background: var(--vscode-inputValidation-infoBackground);
+  --info-border: var(--vscode-inputValidation-infoBorder);
+  --overlay: #00000080;
+  --selection: var(--vscode-list-activeSelectionBackground);
 }
 :root[data-theme="light"] { color-scheme: light;
   --background: #f4f6f8;
@@ -249,7 +249,7 @@ fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .editor-tab { height: 100%; padding: 0 5px 0 0; gap: 0; border-top-color: transparent; background: var(--surface); flex-shrink: 0; }
 .editor-tab.selected { border-top-color: var(--accent); background: var(--surface-raised); }
 .editor-tab > [role=tab] { height: 100%; border-radius: 0; min-width: 130px; max-width: 260px; justify-content: flex-start; padding: 5px 10px; }
-.editor-tab > [role=tab] > span:first-of-type { text-align: left; overflow: hidden; text-overflow: ellipsis; }
+.editor-tab > [role=tab] > span:not(.workbench-icon, .sql-dirty, .tab-activity) { text-align: left; overflow: hidden; text-overflow: ellipsis; }
 .editor-tab small { display: block; font-size: 10px; color: var(--muted); margin-top: 4px; overflow: hidden; text-overflow: ellipsis; }
 .editor-tab .close-tab { padding: 4px; }
 .editor-tab.pinned-end { border-right: 2px solid var(--border-strong); }

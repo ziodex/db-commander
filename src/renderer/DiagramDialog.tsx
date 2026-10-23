@@ -1,5 +1,5 @@
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
-import { X } from 'lucide-react'
+import { X } from './WorkbenchIcons'
 import { objectKey, type CatalogObject } from '../shared/catalog'
 import { DIAGRAM_TABLE_LIMIT, NODE_WIDTH, ROW_HEIGHT, diagramBounds, diagramLayout, edgeLabel, edgePath, nodeHeight, tableKey, tableLabel, type DiagramScope, type DiagramSnapshot, type Point } from '../shared/diagram'
 

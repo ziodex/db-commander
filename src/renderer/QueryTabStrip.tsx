@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { FileCode2, Pin, X } from 'lucide-react'
+import { Pin, X } from './WorkbenchIcons'
+import { MaterialIcon } from './MaterialIcon'
 import type { WorkspaceTab } from '../shared/contracts'
 import type { QueryTabState } from './query-tabs'
 import { ContextMenu, type MenuAnchor } from './ContextMenu'
@@ -83,7 +84,7 @@ export function QueryTabStrip({ tabs, activeId, states, disabled, closeDisabled,
                 onSelect(next.id); document.getElementById(`tab-${next.id}`)?.focus()
               }
             }}>
-            {item.pinned ? <Pin className="tab-pin" size={14} aria-hidden="true"/> : <FileCode2 size={14} aria-hidden="true"/>}{dirty(item) && <span className="sql-dirty" aria-label="Unsaved SQL changes" title="Unsaved SQL changes">●</span>}<span>{item.title}<small>{runtime?.session?.name ?? item.profile.name}</small></span>{activity && <span className={`tab-activity ${runtime?.running ? 'running' : ''}`} title={activity}>{activity}</span>}
+            {item.pinned ? <Pin className="tab-pin" size={14} aria-hidden="true"/> : <MaterialIcon name="database"/>}{dirty(item) && <span className="sql-dirty" aria-label="Unsaved SQL changes" title="Unsaved SQL changes">●</span>}<span>{item.title}<small>{runtime?.session?.name ?? item.profile.name}</small></span>{activity && <span className={`tab-activity ${runtime?.running ? 'running' : ''}`} title={activity}>{activity}</span>}
           </button>{!item.pinned && <button className="close-tab" aria-label={`Close ${item.title}`} disabled={closeDisabled || disabled} onClick={() => onClose(item.id)}><X size={12}/></button>}
         </div>
       })}

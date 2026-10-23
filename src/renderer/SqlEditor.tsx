@@ -1,6 +1,6 @@
 import Editor, { loader, type OnMount } from '@monaco-editor/react'
 import * as monaco from 'monaco-editor/esm/vs/editor/editor.api'
-import 'monaco-editor/esm/vs/basic-languages/sql/sql.contribution'
+import { conf as sqlConfiguration, language as sqlLanguage } from 'monaco-editor/esm/vs/basic-languages/sql/sql'
 import 'monaco-editor/esm/vs/editor/contrib/suggest/browser/suggestController'
 import 'monaco-editor/esm/vs/editor/contrib/format/browser/formatActions'
 import 'monaco-editor/esm/vs/editor/contrib/contextmenu/browser/contextmenu'
@@ -10,21 +10,30 @@ import type { DatabaseEngine, SchemaSnapshot } from '../shared/contracts'
 import { DEFAULT_EDITOR_SHORTCUTS, type EditorShortcut } from '../shared/editor-shortcuts'
 import { resolveSqlFormatting, type EditorSettings } from '../shared/editor-settings'
 import { setSqlContext, removeSqlContext, formatEditor, invalidateSqlFormatting } from './language-service'
+import { vscodeDarkEditorTheme } from './themes/vscode-dark-2026'
 
 self.MonacoEnvironment = { getWorker: () => new EditorWorker() }
 loader.config({ monaco })
+monaco.languages.register({ id: 'sql', extensions: ['.sql'], aliases: ['SQL', 'sql'] })
+monaco.languages.setLanguageConfiguration('sql', sqlConfiguration)
+// Monaco groups JOIN/AND/NULL with symbolic operators. VS Code's SQL grammar
+// colors these words as keywords, while comparison/arithmetic symbols retain
+// their operator color. Preserve Monaco's grammar and distinguish only these.
+monaco.languages.setMonarchTokensProvider('sql', {
+  ...sqlLanguage,
+  tokenizer: { ...sqlLanguage.tokenizer, root: [
+    [new RegExp(`\\b(?:${(sqlLanguage.operators as string[]).join('|')})\\b`, 'i'), 'operator.word'],
+    ...sqlLanguage.tokenizer.root
+  ] }
+})
 // The wrapper's URI-keyed cache never removes permanently closed tabs. Tie
 // cursor/scroll state to the model instead, so only live buffers keep it alive.
 const viewStates = new WeakMap<monaco.editor.ITextModel, monaco.editor.ICodeEditorViewState>()
-monaco.editor.defineTheme('commander', {
-  base: 'vs-dark', inherit: true,
-  rules: [{ token: 'keyword', foreground: '9bb8ff' }, { token: 'operator.sql', foreground: 'a9baca' }, { token: 'string.sql', foreground: 'bbd69b' }, { token: 'predefined.sql', foreground: 'c9a9e9' }, { token: 'comment', foreground: '8b9baa', fontStyle: 'italic' }],
-  colors: { 'editor.background': '#131920', 'editor.foreground': '#d9e2ec', 'editorLineNumber.foreground': '#7d8c9c', 'editorLineNumber.activeForeground': '#91a0b0', 'editor.lineHighlightBackground': '#19222c', 'editor.selectionBackground': '#223043', 'editor.inactiveSelectionBackground': '#242e3a', 'editorCursor.foreground': '#a4d8bb', 'editorIndentGuide.background1': '#26313c' }
-})
+monaco.editor.defineTheme('commander', vscodeDarkEditorTheme)
 
 monaco.editor.defineTheme('commander-light', {
   base: 'vs', inherit: true,
-  rules: [{ token: 'keyword', foreground: '234c97' }, { token: 'operator.sql', foreground: '425a70' }, { token: 'string.sql', foreground: '32652b' }, { token: 'number.sql', foreground: '306748' }, { token: 'predefined.sql', foreground: '674599' }, { token: 'comment', foreground: '596b7b', fontStyle: 'italic' }],
+  rules: [{ token: 'keyword', foreground: '234c97' }, { token: 'operator.sql', foreground: '425a70' }, { token: 'operator.word', foreground: '425a70' }, { token: 'string.sql', foreground: '32652b' }, { token: 'number.sql', foreground: '306748' }, { token: 'predefined.sql', foreground: '674599' }, { token: 'comment', foreground: '596b7b', fontStyle: 'italic' }],
   colors: { 'editor.background': '#ffffff', 'editor.foreground': '#243442', 'editorLineNumber.foreground': '#596b7b', 'editorLineNumber.activeForeground': '#354b5f', 'editor.lineHighlightBackground': '#f2f5f7', 'editor.selectionBackground': '#e1ecf7', 'editor.inactiveSelectionBackground': '#e9edf2', 'editorCursor.foreground': '#27694d', 'editorIndentGuide.background1': '#dce3e9' }
 })
 function binding(value: EditorShortcut): number[] {
@@ -103,7 +112,7 @@ export function SqlEditor({ theme, readOnly, canRun, tabId, tabIds, value, engin
     const id = editorRef.current?.getModel()?.uri.path.split('/').pop()?.replace(/\.sql$/, '')
     if (id) onChange(id, value ?? '')
   }} onMount={mount} loading={<div className="editor-loading">Opening SQL editor…</div>}
-    options={{ readOnly, domReadOnly: readOnly, autoClosingQuotes: noBackslashEscapes ? 'never' : 'languageDefined', fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
+    options={{ readOnly, domReadOnly: readOnly, autoClosingQuotes: noBackslashEscapes ? 'never' : 'languageDefined', fontFamily: 'Menlo, Monaco, Consolas, "Liberation Mono", monospace',
       fontSize: settings.fontSize, lineHeight: Math.round(settings.fontSize * 23 / 13), lineNumbers: settings.lineNumbers,
       minimap: { enabled: settings.minimap }, padding: { top: 22 }, scrollBeyondLastLine: false, automaticLayout: true,
       detectIndentation: false, tabSize: settings.tabSize, insertSpaces: settings.insertSpaces,
