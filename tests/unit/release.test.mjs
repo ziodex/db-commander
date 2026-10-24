@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { parse } from 'yaml'
 import { createRequire } from 'node:module'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { builderConfig, signingSettings, artifactNames, safeArtifact } from '../../scripts/release/config.cjs'
 import { artifactRecords, githubBuildId, readManifest, requireNativeWindowsX64 } from '../../scripts/release/common.mjs'
 import { validateReleaseGate } from '../../scripts/check-release.mjs'
@@ -73,6 +75,16 @@ describe('release safety and evidence', () => {
       computeDesktopEntry: (_options, command) => command
     }, 'unused-output')
     expect(await target.desktopEntry.value).toBe('AppRun %U')
+    expect(config.linux.extraFiles).toContainEqual({ from: 'build/linux/AppRun', to: 'AppRun' })
+  })
+  it.runIf(process.platform === 'linux')('preserves AppImage arguments and sandboxing even when unshare is unavailable', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'dbcommander AppRun ')); directories.push(directory)
+    await writeFile(join(directory, 'AppRun'), await readFile('build/linux/AppRun'), { mode: 0o755 })
+    await writeFile(join(directory, 'dbcommander'), '#!/bin/sh\nprintf "%s\\n" "$@"\n', { mode: 0o755 })
+    await writeFile(join(directory, 'unshare'), '#!/bin/sh\nexit 1\n', { mode: 0o755 })
+    const env = { ...process.env, PATH: `${directory}:${process.env.PATH}` }; delete env.APPDIR
+    const { stdout } = await promisify(execFile)(join(directory, 'AppRun'), ['file with spaces.sql', '--example'], { env })
+    expect(stdout.trim().split('\n')).toEqual(['file with spaces.sql', '--example'])
   })
   it('fails closed for missing or unresolved signing secrets and wrong identity/endpoint', () => {
     expect(() => signingSettings({}, 'darwin')).toThrow('CSC_LINK')
@@ -119,7 +131,7 @@ describe('release safety and evidence', () => {
     expect(() => builderConfig({ SQLCOMMANDER_FIXTURE_VERSION: '1.0.0' })).toThrow('fixture')
   })
   it('refuses system installation on developer machines', () => {
-    for (const format of ['exe', 'deb', 'rpm']) {
+    for (const format of ['exe', 'deb', 'rpm', 'AppImage']) {
       expect(() => requireDisposableHost(format, {})).toThrow('disposable')
       expect(() => requireDisposableHost(format, { CI: 'true' })).toThrow('disposable')
       expect(() => requireDisposableHost(format, { CI: 'true', SQLCOMMANDER_DISPOSABLE_INSTALL_TEST: '1' })).not.toThrow()

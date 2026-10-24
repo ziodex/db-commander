@@ -140,10 +140,12 @@ function builderConfig(env = process.env) {
       deleteAppDataOnUninstall: false, runAfterFinish: false,
       createDesktopShortcut: false, createStartMenuShortcut: true, uninstallDisplayName: 'Db Commander'
     },
-    // electron-builder's AppImage launcher otherwise adds --no-sandbox.
+    // Keep both the desktop entry and executable launcher sandboxed.
     appImage: { executableArgs: [] },
     linux: {
       icon: 'build/icons',
+      // app-builder-lib copies this over its generated AppRun in the AppImage.
+      extraFiles: [{ from: 'build/linux/AppRun', to: 'AppRun' }],
       target: ['AppImage', 'deb', 'rpm'], category: 'Development',
       executableName: 'dbcommander',
       // electron-builder otherwise requires an email in package.author for deb/rpm.

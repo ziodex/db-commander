@@ -1,9 +1,9 @@
-import { mkdir, rm, access, readdir } from 'node:fs/promises'
-import { join } from 'node:path'
+import { mkdir, rm, access, readdir, lstat, realpath } from 'node:fs/promises'
+import { join, sep } from 'node:path'
 import { root, run } from './common.mjs'
 
 export function requireDisposableHost(format, env = process.env) {
-  if (['exe', 'deb', 'rpm'].includes(format) && !(env.CI === 'true' && env.SQLCOMMANDER_DISPOSABLE_INSTALL_TEST === '1')) throw new Error('System installer tests require CI=true and SQLCOMMANDER_DISPOSABLE_INSTALL_TEST=1 on a disposable worker.')
+  if (['exe', 'deb', 'rpm', 'AppImage'].includes(format) && !(env.CI === 'true' && env.SQLCOMMANDER_DISPOSABLE_INSTALL_TEST === '1')) throw new Error('System installer tests require CI=true and SQLCOMMANDER_DISPOSABLE_INSTALL_TEST=1 on a disposable worker.')
 }
 export async function assertNoInstallation(format) {
   requireDisposableHost(format)
@@ -46,6 +46,13 @@ export async function installArtifact(file, format, directory) {
   else if (format === 'AppImage') {
     await rm(directory, { recursive: true, force: true }); await mkdir(directory, { recursive: true })
     await run(file, ['--appimage-extract'], { cwd: directory, capture: true })
+    // Extraction as the runner loses root ownership. Restore the bundled
+    // Chromium helper on this disposable host so AppArmor's userns restriction
+    // does not require disabling the sandbox or changing global host policy.
+    const sandbox = join(directory, 'squashfs-root', 'chrome-sandbox')
+    if (!(await lstat(sandbox)).isFile() || !(await realpath(sandbox)).startsWith(await realpath(directory) + sep)) throw new Error('The owned AppImage sandbox helper is missing or escapes its fixture.')
+    await run('sudo', ['-n', 'chown', 'root:root', sandbox])
+    await run('sudo', ['-n', 'chmod', '4755', sandbox])
     return join(directory, 'squashfs-root', 'AppRun')
   } else throw new Error(`Unsupported installer format: ${format}`)
   await access('/opt/Db Commander/dbcommander')

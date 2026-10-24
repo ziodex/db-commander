@@ -3,6 +3,13 @@ import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+export function diskImageDevice(report: { 'system-entities'?: { 'dev-entry'?: string; 'mount-point'?: string }[] }, mount: string) {
+  const entities = report['system-entities']
+  const device = entities?.find(entity => /^\/dev\/disk\d+$/.test(entity['dev-entry'] ?? ''))?.['dev-entry']
+  if (!device || !entities?.some(entity => entity['mount-point'] === mount && new RegExp(`^${device}(?:s\\d+)*$`).test(entity['dev-entry'] ?? ''))) throw new Error('Cannot identify the owned disk-image device.')
+  return device
+}
+
 export function verifyDiskImageDetached(image: string, mount: string, execute = execFileSync) {
   const plist = execute('hdiutil', ['info', '-plist'], { stdio: 'pipe', timeout: 5000, maxBuffer: 1024 * 1024 })
   const report = JSON.parse(String(execute('plutil', ['-convert', 'json', '-o', '-', '-'], { input: plist, stdio: 'pipe', timeout: 5000, maxBuffer: 1024 * 1024 })))
@@ -30,14 +37,17 @@ export function detachDiskImage(mount: string, execute = execFileSync, pause = (
 export function diskFullFixture() {
   if (process.platform !== 'darwin') throw new Error('The private disk-image fixture requires macOS.')
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'dbcommander-disk-full-'))), mount = join(root, 'volume'), image = join(root, 'volume.dmg'), filler = join(mount, 'filler')
-  let mounted = false
+  let mounted = false, device: string | undefined
   const dispose = () => {
-    if (mounted) { detachDiskImage(mount, execFileSync, undefined, () => verifyDiskImageDetached(image, mount)); mounted = false }
+    // A full HFS+ volume can lose its mount path while its image stays attached.
+    // Detach the device returned by our own attach, retaining identity checks.
+    if (mounted) { detachDiskImage(device ?? mount, execFileSync, undefined, () => verifyDiskImageDetached(image, mount)); mounted = false }
     rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
   }
   try {
     execFileSync('hdiutil', ['create', '-size', '32m', '-fs', 'HFS+', '-volname', 'DbCommanderDiskFault', '-type', 'UDIF', '-nospotlight', image], { stdio: 'pipe' })
-    execFileSync('hdiutil', ['attach', '-nobrowse', '-mountpoint', mount, image], { stdio: 'pipe' }); mounted = true
+    const attached = execFileSync('hdiutil', ['attach', '-plist', '-nobrowse', '-mountpoint', mount, image], { stdio: 'pipe' }); mounted = true
+    device = diskImageDevice(JSON.parse(String(execFileSync('plutil', ['-convert', 'json', '-o', '-', '-'], { input: attached, stdio: 'pipe' }))), mount)
     writeFileSync(join(mount, '.metadata_never_index'), '')
     return { root, mount, dispose, release: () => rmSync(filler), fill(reservedBytes = 0) {
       if (!Number.isInteger(reservedBytes) || reservedBytes < 0 || reservedBytes > 1024 * 1024) throw new Error('Reserve at most 1 MiB in the private volume.')

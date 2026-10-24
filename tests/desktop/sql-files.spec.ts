@@ -249,6 +249,8 @@ test('SQL files reject invalid files, handle cancelled open and report missing r
   const file = join(h.directory, 'missing.sql'); writeFileSync(file, 'SELECT missing;'); await h.open(file)
   await h.page.getByRole('button', { name: 'Close missing.sql', exact: true }).click()
   await h.page.getByRole('dialog').getByRole('button', { name: 'Close tab', exact: true }).click()
+  await expect(h.page.getByRole('dialog')).toBeHidden()
+  await expect(h.page.getByRole('tab', { name: 'missing.sql', exact: true })).toHaveCount(0)
   unlinkSync(file); await menu(h.app, h.page, 'Recent SQL files…')
   const dialog = h.page.getByRole('dialog', { name: 'Recent SQL files' })
   await dialog.getByRole('button', { name: /missing.sql/ }).click()

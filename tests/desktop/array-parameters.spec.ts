@@ -16,7 +16,8 @@ for (const engine of engineSchema.options) test(`array parameters ${engine}: typ
   const from = engine === 'oracle' ? ' FROM dual' : '', q = (s: string) => quoteIdentifier(s, engine)
   const needle = '9223372036854775807', items = JSON.stringify(['-9223372036854775808', needle, null, needle])
   try {
-    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    // Wait for native workspace initialization before exercising parameter behavior.
+    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible({ timeout: 30000 })
     await page.getByRole('button', { name: 'Connect database', exact: true }).click()
     const form = page.getByRole('dialog'); await form.getByLabel('Database engine').selectOption(engine)
     if (['sqlite', 'duckdb'].includes(engine)) await form.getByLabel('Open mode').selectOption('memory')

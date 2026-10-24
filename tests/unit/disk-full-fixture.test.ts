@@ -1,5 +1,14 @@
 import { expect, it, vi } from 'vitest'
-import { detachDiskImage, verifyDiskImageDetached } from '../desktop/disk-full-fixture'
+import { detachDiskImage, diskImageDevice, verifyDiskImageDetached } from '../desktop/disk-full-fixture'
+
+it('selects only the attached device owning the private fixture mount', () => {
+  const mount = '/private/fixture/volume'
+  const entities = [{ 'dev-entry': '/dev/disk4' }, { 'dev-entry': '/dev/disk4s1', 'mount-point': mount }]
+  expect(diskImageDevice({ 'system-entities': entities }, mount)).toBe('/dev/disk4')
+  for (const report of [{}, { 'system-entities': [entities[0]] }, { 'system-entities': [entities[0], { 'dev-entry': '/dev/disk40s1', 'mount-point': mount }] }, { 'system-entities': [{ 'dev-entry': '/dev/disk4', 'mount-point': '/another/mount' }] }]) {
+    expect(() => diskImageDevice(report, mount)).toThrow('Cannot identify the owned disk-image device')
+  }
+})
 
 it('retries a busy owned volume without forcing eject and succeeds when its handle is released', () => {
   const busy = Object.assign(new Error('hdiutil refusal'), { stderr: Buffer.from("hdiutil: couldn't eject disk2 - Resource busy\n") })

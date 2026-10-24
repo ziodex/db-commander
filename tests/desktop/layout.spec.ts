@@ -72,14 +72,17 @@ test('layout mouse and keyboard resizing, native View commands and panel visibil
     expect(await size(sidebar, 'width')).toBe(234); expect(await size(results, 'height')).toBe(320)
     // Native pointer completion precedes React's render of continuous-event updates.
     await drag(app, page, vertical, 90, 0); await expect.poll(() => size(sidebar, 'width')).toBe(324)
-    await drag(app, page, horizontal, 0, -60); await expect.poll(() => size(results, 'height')).toBe(380)
+    // macOS can cap native window height to the display. Start below the limit
+    // so this gesture tests its full delta, independently of clamping.
+    await horizontal.focus(); await page.keyboard.press('Home'); expect(await size(results, 'height')).toBe(240)
+    await drag(app, page, horizontal, 0, -60); await expect.poll(() => size(results, 'height')).toBe(300)
     await drag(app, page, vertical, 55, 0, true); await expect.poll(() => size(sidebar, 'width')).toBe(324)
     await vertical.focus(); await page.keyboard.press('ArrowRight'); expect(await size(sidebar, 'width')).toBe(334)
     await page.keyboard.press('Shift+ArrowLeft'); expect(await size(sidebar, 'width')).toBe(284)
     await page.keyboard.press('Home'); expect(await size(sidebar, 'width')).toBe(200)
     await page.keyboard.press('End'); expect(await size(sidebar, 'width')).toBe(Number(await vertical.getAttribute('aria-valuemax')))
     await vertical.dblclick(); expect(await size(sidebar, 'width')).toBe(234)
-    await horizontal.focus(); await page.keyboard.press('ArrowUp'); expect(await size(results, 'height')).toBe(390)
+    await horizontal.focus(); await page.keyboard.press('ArrowUp'); expect(await size(results, 'height')).toBe(310)
     await page.keyboard.press('Home'); expect(await size(results, 'height')).toBe(240)
     await page.keyboard.press('End'); expect(await size(results, 'height')).toBe(Number(await horizontal.getAttribute('aria-valuemax')))
     await horizontal.dblclick(); expect(await size(results, 'height')).toBe(320)
@@ -145,10 +148,13 @@ test('layout persists through immediate quit and renderer recovery and fits smal
     await shortcut(app, 'B'); await shortcut(app, 'J')
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1024, 700))
     await expect.poll(() => size(page.locator('.sidebar'), 'width')).toBeLessThan(preferred.sidebarWidth)
-    await expect.poll(() => size(page.locator('.results-region'), 'height')).toBeLessThan(preferred.resultsHeight)
+    // Shrinking width may also unwrap the toolbar, leaving enough vertical room
+    // for the preferred height. Assert the actual available-height clamp.
+    await expect.poll(async () => await size(page.locator('.results-region'), 'height') - Math.min(preferred.resultsHeight, Number(await page.getByRole('separator', { name: 'Resize results' }).getAttribute('aria-valuemax')))).toBe(0)
     expect(await size(page.locator('.editor-region'), 'height')).toBeGreaterThanOrEqual(160)
     expect(await size(page.locator('.results-region'), 'height')).toBeGreaterThanOrEqual(240)
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+    expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight)).toBe(true)
     expect(await savedLayout(page)).toMatchObject(preferred)
     await drag(app, page, page.getByRole('separator', { name: 'Resize sidebar' }), -60, 0, true)
     await drag(app, page, page.getByRole('separator', { name: 'Resize results' }), 0, 60, true)
