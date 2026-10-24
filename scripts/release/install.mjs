@@ -1,5 +1,4 @@
-import { mkdir, rm, access, readdir, lstat, realpath, copyFile } from 'node:fs/promises'
-import { constants } from 'node:fs'
+import { mkdir, rm, access, readdir, lstat, realpath, rename } from 'node:fs/promises'
 import { dirname, join, sep } from 'node:path'
 import { root, run } from './common.mjs'
 
@@ -58,7 +57,9 @@ export async function installArtifact(file, format, directory) {
     const source = join(directory, 'squashfs-root', 'chrome-sandbox'), sandbox = appImageSandboxPath(directory)
     if (!(await lstat(source)).isFile() || !(await realpath(source)).startsWith(await realpath(directory) + sep)) throw new Error('The owned AppImage sandbox helper is missing or escapes its fixture.')
     await rm(sandbox, { force: true })
-    await copyFile(source, sandbox, constants.COPYFILE_EXCL)
+    // Chromium prefers an adjacent helper over CHROME_DEVEL_SANDBOX, so move
+    // the extracted fixture copy instead of leaving a second helper beside it.
+    await rename(source, sandbox)
     await run('sudo', ['-n', 'chown', 'root:root', sandbox])
     await run('sudo', ['-n', 'chmod', '4755', sandbox])
     return join(directory, 'squashfs-root', 'AppRun')
