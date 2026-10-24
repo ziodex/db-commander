@@ -35,12 +35,15 @@ async function retainSamples(testInfo: TestInfo, name: string, samples: unknown[
   console.log(`${name}: ${JSON.stringify(samples)}`)
   await testInfo.attach(name, { path, contentType: 'application/json' })
 }
-async function retainedViewStates(cdp: CDPSession, file: string) {
+async function heapSnapshot(cdp: CDPSession, file: string) {
   const chunks: string[] = [], listener = ({ chunk }: { chunk: string }) => chunks.push(chunk)
   cdp.on('HeapProfiler.addHeapSnapshotChunk', listener)
   try { await cdp.send('HeapProfiler.takeHeapSnapshot') }
   finally { cdp.off('HeapProfiler.addHeapSnapshotChunk', listener) }
   writeFileSync(file, chunks.join('')); chunks.length = 0
+}
+async function retainedViewStates(cdp: CDPSession, file: string) {
+  await heapSnapshot(cdp, file)
   const heap = JSON.parse(readFileSync(file, 'utf8'))
   const nf = heap.snapshot.meta.node_fields, ef = heap.snapshot.meta.edge_fields
   const edgeCount = nf.indexOf('edge_count'), edgeType = ef.indexOf('type'), edgeName = ef.indexOf('name_or_index')
@@ -136,7 +139,11 @@ test('native input DOM retention plateaus without clearing the open SQL buffer u
         // Compare the same settled completion UI. Merely creating its shell
         // can leave asynchronous list/action listeners pending at a sample.
         await readyForSnapshot(page)
-        samples.push(await sample(cdp, `edit_${i}`))
+        const beforeSnapshot = await sample(cdp, `edit_${i}`)
+        // Use the same full native collection boundary as the closed-tab test.
+        // Retain the heap and earlier counters to diagnose any real retention.
+        await heapSnapshot(cdp, testInfo.outputPath(`input-${i}.heapsnapshot`))
+        samples.push({ ...await sample(cdp, `edit_${i}`), beforeSnapshot })
       }
     }
     // Blink retains native textarea undo commands as well as Monaco's model
