@@ -12,19 +12,21 @@ it('selects only the attached device owning the private fixture mount', () => {
 
 it('retries a busy owned volume without forcing eject and succeeds when its handle is released', () => {
   const busy = Object.assign(new Error('hdiutil refusal'), { stderr: Buffer.from("hdiutil: couldn't eject disk2 - Resource busy\n") })
-  const execute = vi.fn().mockImplementationOnce(() => { throw busy }).mockImplementationOnce(() => { throw busy }).mockReturnValue(Buffer.from('detached'))
-  const pause = vi.fn()
-  detachDiskImage('/private/fixture/volume', execute, pause)
-  expect(execute).toHaveBeenCalledTimes(3)
+  let attempts = 0, time = 0
+  const execute = vi.fn().mockImplementation(() => { if (++attempts <= 8) throw busy; return Buffer.from('detached') })
+  const pause = vi.fn((ms: number) => { time += ms })
+  detachDiskImage('/private/fixture/volume', execute, pause, undefined, () => time)
+  expect(execute).toHaveBeenCalledTimes(9)
   for (const args of execute.mock.calls) expect(args).toEqual(['hdiutil', ['detach', '/private/fixture/volume'], { stdio: 'pipe', timeout: 5000 }])
-  expect(pause.mock.calls).toEqual([[500], [500]])
+  expect(time).toBe(4000); expect(pause.mock.calls.every(([ms]) => ms === 500)).toBe(true)
 })
 
 it('retains the original busy error after bounded retries so a mounted fixture is not removed', () => {
   const busy = Object.assign(new Error('still busy'), { stderr: 'Resource busy' })
-  const execute = vi.fn(() => { throw busy }), pause = vi.fn()
-  expect(() => detachDiskImage('/private/fixture/volume', execute, pause)).toThrow(busy)
-  expect(execute).toHaveBeenCalledTimes(6); expect(pause).toHaveBeenCalledTimes(5)
+  let time = 0
+  const execute = vi.fn(() => { throw busy }), pause = vi.fn((ms: number) => { time += ms })
+  expect(() => detachDiskImage('/private/fixture/volume', execute, pause, undefined, () => time)).toThrow(busy)
+  expect(time).toBe(30000); expect(execute).toHaveBeenCalledTimes(61); expect(pause).toHaveBeenCalledTimes(60)
 })
 
 it('does not retry unrelated detach failures or command timeouts', () => {
