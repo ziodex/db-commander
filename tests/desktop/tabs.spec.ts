@@ -170,7 +170,8 @@ for (const engine of ['duckdb', 'postgres'] as const) test(`${engine} saved prof
     if (engine === 'postgres') {
       const warning = page.getByRole('dialog', { name: 'Connection failed', exact: true })
       await expect(warning).toBeVisible()
-      await warning.getByRole('button', { name: 'Edit connection', exact: true }).click()
+      await warning.getByRole('button', { name: 'OK', exact: true }).click()
+      await page.getByRole('button', { name: 'Connect database', exact: true }).click()
       await expect(page.getByRole('dialog').getByLabel('Password', { exact: true })).toHaveValue('')
       await page.getByRole('dialog').getByLabel('Password', { exact: true }).fill('local-test-only')
       await page.getByRole('dialog').getByRole('button', { name: 'Connect', exact: true }).click()
