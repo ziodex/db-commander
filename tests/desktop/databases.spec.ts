@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { tableAction, tableNode } from './explorer-actions'
 import { _electron as electron, test, expect } from '@playwright/test'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
@@ -29,7 +30,7 @@ for (const engine of ['postgres', 'mysql', 'mariadb', 'sqlserver', 'azure-sql'])
     await expect(page.getByRole('button', { name: /^Run SQL/ })).toBeEnabled()
   }
   try {
-    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(page)
     await page.getByRole('button', { name: 'Connect database', exact: true }).click()
     const form = page.getByRole('dialog'), prefix = engine === 'postgres' ? 'PG' : tsql ? 'SQLSERVER' : engine.toUpperCase()
     await form.getByLabel('Database engine').selectOption(engine)

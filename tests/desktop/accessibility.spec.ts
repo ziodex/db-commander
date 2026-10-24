@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { _electron as electron, test, expect, type ElectronApplication } from '@playwright/test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -9,7 +10,7 @@ async function launch() {
   const app = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: resolve(process.env.SQLCOMMANDER_TEST_EXECUTABLE) } : { args: [resolve('.')] }), env: env as Record<string, string> })
   try {
     const page = await app.firstWindow()
-    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(page)
     return { app, page, directory }
   } catch (error) { await close(app, directory); throw error }
 }
@@ -57,9 +58,9 @@ test('keyboard focus stays in close and delete confirmations without changing sa
     const form = page.getByRole('dialog'); await form.getByLabel('Database engine').selectOption('sqlite')
     await form.getByLabel('Open mode').selectOption('memory'); await form.getByLabel('Connection name').fill('Keyboard fixture')
     await form.getByRole('button', { name: 'Save profile', exact: true }).click(); await expect(form).toHaveCount(0)
-    const actions = page.getByRole('button', { name: 'Actions for Keyboard fixture', exact: true })
-    await actions.focus(); await page.keyboard.press('Enter'); await page.keyboard.press('End')
-    const deletion = page.getByRole('menuitem', { name: 'Delete profile Keyboard fixture', exact: true })
+    const actions = page.getByRole('button', { name: 'Open Keyboard fixture in new tab', exact: true })
+    await actions.focus(); await page.keyboard.press('Shift+F10'); await page.keyboard.press('End')
+    const deletion = page.getByRole('menuitem', { name: 'Delete connection', exact: true })
     await deletion.focus(); await page.keyboard.press('Enter')
     dialog = page.getByRole('dialog', { name: 'Delete saved profile', exact: true })
     await expect(dialog.getByRole('button', { name: 'Keep profile', exact: true })).toBeFocused()
@@ -83,8 +84,8 @@ test('keyboard focus follows menu commands into dialogs and back without running
     const palette = page.getByRole('dialog', { name: 'Commands', exact: true })
     await page.keyboard.press(`${modifier}+k`); await expect(palette).toHaveCount(0); await expect(commands).toBeFocused()
     await commands.press('Enter')
-    await palette.getByLabel('Search commands').fill('Editor settings'); await page.keyboard.press('Enter')
-    const settings = page.getByRole('dialog', { name: 'Editor settings', exact: true })
+    await palette.getByLabel('Search commands').fill('Preferences'); await page.keyboard.press('Enter')
+    const settings = page.getByRole('dialog', { name: 'Preferences', exact: true })
     await expect.poll(() => settings.evaluate(element => element.contains(document.activeElement))).toBe(true)
     await app.evaluate(({ dialog, BrowserWindow }) => {
       ;(globalThis as any).__backgroundFileDialogs = 0

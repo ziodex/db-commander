@@ -37,7 +37,7 @@ export const DEFAULT_PROFILE: ConnectionProfile = { engine: 'postgres', name: 'L
 export const MAX_TABS = 20
 export const MAX_PROFILES = 100
 export const idSchema = z.string().uuid()
-export const switchDatabaseSchema = z.object({ sessionId: idSchema, database: z.string().min(1).max(255) }).strict()
+export const switchDatabaseSchema = z.object({ sessionId: idSchema, database: z.string().min(1).max(255), retainSource: z.boolean().optional() }).strict()
 export type SwitchDatabaseRequest = z.infer<typeof switchDatabaseSchema>
 export interface DatabaseCatalog { databases: string[]; current: string; switchable: boolean; notice?: string }
 const savedProfileSchema = z.object({ id: idSchema, config: profileSchema, credential: z.literal('os-store').optional() }).strict()
@@ -74,7 +74,7 @@ export const workspaceSchema = z.object({ version: z.literal(2), tabs: z.array(w
   if (workspace.tabs.reduce((length, tab) => length + tab.sql.length, 0) > MAX_WORKSPACE_SQL_CHARACTERS) context.addIssue({ code: 'custom', message: 'The workspace supports up to 5 MB of SQL text.' })
 })
 export type Workspace = z.infer<typeof workspaceSchema>
-export const runSchema = z.object({ sessionId: idSchema, queryId: idSchema.optional(), sql: z.string().trim().min(1).max(MAX_SQL_CHARACTERS), parameters: parametersSchema.optional(), singleUnit: z.boolean().optional(), maxRows: z.number().int().min(1).max(10000).default(1000) }).strict()
+export const runSchema = z.object({ sessionId: idSchema, viewId: idSchema.optional(), queryId: idSchema.optional(), sql: z.string().trim().min(1).max(MAX_SQL_CHARACTERS), parameters: parametersSchema.optional(), singleUnit: z.boolean().optional(), maxRows: z.number().int().min(1).max(10000).default(1000) }).strict()
 export type RunRequest = z.infer<typeof runSchema>
 // Grid snapshots and original values are retained by the database host. The
 // renderer submits only row ordinals and explicitly changed cells.
@@ -98,20 +98,28 @@ const gridChangeSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('delete'), row: z.number().int().min(0).max(199) }).strict()
 ])
 export const gridRequestSchema = z.discriminatedUnion('action', [
-  z.object({ action: z.literal('inspect-cell'), sessionId: idSchema, snapshotId: idSchema, row: z.number().int().min(0).max(199), column: z.number().int().min(0).max(99) }).strict(),
-  z.object({ action: z.literal('foreign-keys'), sessionId: idSchema, snapshotId: idSchema }).strict(),
-  z.object({ action: z.literal('follow-reference'), sessionId: idSchema, snapshotId: idSchema, row: z.number().int().min(0).max(199), referenceId: z.string().length(64) }).strict(),
-  z.object({ action: z.literal('open'), sessionId: idSchema, table: gridTableSchema, query: gridQuerySchema.optional() }).strict(),
-  z.object({ action: z.literal('browse'), sessionId: idSchema, table: gridTableSchema, query: gridQuerySchema.optional() }).strict(),
-  z.object({ action: z.literal('apply'), sessionId: idSchema, snapshotId: idSchema, changes: z.array(gridChangeSchema).min(1).max(200) }).strict()
+  z.object({ action: z.literal('release'), sessionId: idSchema, viewId: idSchema }).strict(),
+  z.object({ action: z.literal('inspect-cell'), sessionId: idSchema, viewId: idSchema.optional(), snapshotId: idSchema, row: z.number().int().min(0).max(199), column: z.number().int().min(0).max(99) }).strict(),
+  z.object({ action: z.literal('foreign-keys'), sessionId: idSchema, viewId: idSchema.optional(), snapshotId: idSchema }).strict(),
+  z.object({ action: z.literal('follow-reference'), sessionId: idSchema, viewId: idSchema.optional(), snapshotId: idSchema, row: z.number().int().min(0).max(199), referenceId: z.string().length(64) }).strict(),
+  z.object({ action: z.literal('open'), sessionId: idSchema, viewId: idSchema.optional(), table: gridTableSchema, query: gridQuerySchema.optional() }).strict(),
+  z.object({ action: z.literal('browse'), sessionId: idSchema, viewId: idSchema.optional(), table: gridTableSchema, query: gridQuerySchema.optional() }).strict(),
+  z.object({ action: z.literal('apply'), sessionId: idSchema, viewId: idSchema.optional(), snapshotId: idSchema, changes: z.array(gridChangeSchema).min(1).max(200) }).strict()
 ])
 export type GridRequest = z.infer<typeof gridRequestSchema>
 export type GridChange = z.infer<typeof gridChangeSchema>
 export type GridTable = z.infer<typeof gridTableSchema>
 export interface GridColumn { name: string; type: string; nullable: boolean; primaryKey: boolean; generated: boolean; hasDefault: boolean; filterable?: boolean; sortable?: boolean; textual?: boolean }
-export interface GridSnapshot { id: string; table: GridTable; columns: GridColumn[]; rows: Cell[][]; truncated: boolean; query: GridQueryOptions; mode: 'browse' | 'edit'; notice?: string; cellMarks?: import('./inspection').CellMark[] }
+export interface GridSnapshot { id: string; table: GridTable; columns: GridColumn[]; rows: Cell[][]; truncated: boolean; query: GridQueryOptions; mode: 'browse' | 'edit'; notice?: string; cellMarks?: import('./inspection').CellMark[]; /** Executed SELECT when it needs no bound filter values. */ statement?: string }
 export interface GridResponse { session: SessionInfo; grid?: GridSnapshot; applied?: number; error?: string; imported?: number; importPreview?: import('./transfer').ImportPreview; inspection?: import('./inspection').CellInspection; references?: import('./inspection').ForeignKey[]; dataCapture?: import('./data-compare').DataCapture }
 export interface DesktopApi {
+  preferences(): Promise<import('./editor-settings').EditorSettings | null>
+  savePreferences(settings: import('./editor-settings').EditorSettings): Promise<void>
+  onPreferencesChanged(listener: (settings: import('./editor-settings').EditorSettings) => void): () => void
+  applicationMenu(): Promise<import('./application-menu').ApplicationMenuItem[] | null>
+  executeApplicationMenu(path: string): Promise<void>
+  updateTitleBar(appearance: import('./application-menu').TitleBarAppearance): Promise<void>
+  onApplicationMenuKey(listener: (index: number | null) => void): () => void
   updateStatus(): Promise<import('./updates').UpdateStatus>
   checkForUpdates(): Promise<import('./updates').UpdateStatus>
   dismissUpdate(version?: string): Promise<void>

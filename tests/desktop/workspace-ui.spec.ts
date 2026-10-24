@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { _electron as electron, test, expect, type ElectronApplication, type Page } from '@playwright/test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -10,7 +11,7 @@ test.beforeEach(async () => {
   const env: Record<string, string | undefined> = { ...process.env, SQLCOMMANDER_USER_DATA: directory }; delete env.ELECTRON_RUN_AS_NODE
   app = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: process.env.SQLCOMMANDER_TEST_EXECUTABLE } : { args: [resolve('.')] }), env: env as Record<string, string> })
   page = await app.firstWindow()
-  await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+  await waitForWorkspaceReady(page)
 })
 test.afterEach(async () => {
   await app?.evaluate(({ app }) => app.exit(0)).catch(() => {})
@@ -26,13 +27,13 @@ test('commands search, keyboard navigation and secondary query actions', async (
   await expect(page.getByRole('menuitem', { name: 'Explain selected SQL' })).toBeDisabled()
   await expect(page.getByRole('menuitem', { name: 'Data import and export' })).toBeFocused()
   await expect(page.getByRole('menu', { name: 'Query tools' }).getByRole('group')).toHaveCount(3)
-  await expect(page.getByRole('menuitem', { name: 'Editor settings', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('menuitem', { name: 'Preferences', exact: true })).toHaveCount(0)
   await page.keyboard.press('End')
   await expect(page.getByRole('menuitem', { name: 'Query library', exact: true })).toBeFocused()
   await page.keyboard.press('Escape'); await expect(tools).toBeFocused()
   const workspace = page.getByRole('button', { name: 'Workspace', exact: true })
   await workspace.click(); await page.keyboard.press('End')
-  await expect(page.getByRole('menuitem', { name: 'Editor settings', exact: true })).toBeFocused()
+  await expect(page.getByRole('menuitem', { name: 'Preferences', exact: true })).toBeFocused()
   await page.keyboard.press('ArrowUp')
   await expect(page.getByRole('menuitem', { name: 'Workspace windows', exact: true })).toBeFocused()
   await page.keyboard.press('Escape'); await expect(workspace).toBeFocused()
@@ -44,7 +45,7 @@ test('commands search, keyboard navigation and secondary query actions', async (
   await commands.click()
   const palette = page.getByRole('dialog', { name: 'Commands', exact: true }), search = palette.getByRole('textbox', { name: 'Search commands' })
   await expect(search).toBeFocused()
-  await search.fill('preferences'); await expect(palette.getByRole('button', { name: 'Editor settings', exact: true })).toBeVisible()
+  await search.fill('preferences'); await expect(palette.getByRole('button', { name: 'Preferences', exact: true })).toBeVisible()
   await search.fill('Workspace windows'); await expect(palette.getByRole('button', { name: 'Workspace windows', exact: true })).toBeVisible()
   await search.fill('no matching command 123'); await expect(palette.getByRole('status')).toHaveText('No matching commands.')
   await search.fill('explain'); await expect(palette.getByRole('button', { name: 'Explain selected SQL' })).toBeDisabled()

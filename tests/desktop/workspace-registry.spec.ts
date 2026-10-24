@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { _electron as electron, test, expect, type ElectronApplication } from '@playwright/test'
 import { constants, lstatSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { open } from 'node:fs/promises'
@@ -28,7 +29,7 @@ for (const kind of ['fifo', 'invalid-utf8'] as const) test(`workspace registry r
     const env: Record<string, string | undefined> = { ...process.env, SQLCOMMANDER_USER_DATA: directory }; delete env.ELECTRON_RUN_AS_NODE
     app = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: resolve(process.env.SQLCOMMANDER_TEST_EXECUTABLE) } : { args: [resolve('.')] }), env: env as Record<string, string> })
     const page = await app.firstWindow({ timeout: 5000 })
-    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(page)
     return page
   }
   async function close() { await app?.evaluate(({ app }) => app.exit(0)).catch(() => {}); await app?.close().catch(() => {}); app = undefined }
@@ -54,7 +55,7 @@ for (const kind of ['fifo', 'invalid-utf8'] as const) test(`workspace registry r
     const opened = app!.waitForEvent('window')
     await primary.evaluate(id => window.dbCommander.openWorkspaceWindow(id), secondaryId)
     const secondary = await opened
-    await expect(secondary.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(secondary)
     expect((await secondary.evaluate(() => window.dbCommander.loadWorkspace()))?.tabs[0].sql).toBe(secondarySql)
     expect((await primary.evaluate(() => window.dbCommander.loadWorkspace()))?.tabs[0].sql).toBe(primarySql)
     for (const page of [primary, secondary]) {

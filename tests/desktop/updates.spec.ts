@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { _electron as electron, test, expect, type ElectronApplication, type Page } from '@playwright/test'
 import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
@@ -13,7 +14,7 @@ async function launch(directory: string, status = 200) {
   const app = await electron.launch({ args: [application], env: env as Record<string, string> })
   try {
     const page = await app.firstWindow()
-    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(page)
     return { app, page, profile }
   } catch (error) {
     await app.evaluate(({ app }) => app.exit(1)).catch(() => {})
@@ -77,8 +78,8 @@ test('update checks: startup, daily notification and shared dismissal preserve S
     await expect(banner).toContainText('0.3.0 is available')
     await page.screenshot({ path: info.outputPath('update-banner-dark.png') })
     await page.getByRole('button', { name: 'Workspace', exact: true }).click()
-    await page.getByRole('menuitem', { name: 'Editor settings', exact: true }).click()
-    const settings = page.getByRole('dialog', { name: 'Editor settings', exact: true })
+    await page.getByRole('menuitem', { name: 'Preferences', exact: true }).click()
+    const settings = page.getByRole('dialog', { name: 'Preferences', exact: true })
     await settings.getByLabel('Appearance', { exact: true }).selectOption('light')
     await settings.getByRole('button', { name: 'Apply settings', exact: true }).click()
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')

@@ -4,6 +4,8 @@ import { EditableGrid } from './EditableGrid'
 import { ResultGrid } from './ResultGrid'
 import type { InspectionActions } from './ValueInspector'
 import type { ColumnLayout, SavedColumnControls } from './ColumnControls'
+import { ActionMenu } from './ActionMenu'
+import { ChevronRight, MoreHorizontal } from './WorkbenchIcons'
 
 const operators = { eq: 'Equals', ne: 'Does not equal', lt: 'Less than', lte: 'Less than or equal', gt: 'Greater than', gte: 'Greater than or equal', contains: 'Contains text', 'starts-with': 'Starts with', 'is-null': 'Is NULL', 'not-null': 'Is not NULL' }
 
@@ -55,22 +57,27 @@ export function TableData({ grid, changes, busy, disconnected, expired, transact
 }) {
   const [options, setOptions] = useState(false), blocked = busy || disconnected || transaction || changes.length > 0
   const load = (query: GridQueryOptions) => onLoad(query, grid.mode)
-  return <div className="table-data">
-    <div className="browse-toolbar" role="group" aria-label="Table pagination">
+  const pagination = <div className="data-toolbar-group table-pagination" role="group" aria-label="Table pagination">
       {onBack&&<button disabled={blocked} onClick={onBack}>Back to source table</button>}
-      <button aria-label="First page" disabled={blocked || !grid.query.offset} onClick={() => load({ ...grid.query, offset: 0 })}>First</button>
-      <button aria-label="Previous page" disabled={blocked || !grid.query.offset} onClick={() => load({ ...grid.query, offset: Math.max(0, grid.query.offset - grid.query.pageSize) })}>Previous</button>
+      <button aria-label="First page" title="First page" disabled={blocked || !grid.query.offset} onClick={() => load({ ...grid.query, offset: 0 })}>First</button>
+      <button aria-label="Previous page" title="Previous page" disabled={blocked || !grid.query.offset} onClick={() => load({ ...grid.query, offset: Math.max(0, grid.query.offset - grid.query.pageSize) })}><ChevronRight className="previous-page-icon" size={14}/></button>
       <span aria-live="polite" className="page-range">{grid.rows.length ? `Rows ${grid.query.offset + 1}–${grid.query.offset + grid.rows.length}` : 'No rows on this page'}</span>
-      <button aria-label="Next page" disabled={blocked || !grid.truncated || grid.query.offset + grid.query.pageSize > 1_000_000} onClick={() => load({ ...grid.query, offset: grid.query.offset + grid.query.pageSize })}>Next</button>
-      <label>Page size<select aria-label="Rows per page" disabled={blocked} value={grid.query.pageSize} onChange={event => load({ ...grid.query, offset: 0, pageSize: Number(event.target.value) as GridQueryOptions['pageSize'] })}>{[25, 50, 100, 200].map(size => <option key={size}>{size}</option>)}</select></label>
-      <button disabled={blocked} onClick={() => setOptions(true)}>Filters &amp; sort ({grid.query.filters.length}/{grid.query.sort.length})</button>
+      <button aria-label="Next page" title="Next page" disabled={blocked || !grid.truncated || grid.query.offset + grid.query.pageSize > 1_000_000} onClick={() => load({ ...grid.query, offset: grid.query.offset + grid.query.pageSize })}><ChevronRight size={14}/></button>
+      <select aria-label="Rows per page" title="Rows per page" disabled={blocked} value={grid.query.pageSize} onChange={event => load({ ...grid.query, offset: 0, pageSize: Number(event.target.value) as GridQueryOptions['pageSize'] })}>{[25, 50, 100, 200].map(size => <option key={size} value={size}>{size} / page</option>)}</select>
     </div>
-    {grid.mode === 'edit' ? <EditableGrid key={grid.id} grid={grid} changes={changes} busy={busy} disconnected={disconnected} expired={expired} transaction={transaction} onChange={onChange} onApply={onApply} onReload={() => load(grid.query)} onClose={onClose} actions={actions} view={view} onView={onView} savedColumns={savedColumns}/> : <>
-      <div className="grid-edit-toolbar"><strong>{grid.table.schema}.{grid.table.name}</strong><span>Read-only browser</span><div className="tabs-spacer" /><button disabled={blocked || expired} onClick={() => onLoad(grid.query, 'edit')}>Edit this page</button><button disabled={blocked} onClick={() => load(grid.query)}>Reload data</button><button disabled={busy} onClick={onClose}>Close data</button></div>
+  const filters = <button disabled={blocked} title={`${grid.query.filters.length} filters, ${grid.query.sort.length} sort columns · Applied on the database`} onClick={() => setOptions(true)}>Filters &amp; sort{Boolean(grid.query.filters.length || grid.query.sort.length) && ` (${grid.query.filters.length}/${grid.query.sort.length})`}</button>
+  return <div className="table-data">
+    {grid.mode === 'edit' ? <><div className="data-toolbar">{pagination}{filters}</div><EditableGrid key={grid.id} grid={grid} changes={changes} busy={busy} disconnected={disconnected} expired={expired} transaction={transaction} onChange={onChange} onApply={onApply} onReload={() => load(grid.query)} onClose={onClose} actions={actions} view={view} onView={onView} savedColumns={savedColumns}/></> : <>
       {expired && <div className="grid-edit-hint" role="status">The last load failed or the connection changed. Reload to fetch current data.</div>}
-      <ResultGrid key={grid.id} result={{ index: 0, statement: '', columns: grid.columns.map(c => ({ name: c.name, typeId: 0, typeName: c.type })), rows: grid.rows, rowCount: null, command: 'SELECT', truncated: grid.truncated }} label="Table data" rowOffset={grid.query.offset} marks={grid.cellMarks} actions={blocked||expired?undefined:actions} view={view} onView={onView} savedColumns={savedColumns}/>
+      <ResultGrid key={grid.id} result={{ index: 0, statement: '', columns: grid.columns.map(c => ({ name: c.name, typeId: 0, typeName: c.type })), rows: grid.rows, rowCount: null, command: 'SELECT', truncated: grid.truncated }} label="Table data" rowOffset={grid.query.offset} marks={grid.cellMarks} actions={blocked||expired?undefined:actions} view={view} onView={onView} savedColumns={savedColumns}
+        toolbarStart={<>{pagination}{filters}</>}
+        toolbarEnd={<ActionMenu label="Table actions" items={[
+          { label: 'Edit this page', disabled: blocked || expired, action: () => onLoad(grid.query, 'edit') },
+          { label: 'Reload data', disabled: blocked, action: () => load(grid.query) },
+          { label: 'Close data', disabled: busy, action: onClose }
+        ]}><MoreHorizontal size={16}/></ActionMenu>}/>
     </>}
-    <div className="browse-notice" title={grid.notice}>{grid.notice}</div>
+    <div className="browse-notice" title={`${grid.table.schema}.${grid.table.name} · ${grid.notice}`}><strong>{grid.table.schema}.{grid.table.name}</strong><span>{grid.notice}</span></div>
     {options && <BrowseOptions grid={grid} onApply={load} onClose={() => setOptions(false)} />}
   </div>
 }

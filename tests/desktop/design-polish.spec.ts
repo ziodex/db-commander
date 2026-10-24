@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { withClipboard } from './clipboard-fixture'
 import { _electron as electron, test, expect, type Page } from '@playwright/test'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -19,21 +20,21 @@ async function launch() {
   try {
     const page = await app.firstWindow()
     const errors: string[] = []; page.on('pageerror', error => errors.push(error.message))
-    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible(); await expect(page.locator('.monaco-editor')).toBeVisible()
+    await waitForWorkspaceReady(page); await expect(page.locator('.monaco-editor')).toBeVisible()
     return { app, page, errors, close }
   } catch (error) { await close(); throw error }
 }
 async function preferences(page: Page) {
   await page.getByRole('button', { name: 'Workspace', exact: true }).click()
-  await page.getByRole('menuitem', { name: 'Editor settings', exact: true }).click()
-  return page.getByRole('dialog', { name: 'Editor settings', exact: true })
+  await page.getByRole('menuitem', { name: 'Preferences', exact: true }).click()
+  return page.getByRole('dialog', { name: 'Preferences', exact: true })
 }
 async function appearance(page: Page, theme: 'light' | 'dark') {
   const form = await preferences(page)
   await form.getByLabel('Appearance', { exact: true }).selectOption(theme)
   await form.getByRole('button', { name: 'Apply settings', exact: true }).click()
   await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
-  await expect.poll(() => page.locator('.monaco-editor-background').first().evaluate(element => getComputedStyle(element).backgroundColor)).toBe(theme === 'light' ? 'rgb(255, 255, 255)' : 'rgb(19, 25, 32)')
+  await expect.poll(() => page.locator('.monaco-editor-background').first().evaluate(element => getComputedStyle(element).backgroundColor)).toBe(theme === 'light' ? 'rgb(255, 255, 255)' : 'rgb(18, 19, 20)')
 }
 async function enter(page: Page, sql: string) {
   await page.locator('.monaco-editor').click(); await page.keyboard.press(`${modifier}+A`); await page.keyboard.insertText(sql); await page.keyboard.press('Escape')
@@ -87,7 +88,21 @@ test('design polish preserves readable themes, visible settings actions and comp
         expect(tokens.some(token => token.text.includes('Customer revenue'))).toBe(true)
         expect(tokens.some(token => token.text.includes('LEFT'))).toBe(true)
         expect(tokens.some(token => token.text.includes("'paid'"))).toBe(true)
-        const background = theme === 'light' ? 'rgb(255, 255, 255)' : 'rgb(19, 25, 32)'
+        if (theme === 'dark') {
+          // Verify rendered roles, rather than only inspecting the token file:
+          // an old component override must not silently reintroduce old colors.
+          for (const [selector, background] of [
+            ['.titlebar', 'rgb(25, 26, 27)'], ['.activity-bar', 'rgb(25, 26, 27)'],
+            ['.sidebar', 'rgb(25, 26, 27)'], ['.editor-tabs', 'rgb(25, 26, 27)'],
+            ['.editor-tab.selected', 'rgb(18, 19, 20)'], ['.query-toolbar', 'rgb(18, 19, 20)'],
+            ['.results-region', 'rgb(18, 19, 20)'], ['.statusbar', 'rgb(25, 26, 27)']
+          ]) await expect(page.locator(selector)).toHaveCSS('background-color', background)
+          expect(tokens.find(token => token.text.includes('LEFT'))?.color).toBe('rgb(255, 123, 114)')
+          expect(tokens.find(token => token.text.includes("'paid'"))?.color).toBe('rgb(165, 214, 255)')
+          expect(await page.locator('.query-tab-list .material-icon').first().evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true)
+          expect(await page.evaluate(() => document.fonts.check('16px codicon'))).toBe(true)
+        }
+        const background = theme === 'light' ? 'rgb(255, 255, 255)' : 'rgb(18, 19, 20)'
         for (const token of tokens) expect(contrast(token.color, background), `${theme}: ${token.text}`).toBeGreaterThanOrEqual(4.5)
         expect(numberedLines.map(row => row.line).sort()).toEqual(['1', '2', '3'])
         const gutter = numberedLines.map(row => row.color)
@@ -101,7 +116,7 @@ test('design polish preserves readable themes, visible settings actions and comp
         }
         const form = await preferences(page)
         await expect(form.locator('legend').first()).toHaveText('Display')
-        await expect(form.locator('.editor-settings-transfer')).not.toHaveAttribute('open', '')
+        await expect(form.getByRole('tabpanel', { name: 'Display', exact: true })).toBeVisible()
         for (const name of ['Reset defaults', 'Cancel', 'Apply settings']) await expect(form.getByRole('button', { name, exact: true })).toBeInViewport({ ratio: 1 })
         const input = form.getByLabel(/Font size/)
         await input.focus(); await page.keyboard.press('Tab'); await page.keyboard.press('Shift+Tab')
@@ -112,7 +127,9 @@ test('design polish preserves readable themes, visible settings actions and comp
         expect(colors.focused).toBe(true)
         for (const bg of [colors.input, colors.dialog]) {
           expect(contrast(colors.focus, bg)).toBeGreaterThanOrEqual(3)
-          expect(contrast(colors.border, bg)).toBeGreaterThanOrEqual(3)
+          // VS Code 2026 Dark intentionally uses its subtle #333536 input border.
+          if (theme === 'dark') expect(colors.border).toBe('rgb(51, 53, 54)')
+          else expect(contrast(colors.border, bg)).toBeGreaterThanOrEqual(3)
         }
         await input.fill('18'); await expect(form.getByRole('button', { name: 'Apply settings', exact: true })).toBeInViewport({ ratio: 1 })
         await form.locator('.editor-settings-fields').evaluate(element => { element.scrollTop = element.scrollHeight })
@@ -122,9 +139,9 @@ test('design polish preserves readable themes, visible settings actions and comp
         measurements.push({ theme, width, height, identity, tokens, gutter, colors })
       }
     }
-    const actions = page.getByRole('button', { name: 'Actions for Warehouse production', exact: true })
-    await actions.focus(); await page.keyboard.press('Enter'); await page.keyboard.press('End')
-    await expect(page.getByRole('menuitem', { name: 'Delete profile Warehouse production', exact: true })).toBeFocused()
+    const actions = page.getByRole('button', { name: 'Open Warehouse production in new tab', exact: true })
+    await actions.focus(); await page.keyboard.press('Shift+F10'); await page.keyboard.press('End')
+    await expect(page.getByRole('menuitem', { name: 'Delete connection', exact: true })).toBeFocused()
     await page.keyboard.press('Escape'); await expect(actions).toBeFocused()
     await app.evaluate(({ BrowserWindow }) => { const window = BrowserWindow.getAllWindows()[0]; window.setSize(1440, 940); window.webContents.setZoomFactor(1.5) })
     for (const theme of ['dark', 'light'] as const) {

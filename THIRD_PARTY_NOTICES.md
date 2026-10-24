@@ -28,4 +28,10 @@ SQLite for user databases and workspace storage comes from Electron/Node’s bun
 
 Other runtime components include Electron, React, Monaco Editor, Zod, Lucide, and TanStack Virtual. Consult their installed package license files for the applicable terms. The Docker database images are test infrastructure, not bundled database servers.
 
+## Interface themes and icons
+
+- **VS Code 2026 Dark theme**, from Visual Studio Code 1.142.0: MIT, Microsoft Corporation. Source: https://github.com/microsoft/vscode/tree/main/extensions/theme-defaults/themes. The vendored palette resolves the original `2026-dark.json` inheritance through `dark_modern.json`, `dark_plus.json`, and `dark_vs.json`. Workbench colors are used directly; Monaco SQL tokens map to the corresponding upstream TextMate scopes. The original MIT license is retained in `src/renderer/themes/LICENSE.txt` and packaged as `resources/licenses/VSCode-theme-LICENSE.txt`.
+- **Material Icon Theme** 5.39.0: MIT, Material Extensions. Source: https://github.com/material-extensions/vscode-material-icon-theme. Selected original SVGs are vendored unmodified in `src/renderer/assets/material-icons/`. SQL files use its original `sql` extension mapping to the database icon. The original license is retained there and packaged as `resources/licenses/Material-Icon-Theme-LICENSE.txt`.
+- **Codicons**: MIT, Microsoft Corporation. Product/action glyphs use the Codicon font already distributed with Monaco Editor, with its upstream license. Material Icon Theme supplies file and explorer assets; Codicons supplies toolbar, navigation, and control glyphs, as in VS Code.
+
 Release engineering should generate a complete dependency inventory/SBOM and verify source/license availability for all redistributed components before publishing signed installers.

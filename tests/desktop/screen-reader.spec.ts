@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { _electron as electron, test, expect, type ElectronApplication, type Page, type CDPSession, type TestInfo } from '@playwright/test'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -11,7 +12,7 @@ async function launch() {
   const env: Record<string, string | undefined> = { ...process.env, SQLCOMMANDER_USER_DATA: directory }; delete env.ELECTRON_RUN_AS_NODE
   const app = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: resolve(process.env.SQLCOMMANDER_TEST_EXECUTABLE) } : { args: [resolve('.')] }), env: env as Record<string, string> })
   try {
-    const page = await app.firstWindow(); await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    const page = await app.firstWindow(); await waitForWorkspaceReady(page)
     const cdp = await app.context().newCDPSession(page); await cdp.send('Accessibility.enable')
     return { app, page, directory, cdp }
   } catch (error) { await close(app, directory); throw error }
@@ -98,6 +99,7 @@ test('screen reader distinguishes result values, headers and virtual preview pos
 test('screen reader exposes editable cell state, protected keys and virtual row indices', async ({}, info) => {
   const { app, page, directory, cdp } = await launch()
   try {
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1024, 700))
     await connect(page)
     await run(page, "CREATE TABLE accessible_data(id INTEGER PRIMARY KEY, note TEXT DEFAULT 'fallback', computed TEXT GENERATED ALWAYS AS (coalesce(note,'missing')) STORED); WITH RECURSIVE n(i) AS (VALUES(1) UNION ALL SELECT i+1 FROM n WHERE i<100) INSERT INTO accessible_data(id,note) SELECT i, CASE WHEN i=1 THEN NULL ELSE '' END FROM n;")
     await tableAction(page, 'accessible_data', 'Edit data'); await expect(page.locator('.status-text')).toHaveText('Table loaded')

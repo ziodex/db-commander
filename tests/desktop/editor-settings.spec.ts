@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { _electron as electron, test, expect, type ElectronApplication, type Page, type Locator } from '@playwright/test'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -10,7 +11,7 @@ async function launch(directory: string) {
   const app = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: process.env.SQLCOMMANDER_TEST_EXECUTABLE } : { args: [resolve('.')] }), env: env as Record<string, string> })
   try {
     const page = await app.firstWindow()
-    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(page)
     await expect(page.locator('.monaco-editor')).toBeVisible()
     return { app, page }
   } catch (error) { await forceClose(app); throw error }
@@ -22,17 +23,16 @@ async function openSettings(page: Page, palette = false) {
   if (palette) {
     await page.getByRole('button', { name: 'Commands', exact: true }).click()
     await page.getByRole('textbox', { name: 'Search commands' }).fill('preferences')
-    await page.getByRole('button', { name: 'Editor settings', exact: true }).click()
+    await page.getByRole('button', { name: 'Preferences', exact: true }).click()
   } else {
     await page.getByRole('button', { name: 'Workspace', exact: true }).click()
-    await page.getByRole('menuitem', { name: 'Editor settings', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Preferences', exact: true }).click()
   }
-  const form = page.getByRole('dialog', { name: 'Editor settings', exact: true })
+  const form = page.getByRole('dialog', { name: 'Preferences', exact: true })
   await expect(form).toBeVisible(); return form
 }
 async function settingsTransfer(form: Locator, name: string) {
-  const details = form.locator('.editor-settings-transfer')
-  if (!await details.evaluate((element: HTMLDetailsElement) => element.open)) await details.locator('summary').click()
+  await form.getByRole('tab', { name: 'Import / export', exact: true }).click()
   await form.getByRole('button', { name, exact: true }).click()
 }
 async function enter(page: Page, sql: string) {
@@ -63,8 +63,8 @@ test('editor settings cancel, validate, format, undo and persist across tabs and
     await expect(form).toBeVisible(); expect((await workspace(page))?.editorSettings).toBeUndefined()
     await form.getByLabel(/Font size/).fill('18'); await form.getByLabel('Line numbers', { exact: true }).selectOption('relative')
     await form.getByLabel('Wrap long lines').uncheck(); await form.getByLabel('Show minimap').check(); await form.getByLabel('Automatic suggestions').uncheck()
-    await form.getByLabel('Indent using').selectOption('tabs'); await form.getByLabel(/Indent width/).fill('4')
-    await form.getByLabel(/Inline expression width/).fill('20'); await form.getByLabel(/Blank lines between statements/).fill('3')
+    await form.getByRole('tab', { name: 'Indentation', exact: true }).click(); await form.getByLabel('Indent using').selectOption('tabs'); await form.getByLabel(/Indent width/).fill('4')
+    await form.getByRole('tab', { name: 'SQL formatting', exact: true }).click(); await form.getByLabel(/Inline expression width/).fill('20'); await form.getByLabel(/Blank lines between statements/).fill('3')
     await form.getByRole('button', { name: 'Apply settings', exact: true }).click(); await expect(form).not.toBeVisible()
     const settings = { ...DEFAULT_EDITOR_SETTINGS, fontSize: 18, lineNumbers: 'relative' as const, wordWrap: false, minimap: true, automaticSuggestions: false, insertSpaces: false, tabSize: 4, formatting: { expressionWidth: 20, linesBetweenQueries: 3 } }
     await expect.poll(async () => (await workspace(page))?.editorSettings).toEqual(settings)
@@ -81,7 +81,7 @@ test('editor settings cancel, validate, format, undo and persist across tabs and
     await page.getByRole('button', { name: 'New query tab', exact: true }).click(); await enter(page, 'select 33 as third;')
     await page.getByRole('button', { name: 'Format SQL', exact: true }).click(); await expect.poll(() => text(page)).toContain('\n\t33 as third')
     // Change indentation on existing models and verify a typed Tab follows it.
-    form = await openSettings(page); await form.getByLabel('Indent using').selectOption('spaces')
+    form = await openSettings(page); await form.getByRole('tab', { name: 'Indentation', exact: true }).click(); await form.getByLabel('Indent using').selectOption('spaces')
     await form.getByRole('button', { name: 'Apply settings', exact: true }).click()
     await page.getByRole('tab', { name: 'Untitled.sql', exact: true }).click(); await enter(page, '')
     await page.keyboard.press('Tab'); await page.keyboard.insertText('select 9;')
@@ -103,7 +103,7 @@ test('editor settings cancel, validate, format, undo and persist across tabs and
   } finally { await forceClose(app); rmSync(directory, { recursive: true, force: true }) }
 })
 
-test('editor settings preserve duckdb results, sessions and independent transactions', async () => {
+test('editor settings preserve duckdb results and the transaction shared by query tabs', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'dbcommander-editor-settings-state-'))
   let app: ElectronApplication | undefined
   try {
@@ -118,7 +118,7 @@ test('editor settings preserve duckdb results, sessions and independent transact
     const first = await workspace(page), firstText = await text(page)
     await page.getByRole('button', { name: 'New query tab', exact: true }).click()
     await expect(page.locator('.status-text')).toHaveText('Connected')
-    await run(page, 'select 88 as isolated_session;')
+    await run(page, 'select 88 as shared_session;')
     const history = await page.evaluate(() => window.dbCommander.history()), profiles = (await workspace(page))?.profiles
     const form = await openSettings(page)
     const file = join(directory, 'incoming-settings.json')
@@ -128,7 +128,7 @@ test('editor settings preserve duckdb results, sessions and independent transact
     await expect(form.getByLabel(/Font size/)).toHaveValue('20')
     await form.getByRole('button', { name: 'Apply settings', exact: true }).click()
     await expect(page.getByRole('cell', { name: '88', exact: true })).toBeVisible()
-    await expect(page.locator('.transaction-badge')).toHaveText('Autocommit')
+    await expect(page.locator('.transaction-badge')).toHaveText('In transaction')
     await expect.poll(async () => (await workspace(page))?.editorSettings?.fontSize).toBe(20)
     expect(await page.evaluate(() => window.dbCommander.history())).toEqual(history)
     expect((await workspace(page))?.profiles).toEqual(profiles)
@@ -142,6 +142,7 @@ test('editor settings preserve duckdb results, sessions and independent transact
     await expect(page.getByRole('cell', { name: '0', exact: true })).toBeVisible()
     await page.getByRole('tab', { name: 'Query 2.sql', exact: true }).click()
     await expect(page.getByRole('cell', { name: '88', exact: true })).toBeVisible()
+    await expect(page.locator('.transaction-badge')).toHaveText('Autocommit')
   } finally { await forceClose(app); rmSync(directory, { recursive: true, force: true }) }
 })
 
@@ -191,7 +192,7 @@ test('editor settings files export applied preferences and import drafts without
     form = await openSettings(page); await expect(form.getByLabel(/Font size/)).toHaveValue('13')
     await settingsTransfer(form, 'Import settings')
     await expect(form.getByLabel(/Font size/)).toHaveValue('18')
-    await form.getByLabel('Formatting settings for', { exact: true }).selectOption('postgres')
+    await form.getByRole('tab', { name: 'SQL formatting', exact: true }).click(); await form.getByLabel('Formatting settings for', { exact: true }).selectOption('postgres')
     await expect(form.getByLabel(/Format indent width/)).toHaveValue('4')
     await page.screenshot({ path: testInfo.outputPath('import-editor-settings.png') })
     writeFileSync(file, '{changed after reading') // Apply uses the reviewed snapshot.
@@ -233,19 +234,19 @@ test('editor settings use per-engine styles across tabs, selection formatting an
     await enter(page, duckdbSql)
     const history = await page.evaluate(() => window.dbCommander.history())
     let form = await openSettings(page)
-    await form.getByLabel('Formatting settings for', { exact: true }).selectOption('postgres')
+    await form.getByRole('tab', { name: 'SQL formatting', exact: true }).click(); await form.getByLabel('Formatting settings for', { exact: true }).selectOption('postgres')
     await expect(form.getByLabel(/Format indent width/)).toBeDisabled()
     await expect(form.getByLabel(/Format indent width/)).toHaveValue('2')
     await form.getByLabel('Use custom formatting', { exact: true }).check()
     await form.getByLabel(/Format indent width/).fill('9')
     // Validation must find a bad override even when another scope is displayed.
-    await form.getByLabel('Formatting settings for', { exact: true }).selectOption('global')
+    await form.getByRole('tab', { name: 'SQL formatting', exact: true }).click(); await form.getByLabel('Formatting settings for', { exact: true }).selectOption('global')
     await form.getByRole('button', { name: 'Apply settings', exact: true }).click()
     await expect(form.getByRole('alert')).toContainText('PostgreSQL')
     await expect(form.getByLabel('Formatting settings for', { exact: true })).toHaveValue('postgres')
     await form.getByLabel(/Format indent width/).fill('4')
     await form.getByLabel(/Blank lines between statements/).fill('0')
-    await form.getByLabel('Formatting settings for', { exact: true }).selectOption('duckdb')
+    await form.getByRole('tab', { name: 'SQL formatting', exact: true }).click(); await form.getByLabel('Formatting settings for', { exact: true }).selectOption('duckdb')
     await form.getByLabel('Use custom formatting', { exact: true }).check()
     await form.getByLabel('Format indentation', { exact: true }).selectOption('tabs')
     await form.getByLabel(/Format indent width/).fill('8')
@@ -277,11 +278,11 @@ test('editor settings use per-engine styles across tabs, selection formatting an
     await expect.poll(() => text(page)).toContain('\n    1 as untouched;\nselect\n    2 as formatted;')
     // Defaults change inherited engines immediately, without replacing custom styles.
     form = await openSettings(page)
-    await form.getByLabel(/Indent width/).fill('6')
-    await form.getByLabel('Formatting settings for', { exact: true }).selectOption('mysql')
+    await form.getByRole('tab', { name: 'Indentation', exact: true }).click(); await form.getByLabel(/Indent width/).fill('6')
+    await form.getByRole('tab', { name: 'SQL formatting', exact: true }).click(); await form.getByLabel('Formatting settings for', { exact: true }).selectOption('mysql')
     await expect(form.getByLabel(/Format indent width/)).toHaveValue('6')
     await expect(form.getByLabel(/Format indent width/)).toBeDisabled()
-    await form.getByLabel('Formatting settings for', { exact: true }).selectOption('postgres')
+    await form.getByRole('tab', { name: 'SQL formatting', exact: true }).click(); await form.getByLabel('Formatting settings for', { exact: true }).selectOption('postgres')
     await expect(form.getByLabel(/Format indent width/)).toHaveValue('4')
     await form.getByRole('button', { name: 'Apply settings', exact: true }).click()
     await enter(page, '')
@@ -301,13 +302,13 @@ test('editor settings use per-engine styles across tabs, selection formatting an
       postgres: { tabSize: 4 }, duckdb: { tabSize: 8, insertSpaces: false }
     } })
     form = await openSettings(page)
-    await form.getByLabel('Formatting settings for', { exact: true }).selectOption('postgres')
+    await form.getByRole('tab', { name: 'SQL formatting', exact: true }).click(); await form.getByLabel('Formatting settings for', { exact: true }).selectOption('postgres')
     await form.getByLabel('Use custom formatting', { exact: true }).uncheck()
     await expect(form.getByLabel(/Format indent width/)).toHaveValue('6')
     await form.getByRole('button', { name: 'Cancel', exact: true }).click()
     expect((await workspace(page))?.editorSettings?.engineFormatting?.postgres?.tabSize).toBe(4)
     form = await openSettings(page)
-    await form.getByLabel('Formatting settings for', { exact: true }).selectOption('postgres')
+    await form.getByRole('tab', { name: 'SQL formatting', exact: true }).click(); await form.getByLabel('Formatting settings for', { exact: true }).selectOption('postgres')
     await form.getByLabel('Use custom formatting', { exact: true }).uncheck()
     await form.getByRole('button', { name: 'Apply settings', exact: true }).click()
     await page.getByRole('button', { name: 'Format SQL', exact: true }).click()

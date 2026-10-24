@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
 import { _electron as electron, expect } from '@playwright/test'
-import { join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { readFile, readdir } from 'node:fs/promises'
 import { captureStartupDiagnostics } from '../../scripts/release/startup-diagnostics.mjs'
+import { appImageSandboxPath } from '../../scripts/release/install.mjs'
 
 const password = 'installer-test-only-password'
 export function installedLaunchOptions(executable, directory, inherited = process.env) {
@@ -11,6 +12,7 @@ export function installedLaunchOptions(executable, directory, inherited = proces
   delete env.ELECTRON_RUN_AS_NODE
   const disabled = inherited.SQLCOMMANDER_INSTALL_TEST_NO_SANDBOX === '1'
   if (disabled && !(inherited.CI === 'true' && inherited.SQLCOMMANDER_DISPOSABLE_INSTALL_TEST === '1')) throw new Error('Unsandboxed installer tests require the explicit disposable CI container.')
+  if (!disabled && basename(executable) === 'AppRun') env.CHROME_DEVEL_SANDBOX = appImageSandboxPath(dirname(dirname(executable)))
   return { executablePath: executable, env, timeout: 60_000, chromiumSandbox: !disabled, args: disabled ? ['--no-sandbox'] : [] }
 }
 export async function openInstalled(executable, directory, version, arch) {

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowUpRight, RefreshCw, X } from 'lucide-react'
+import { ArrowUpRight, RefreshCw, X } from './WorkbenchIcons'
 import type { DesktopApi } from '../shared/contracts'
 import type { UpdateStatus } from '../shared/updates'
 

@@ -153,6 +153,7 @@ export class DuckDBDriver implements DatabaseDriver {
   }
   async editGrid(request: GridOperation, context?: ImportContext): Promise<GridResponse> {
     const session = this.session(request.sessionId)
+    if (request.action === 'release') this.results.forget(request.sessionId, request.viewId)
     if (session.busy || session.metadata || session.inspection) throw new Error('Wait for the running query before editing data.')
     session.editor ??= new TableEditor('duckdb', async (sql, values = []) => {
       const result = await session.client.runAndReadAll(sql, values.length ? values : undefined)
@@ -166,7 +167,7 @@ export class DuckDBDriver implements DatabaseDriver {
     if (session.busy || session.metadata || session.inspection) throw new Error('This console already has a running query.')
     session.editor?.invalidate()
     const id = request.queryId ?? randomUUID(), operation: Operation = { cancelled: false, native: false }
-    session.busy = operation; this.results.begin(request.sessionId, id, request.fullExport)
+    session.busy = operation; this.results.begin(request.sessionId, id, request.fullExport, request.viewId)
     operation.done = this.execute(session, operation, request, id, completed)
     // Completion owns error reporting; never leave an unhandled event rejection.
     void operation.done.catch(() => {})

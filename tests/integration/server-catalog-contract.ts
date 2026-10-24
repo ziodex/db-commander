@@ -51,8 +51,8 @@ export async function verifyLargeServerCatalog(config: ConnectionConfig) {
       expect(detail.definition.sql).toContain('CREATE MATERIALIZED VIEW')
       if (config.engine === 'oracle') {
         expect(detail.definition.source).toBe('generated'); expect(detail.definition.notice).toContain('not full native DDL')
-        expect(schema.catalog!.objects.every(object => object.schema === 'SQLCOMMANDER')).toBe(true)
-        await expect(driver.inspectObject({ sessionId: session.id, object: { ...last, schema: 'SQLCOMMANDER_COMPARE' } })).rejects.toThrow(/scope|catalog/i)
+        expect(schema.catalog!.objects.every(object => object.schema === 'DBCOMMANDER')).toBe(true)
+        await expect(driver.inspectObject({ sessionId: session.id, object: { ...last, schema: 'DBCOMMANDER_COMPARE' } })).rejects.toThrow(/scope|catalog/i)
         expect(timings.materializedInspect).toBeLessThan(5000)
       }
     }

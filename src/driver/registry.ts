@@ -1,3 +1,4 @@
+import { SessionQueryIndex } from './result-cache'
 import { BackupJobs } from '../backup/jobs'
 import { TransferJobs } from '../transfer/jobs'
 import type { SessionAccess } from './session-access'
@@ -50,7 +51,7 @@ export class DriverRegistry {
   private loadDuckdb: () => Promise<DatabaseDriver>
   private sessions = new Map<string, DatabaseDriver>()
   private queries = new Map<string, DatabaseDriver>()
-  private latest = new Map<string, string>()
+  private latest = new SessionQueryIndex()
   private editing = new Map<string, Promise<unknown>>()
   private operations = new Map<string, Promise<unknown>>()
   private running = new Set<string>()
@@ -152,9 +153,7 @@ export class DriverRegistry {
     const driver = this.sessions.get(id)
     if (!driver) return
     await this.operation(id, async () => { await this.activityReads.get(id)?.catch(()=>{}); await driver.disconnect(id) }); this.forgetConnection(id)
-    const previous = this.latest.get(id)
-    if (previous) this.queries.delete(previous)
-    this.latest.delete(id)
+    for (const previous of this.latest.forget(id)) this.queries.delete(previous)
   }
   historyContext(id:string) {const session=this.getSession(id);return {connection:session.name,engine:session.engine,database:session.database,enabled:this.configs.get(id)?.recordHistory!==false}}
   start(request: RunRequest, completed?: (event: Completion) => void) {
@@ -167,14 +166,15 @@ export class DriverRegistry {
     let queryId: string
     try { queryId = driver.start(request, event => { this.running.delete(request.sessionId); completed?.(event) }) }
     catch (error) { this.running.delete(request.sessionId); throw error }
-    const previous = this.latest.get(request.sessionId)
-    if (previous) this.queries.delete(previous)
-    this.latest.set(request.sessionId, queryId); this.queries.set(queryId, driver)
+    for (const previous of this.latest.replace(request.sessionId, queryId, request.viewId)) this.queries.delete(previous)
+    this.queries.set(queryId, driver)
     return queryId
   }
   async editGrid(input: GridRequest) {
     const request = gridRequestSchema.parse(input), driver = this.driver(request.sessionId)
+    if (this.running.has(request.sessionId)) throw new Error('Wait for the running query before using table data.')
     if (request.action === 'apply') this.protection.assert(request.sessionId)
+    if (request.action === 'release') for (const previous of this.latest.forget(request.sessionId, request.viewId)) this.queries.delete(previous)
     const pending = driver.editGrid(request)
     this.editing.set(request.sessionId, pending)
     try { const result = await pending; return { ...result, session: this.decorate(result.session) } } finally { this.editing.delete(request.sessionId) }
@@ -403,12 +403,12 @@ export class DriverRegistry {
       const candidate = await this.open(driver, config)
       try {
         if (candidate.database !== database) throw new Error('The server opened a different database than requested.')
-        await driver.disconnect(id)
+        if (!input.retainSource) await driver.disconnect(id)
       } catch (error) { await driver.disconnect(candidate.id).catch(() => {}); this.forgetConnection(candidate.id); throw error }
-      this.forgetConnection(id)
-      const previous = this.latest.get(id)
-      if (previous) this.queries.delete(previous)
-      this.latest.delete(id)
+      if (!input.retainSource) {
+        this.forgetConnection(id)
+        for (const previous of this.latest.forget(id)) this.queries.delete(previous)
+      }
       return candidate
     })
   }

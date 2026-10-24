@@ -2,7 +2,13 @@
 
 ## Unreleased — beta preparation
 
-No beta release has been declared. Package version 0.1.0 remains a developer preview; signed distribution and the final beta version are pending the [release gates](docs/PLAN.md#beta-release-checklist).
+No beta release has been declared. Package version 0.2.0 remains a developer preview; signed distribution and the final beta version are pending the [release gates](docs/PLAN.md#beta-release-checklist).
+
+- Updated the workbench with the VS Code 2026 Dark theme, Material file/object icons, a Windows title-bar application menu, clearer typography and a compact results toolbar.
+- Added drag, Shift-click and keyboard cell-range selection, copying with or without column headers, and an active saved-connection highlight alongside green connected indicators.
+- Added Connect, Disconnect, Edit and Delete to saved-connection context menus. Saved connections connect directly with stored credentials and show a warning with an edit action on failure.
+- Browse data now opens a tab named after the table with its generated SQL. New query and browse tabs reuse the existing connection while retaining separate buffers, results and table snapshots; transactions and running operations are shared by that connection.
+- Added application-wide tabbed Preferences, optional tab-close and database-switch confirmations, and Close other tabs / Close all tabs actions. Empty tabs display No connection instead of a placeholder server name.
 
 - Moved CI and gated release builds to GitHub Actions, removed Azure DevOps pipeline configuration, and rewrote the README for fork-based development. Detailed application instructions now live in the user guide.
 
@@ -10,7 +16,7 @@ No beta release has been declared. Package version 0.1.0 remains a developer pre
 
 - Renamed the app to Db Commander across its desktop identity, packages, tools and documentation, with a new database-and-command icon. Existing workspaces, saved passwords and portable exports remain accessible. CI configuration and environment-variable names are unchanged.
 
-- Established daily SQL workflows across PostgreSQL, MySQL, MariaDB, SQL Server, SQLite, DuckDB and Oracle Thin mode, with explicit transactions, cancellation, precise result values and independent query-tab sessions. Azure SQL remains experimental with local profile coverage only.
+- Established daily SQL workflows across PostgreSQL, MySQL, MariaDB, SQL Server, SQLite, DuckDB and Oracle Thin mode, with explicit transactions, cancellation, precise result values and separate query-tab buffers and results. Azure SQL remains experimental with local profile coverage only.
 - Added saved connection organization, optional OS password storage, verified TLS/SSH routing, SQL files and workspace recovery, multiple windows and split editors, settings, snippets and bound parameters.
 - Included schema, table editing, comparison, diagram, plan, import/export and engine-specific administration workflows within their documented limits. Full-result export is separate from the bounded result preview.
 - Hardened startup, native packaging, Windows installer refusal/retry behavior, workspace and whole-profile disk-full recovery, large SQL buffers and large catalogs. Fixed MariaDB metadata collection scaling with 20,000-table local benchmarks.

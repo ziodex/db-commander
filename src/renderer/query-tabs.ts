@@ -1,6 +1,7 @@
 import type { DatabaseCatalog, DatabaseEvent, ResultSet, SchemaTable, SchemaSnapshot, SessionInfo, GridSnapshot, GridChange } from '../shared/contracts'
 
 export interface QueryTabState {
+  sharedSessionBusy?: boolean
   execution?: import('../shared/execution').ExecutionSource
   failure?: import('../shared/execution').FailureSource
   columnViews?: Record<string,import('../shared/column-layout').ColumnLayout>
@@ -43,9 +44,10 @@ export function emptyTabState(): QueryTabState {
 /** Shared operation availability; transaction and staged-edit policies stay explicit. */
 export function tabOperationBusy(state: QueryTabState): boolean {
   return state.running || state.connecting || state.closing || state.schemaLoading || state.backupBusy
-    || state.transferBusy || state.gridBusy || state.switching || state.databasesLoading
+    || state.transferBusy || state.gridBusy || state.switching || state.databasesLoading || Boolean(state.sharedSessionBusy)
 }
 export function canCloseTab(state: QueryTabState): string | undefined {
+  if (state.sharedSessionBusy) return 'Finish the operation or staged edits in the other tab using this connection.'
   if (state.transferBusy) return 'Wait for this tab’s data transfer to finish.'
   if (state.backupBusy) return 'Wait for this tab’s backup or restore job to finish.'
   if (state.switching || state.databasesLoading) return 'Wait for this tab’s database operation to finish.'

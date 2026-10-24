@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { queryTool } from './workspace-actions'
 import { _electron as electron, test, expect } from '@playwright/test'
 import { mkdtempSync, readFileSync, writeFileSync, readdirSync, rmSync } from 'node:fs'
@@ -22,7 +23,7 @@ for(const engine of engineSchema.options)test(`JSON import ${engine}: preview, m
     await page.getByRole('button',{name:/^Run SQL/}).click();await expect(page.locator('.status-text')).toHaveText('Completed')
   }
   try {
-    await expect(page.getByText('Saved locally',{exact:true})).toBeVisible()
+    await waitForWorkspaceReady(page)
     await page.getByRole('button',{name:'Connect database',exact:true}).click()
     const form=page.getByRole('dialog');await form.getByLabel('Database engine').selectOption(engine)
     if(['sqlite','duckdb'].includes(engine))await form.getByLabel('Open mode').selectOption('memory')

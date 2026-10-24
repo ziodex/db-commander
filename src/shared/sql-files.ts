@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { MAX_SQL_CHARACTERS } from './workspace-limits'
 
 export const SQL_FILE_LIMIT = MAX_SQL_CHARACTERS
-const sqlFileCommandSchema = z.enum(['open', 'save', 'save-as', 'recent'])
+const sqlFileCommandSchema = z.enum(['open', 'save', 'save-as', 'recent', 'reload'])
 export type SqlFileCommand = z.infer<typeof sqlFileCommandSchema>
 export const openSqlFileSchema = z.object({ tabId: z.string().uuid(), recentId: z.string().uuid().optional() }).strict()
 export const saveSqlFileSchema = z.object({ tabId: z.string().uuid(), sql: z.string().max(SQL_FILE_LIMIT), saveAs: z.boolean().optional() }).strict()

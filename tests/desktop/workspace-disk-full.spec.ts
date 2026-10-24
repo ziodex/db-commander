@@ -1,3 +1,5 @@
+import { waitForWorkspaceReady } from './workspace-ready'
+import { fileMenu } from './file-menu'
 import { _electron as electron, test, expect, type ElectronApplication, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
@@ -84,7 +86,7 @@ for (const { wholeProfile, large } of saveScenarios) test(`workspace disk full $
   let app: ElectronApplication | undefined
   try {
     let launched = await launch(directory); app = launched.app; const page = launched.page
-    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(page)
     const baseline = large ? largeBuffers[0].sql : 'SELECT committed_before_disk_full;'
     if (large) await paste(app, page, baseline); else await enter(page, baseline)
     await expectStored(page, baseline)
@@ -119,9 +121,9 @@ for (const { wholeProfile, large } of saveScenarios) test(`workspace disk full $
     await page.clock.install(); await page.clock.pauseAt(new Date(Date.now() + 1000))
     const rescue = join(volume.root, 'rescued.sql')
     await app.evaluate(({ dialog }, filePath) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath }) }, rescue)
-    await page.getByRole('button', { name: 'Save SQL file', exact: true }).click()
+    await fileMenu(app!, page, 'Save')
     await expect.poll(() => { try { return readFileSync(rescue, 'utf8') } catch { return '' } }).toBe(failed.pending)
-    await expect(page.getByRole('button', { name: 'Save SQL file', exact: true })).toBeEnabled()
+    await expect(page.getByRole('button', { name: 'Open SQL file', exact: true })).toBeEnabled()
     await expectStored(page, failed.committed)
     if (wholeProfile) {
       await expect(page.locator('.error-banner')).toContainText('The SQL file was written, but its file association could not be saved')
@@ -154,7 +156,7 @@ test('workspace disk full reopens committed SQL despite expired history maintena
   let app: ElectronApplication | undefined
   try {
     let launched = await launch(directory); app = launched.app
-    await expect(launched.page.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(launched.page)
     const baseline = 'SELECT recovered_while_still_full;'
     await enter(launched.page, baseline); await expect.poll(() => stored(launched.page)).toBe(baseline)
     await close(app); app = undefined
@@ -207,7 +209,7 @@ for (const wholeProfile of [false, true]) test(`workspace disk full ${wholeProfi
   let app: ElectronApplication | undefined
   try {
     let launched = await launch(directory); app = launched.app
-    await expect(launched.page.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(launched.page)
     const baseline = 'SELECT kept_during_zero_space_startup;' + (wholeProfile ? '\n' + '-- large buffer\n'.repeat(60_000) : '')
     if (wholeProfile) await paste(app, launched.page, baseline); else await enter(launched.page, baseline)
     await expectStored(launched.page, baseline)
@@ -228,7 +230,7 @@ for (const wholeProfile of [false, true]) test(`workspace disk full ${wholeProfi
     await launched.page.screenshot({ path: info.outputPath('workspace-zero-space-startup.png') })
     volume.release()
     await launched.page.reload()
-    await expect(launched.page.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(launched.page)
     await expect(launched.page.getByRole('textbox', { name: 'SQL editor', exact: true })).toHaveJSProperty('readOnly', false)
     await expectStored(launched.page, baseline)
     await expect(launched.page.locator('.monaco-editor .view-lines')).toContainText('kept_during_zero_space_startup')
@@ -247,7 +249,7 @@ test('workspace large buffer pastes, edits, undo and restart remain responsive',
   const samples: { characters: number; pasteMs: number; editAndSaveMs?: number }[] = []
   try {
     let launched = await launch(directory); app = launched.app
-    await expect(launched.page.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(launched.page)
     let expected = ''
     for (const { name, sql: text } of largeBuffers) {
       await test.step(`Paste ${name}: ${text.length} characters`, async () => {
@@ -272,7 +274,7 @@ test('workspace large buffer pastes, edits, undo and restart remain responsive',
     }
     await close(app); app = undefined
     launched = await launch(directory); app = launched.app
-    await expect(launched.page.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(launched.page)
     await expectStored(launched.page, expected)
     expect(await launched.page.evaluate(() => window.dbCommander.history())).toEqual([])
   } finally {

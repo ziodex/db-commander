@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { tableAction } from './explorer-actions'
 import { withClipboard } from './clipboard-fixture'
 import { _electron as electron, test, expect } from '@playwright/test'
@@ -30,7 +31,7 @@ for (const engine of engineSchema.options) test(`inspection ${engine}: values, c
   }
   const inspector = page.getByRole('dialog',{name:'Value inspector',exact:true})
   try {
-    await expect(page.getByText('Saved locally',{exact:true})).toBeVisible()
+    await waitForWorkspaceReady(page)
     await page.getByRole('button',{name:'Connect database',exact:true}).click()
     const form = page.getByRole('dialog'); await form.getByLabel('Database engine').selectOption(engine)
     if (['sqlite','duckdb'].includes(engine)) { await form.getByLabel('Open mode').selectOption('create'); await form.getByLabel('Database file').fill(join(directory,'plans.db')) }
@@ -81,13 +82,18 @@ for (const engine of engineSchema.options) test(`inspection ${engine}: values, c
     await cell(results,2).dblclick();await expect(inspector).toContainText('SQL NULL');await expect(inspector.getByRole('button',{name:'Copy displayed value'})).toBeDisabled();await page.keyboard.press('Escape')
     expect((await page.evaluate(()=>window.dbCommander.history())).length).toBe(history)
     await tableAction(page, `${child}`, 'Browse data');await expect(page.locator('.status-text')).toHaveText('Table loaded')
+    await expect(page.getByRole('tab', { name: child, exact: true })).toHaveAttribute('aria-selected', 'true')
+    await expect.poll(async () => (await page.evaluate(() => window.dbCommander.loadWorkspace()))!.tabs.find(tab => tab.title === child)?.sql).toMatch(/^SELECT /)
+    expect((await page.evaluate(() => window.dbCommander.loadWorkspace()))!.tabs[0].sql).toBe(query)
     const table=page.getByRole('table',{name:'Table data',exact:true})
     await cell(table,6).dblclick();await inspector.getByRole('button',{name:'Load live value',exact:true}).click();await expect(inspector.getByLabel('Inspected value')).toHaveValue('x'.repeat(30000)+'tail');await inspector.getByRole('button',{name:'Close value inspector'}).click()
     await cell(table,5).dblclick();await inspector.getByRole('button',{name:'Load live value',exact:true}).click();await expect(inspector.getByLabel('Inspected value')).toHaveValue(/00ff8041/i);await inspector.getByLabel('Value format').selectOption('hex');await expect(inspector.getByLabel('Inspected value')).toHaveValue(/00 ff 80 41/);await page.screenshot({path:testInfo.outputPath(engine+'-hex-inspector.png')});await inspector.getByRole('button',{name:'Close value inspector'}).click()
     await cell(table,2).dblclick();await inspector.getByRole('button',{name:'Find foreign keys',exact:true}).click();await inspector.getByRole('button',{name:/^Follow /}).click()
     await expect(page.locator('.status-text')).toHaveText('Referenced table loaded');await expect(table.getByRole('cell',{name:'right',exact:true})).toBeVisible();await expect(table.getByRole('cell',{name:'wrong',exact:true})).toHaveCount(0)
     await page.getByRole('button',{name:'Back to source table',exact:true}).click();await expect(page.locator('.status-text')).toHaveText('Table loaded');await expect(cell(table,2)).toHaveText('key')
-    await page.getByRole('button',{name:'Close data',exact:true}).click();await expect(results.getByRole('columnheader').nth(1)).toContainText('document')
+    await page.getByRole('button',{name:`Close ${child}`,exact:true}).click()
+    await page.getByRole('dialog', { name: 'Close query tab', exact: true }).getByRole('button', { name: 'Close tab', exact: true }).click()
+    await expect(results.getByRole('columnheader').nth(1)).toContainText('document')
     expect((await page.evaluate(()=>window.dbCommander.loadWorkspace()))!.tabs[0].sql).toBe(query)
     // Display reordering must not change edit ordinals or discard hidden drafts.
     await tableAction(page, `${parent}`, 'Edit data');await expect(page.locator('.status-text')).toHaveText('Table loaded')

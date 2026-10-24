@@ -25,12 +25,16 @@ const globalEditorSettingsSchema = z.object({
   ...sqlFormattingStyleSchema.shape
 }).strict()
 export const editorSettingsSchema = globalEditorSettingsSchema.extend({
+  confirmTabClose: z.boolean().optional(),
+  confirmDatabaseSwitch: z.boolean().optional(),
   appearance: z.enum(['dark', 'light', 'system']).optional(),
   shortcuts: editorShortcutsSchema.optional(),
   engineFormatting: z.partialRecord(engineSchema, sqlFormattingStyleSchema).optional()
 })
 export type EditorSettings = z.infer<typeof editorSettingsSchema>
 export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
+  confirmTabClose: true,
+  confirmDatabaseSwitch: true,
   fontSize: 13, wordWrap: true, lineNumbers: 'on', minimap: false,
   automaticSuggestions: true, tabSize: 2, insertSpaces: true,
   formatting: DEFAULT_SQL_FORMATTING
@@ -47,7 +51,7 @@ export function recoverEditorSettings(input: unknown): EditorSettings {
   const complete = editorSettingsSchema.safeParse(input)
   if (complete.success) return complete.data
   if (input && typeof input === 'object' && !Array.isArray(input)) {
-    const { engineFormatting, appearance, shortcuts, ...global } = input as Record<string, unknown>
+    const { engineFormatting, appearance, shortcuts, confirmTabClose, confirmDatabaseSwitch, ...global } = input as Record<string, unknown>
     const parsed = globalEditorSettingsSchema.safeParse(global)
     if (parsed.success) {
       const recovered: NonNullable<EditorSettings['engineFormatting']> = {}
@@ -59,7 +63,7 @@ export function recoverEditorSettings(input: unknown): EditorSettings {
         }
       }
       const theme = editorSettingsSchema.shape.appearance.safeParse(appearance), keys = editorShortcutsSchema.safeParse(shortcuts)
-      return { ...parsed.data, ...(theme.success && theme.data ? { appearance: theme.data } : {}), ...(keys.success ? { shortcuts: keys.data } : {}), ...(Object.keys(recovered).length ? { engineFormatting: recovered } : {}) }
+      return { ...parsed.data, confirmTabClose: typeof confirmTabClose === 'boolean' ? confirmTabClose : true, confirmDatabaseSwitch: typeof confirmDatabaseSwitch === 'boolean' ? confirmDatabaseSwitch : true, ...(theme.success && theme.data ? { appearance: theme.data } : {}), ...(keys.success ? { shortcuts: keys.data } : {}), ...(Object.keys(recovered).length ? { engineFormatting: recovered } : {}) }
     }
   }
   return editorSettingsSchema.parse(DEFAULT_EDITOR_SETTINGS)

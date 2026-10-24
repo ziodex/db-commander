@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { queryTool } from './workspace-actions'
 import { _electron as electron,test,expect,type ElectronApplication,type Page } from '@playwright/test'
 import { mkdtempSync,readFileSync,readdirSync,rmSync } from 'node:fs'
@@ -10,7 +11,7 @@ for(const engine of engineSchema.options)test(`library ${engine}: searchable his
   const directory=mkdtempSync(join(tmpdir(),'dbcommander-library-ui-')),env:Record<string,string>={...process.env as Record<string,string>,SQLCOMMANDER_USER_DATA:directory};delete env.ELECTRON_RUN_AS_NODE
   let app:ElectronApplication|undefined,page:Page
   const key=process.platform==='darwin'?'Meta':'Control',from=engine==='oracle'?' FROM dual':'',secret="private-bind-7c129 O'Brien ; -- Ω",query=`SELECT :label AS label, :n AS n, :missing AS missing${from}`
-  async function launch(){app=await electron.launch({...process.env.SQLCOMMANDER_TEST_EXECUTABLE?{executablePath:process.env.SQLCOMMANDER_TEST_EXECUTABLE}:{args:[resolve('.')]},env});page=await app.firstWindow();await expect(page.getByText('Saved locally',{exact:true})).toBeVisible()}
+  async function launch(){app=await electron.launch({...process.env.SQLCOMMANDER_TEST_EXECUTABLE?{executablePath:process.env.SQLCOMMANDER_TEST_EXECUTABLE}:{args:[resolve('.')]},env});page=await app.firstWindow();await waitForWorkspaceReady(page)}
   async function enter(sql:string){await page.locator('.monaco-editor').click();await page.keyboard.press(`${key}+A`);await page.keyboard.insertText(sql);await page.keyboard.press('Escape')}
   const library=()=>page.getByRole('dialog',{name:'Query library',exact:true}),params=()=>page.getByRole('dialog',{name:'Query parameters',exact:true})
   async function openLibrary(){await queryTool(page, 'Query library');await expect(library()).toBeVisible()}

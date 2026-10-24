@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { _electron as electron, test, expect, type ElectronApplication, type Page, type CDPSession } from '@playwright/test'
 import { createReadStream, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createInterface } from 'node:readline'
@@ -17,7 +18,7 @@ async function launch() {
   const env: Record<string, string | undefined> = { ...process.env, SQLCOMMANDER_USER_DATA: directory }; delete env.ELECTRON_RUN_AS_NODE
   const app = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: resolve(process.env.SQLCOMMANDER_TEST_EXECUTABLE) } : { args: [resolve('.')] }), env: env as Record<string, string> })
   try {
-    const page = await app.firstWindow(); await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    const page = await app.firstWindow(); await waitForWorkspaceReady(page)
     const cdp = await app.context().newCDPSession(page); await cdp.send('Performance.enable')
     return { app, page, directory, cdp }
   } catch (error) { await close(app, directory); throw error }
@@ -56,7 +57,7 @@ test('local soak keeps repeated query results, scratch tabs and DOM resources bo
       await expect(grid).toHaveAttribute('aria-rowcount', '1001')
       expect(await grid.getByRole('row').count()).toBeLessThan(80)
       await page.getByRole('button', { name: 'New query tab', exact: true }).click()
-      // New tabs clone the current session asynchronously. Respect the same
+      // New tabs reuse the current session. Respect the same
       // connection/metadata guard that protects an interactive close request.
       await expect(page.locator('.status-text')).toHaveText('Connected')
       await expect(page.getByRole('button', { name: /^Run SQL/ })).toBeEnabled()

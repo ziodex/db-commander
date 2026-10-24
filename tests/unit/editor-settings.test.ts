@@ -3,6 +3,30 @@ import { editorSettingsSchema, DEFAULT_EDITOR_SETTINGS, recoverEditorSettings, r
 import { engineSchema } from '../../src/shared/database-engines'
 import { DEFAULT_EDITOR_SHORTCUTS, editorShortcutsSchema, shortcutLabel } from '../../src/shared/editor-shortcuts'
 
+it('keeps tab-close confirmation on for older settings and independently recovers the preference', () => {
+  const { confirmTabClose, ...legacy } = DEFAULT_EDITOR_SETTINGS
+  expect(confirmTabClose).toBe(true)
+  expect(editorSettingsSchema.parse(legacy).confirmTabClose).toBeUndefined()
+  expect(recoverEditorSettings(legacy).confirmTabClose).not.toBe(false)
+  const disabled = { ...DEFAULT_EDITOR_SETTINGS, fontSize: 18, confirmTabClose: false }
+  expect(editorSettingsSchema.parse(disabled)).toEqual(disabled)
+  expect(recoverEditorSettings({ ...disabled, appearance: 'bad' })).toEqual(disabled)
+  expect(editorSettingsSchema.safeParse({ ...disabled, confirmTabClose: 'false' }).success).toBe(false)
+  expect(recoverEditorSettings({ ...disabled, confirmTabClose: 'false' })).toEqual({ ...disabled, confirmTabClose: true })
+})
+
+it('keeps database-switch confirmation on for older settings and recovers it independently', () => {
+  const { confirmDatabaseSwitch, ...legacy } = DEFAULT_EDITOR_SETTINGS
+  expect(confirmDatabaseSwitch).toBe(true)
+  expect(editorSettingsSchema.parse(legacy).confirmDatabaseSwitch).toBeUndefined()
+  expect(recoverEditorSettings(legacy).confirmDatabaseSwitch).not.toBe(false)
+  const disabled = { ...DEFAULT_EDITOR_SETTINGS, confirmTabClose: false, confirmDatabaseSwitch: false, fontSize: 18 }
+  expect(editorSettingsSchema.parse(disabled)).toEqual(disabled)
+  expect(recoverEditorSettings({ ...disabled, appearance: 'invalid' })).toEqual(disabled)
+  expect(editorSettingsSchema.safeParse({ ...disabled, confirmDatabaseSwitch: 'false' }).success).toBe(false)
+  expect(recoverEditorSettings({ ...disabled, confirmDatabaseSwitch: 'false' })).toEqual({ ...disabled, confirmDatabaseSwitch: true })
+})
+
 it('validates portable shortcuts and independently recovers appearance and keyboard preferences', () => {
   const settings = { ...DEFAULT_EDITOR_SETTINGS, fontSize: 18, appearance: 'light', shortcuts: { run: 'F5', current: 'F9', format: 'CtrlCmd+Shift+F' } }
   expect(editorSettingsSchema.parse(settings)).toEqual(settings)

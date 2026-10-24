@@ -2,6 +2,7 @@ import { lexSql } from '../shared/sql/lexer'
 import { captureData } from './data-capture'
 import { randomUUID, createHash } from 'node:crypto'
 import type { Cell, DatabaseEngine, GridChange, GridColumn, GridResponse, GridSnapshot, GridTable, SessionInfo } from '../shared/contracts'
+import { MAX_TABS } from '../shared/contracts'
 import { GridSql } from './grid-sql'
 import { browseColumn, browseSelect, displayable } from './browse-sql'
 import { inspectExpression } from './inspection-sql'
@@ -27,15 +28,16 @@ export function duckdbGeneratedColumns(sql: string): Set<string> {
   return generated
 }
 interface Definition { columns: GridColumn[]; fingerprint: string }
-/** One editor per physical session. Never accepts renderer-supplied originals,
+/** Independent tab snapshots on one physical session. Never accepts renderer-supplied originals,
  * identifiers for mutations, SQL fragments, or arbitrary parameter types. */
 export class TableEditor {
   private snapshot?: GridSnapshot
   private originals: Cell[][] = []
   private fingerprint = ''
   private dialect: GridSql
+  private views = new Map<string, TableEditor>()
   constructor(engine: DatabaseEngine, private query: GridQuery, private readOnly = false) { this.dialect = new GridSql(engine) }
-  invalidate() { this.snapshot = undefined; this.originals = [] }
+  invalidate() { this.snapshot = undefined; this.originals = []; this.views.clear() }
   private async definition(table: GridTable, browse = false, requireKey = true): Promise<Definition> {
     const { sql, values } = this.dialect.metadata(table, browse), { rows } = await this.query(sql, values)
     if (!rows.length) throw new Error(browse ? 'This table or view is unavailable. Refresh the schema and check your permissions.' : 'This object is not an editable base table. MySQL/MariaDB require InnoDB without triggers; views and virtual tables are read-only.')
@@ -167,6 +169,16 @@ export class TableEditor {
     }
   }
   async handle(request: GridOperation, info: SessionInfo, context?: ImportContext): Promise<Omit<GridResponse, 'session'>> {
+    if (request.action === 'release') { this.views.delete(request.viewId); return {} }
+    if ('viewId' in request && request.viewId) {
+      let editor = this.views.get(request.viewId)
+      if (!editor) {
+        if (this.views.size >= MAX_TABS) throw new Error('Close a table tab before opening another view.')
+        editor = new TableEditor(this.dialect.engine, this.query, this.readOnly)
+        this.views.set(request.viewId, editor)
+      }
+      return editor.handle({ ...request, viewId: undefined }, info, context)
+    }
     if (this.readOnly && !['browse','inspect-cell','foreign-keys','follow-reference','compare-data'].includes(request.action)) throw new Error('This connection was opened read-only.')
     if (info.transaction !== 'idle' || info.engine !== 'oracle' && info.autocommit === false) throw new Error('Commit or roll back the current transaction and enable autocommit before opening or applying table edits. Apply starts its own transaction.')
     if (request.action === 'compare-data') {
@@ -249,6 +261,7 @@ export class TableEditor {
       if (Buffer.byteLength(JSON.stringify(rows)) > 8 * 1024 * 1024) throw new Error('This page exceeds 8 MiB. Choose a smaller page size or use SQL to select fewer columns.')
       if (!browse && rows.some(row => definition.columns.some((c, index) => c.primaryKey && row[index] === null))) throw new Error('NULL primary keys cannot identify rows safely. This table remains read-only.')
       const grid: GridSnapshot = { id: randomUUID(), table, columns: definition.columns,
+        statement: selection.values.length ? undefined : selection.sql,
         rows: rows.slice(0, selection.query.pageSize).map(row => row.map(value => browse && value && value.length > 16384 ? value.slice(0, 16384) + '…' : value)),
         truncated: rows.length > selection.query.pageSize, query: selection.query, mode: browse ? 'browse' : 'edit',
         notice: selection.notice + (oversized ? ' Large cells are truncated to 16,384 characters.' : '') + (definition.columns.some(c => !displayable(this.dialect, c)) ? ' Some types require SQL inspection and are shown as placeholders.' : '') }

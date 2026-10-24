@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { _electron as electron, test, expect } from '@playwright/test'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -20,7 +21,7 @@ for (const engine of engineSchema.options) test(`${engine} schema autocomplete a
     await expect(page.getByRole('button', { name: /^Run SQL/ })).toBeEnabled()
   }
   try {
-    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(page)
     await page.getByRole('button', { name: 'Connect database', exact: true }).click()
     const form = page.getByRole('dialog'); await form.getByLabel('Database engine').selectOption(engine)
     if (['sqlite', 'duckdb'].includes(engine)) await form.getByLabel('Open mode').selectOption('memory')
@@ -38,10 +39,10 @@ for (const engine of engineSchema.options) test(`${engine} schema autocomplete a
     await expect(page.locator('.schema-list')).toContainText(name)
     // Every engine's custom formatting overrides the two-space global default.
     await page.getByRole('button', { name: 'Workspace', exact: true }).click()
-    await page.getByRole('menuitem', { name: 'Editor settings', exact: true }).click()
-    const preferences = page.getByRole('dialog', { name: 'Editor settings', exact: true })
+    await page.getByRole('menuitem', { name: 'Preferences', exact: true }).click()
+    const preferences = page.getByRole('dialog', { name: 'Preferences', exact: true })
     await preferences.getByLabel('Automatic suggestions').uncheck()
-    await preferences.getByLabel('Formatting settings for', { exact: true }).selectOption(engine)
+    await preferences.getByRole('tab', { name: 'SQL formatting', exact: true }).click(); await preferences.getByLabel('Formatting settings for', { exact: true }).selectOption(engine)
     await preferences.getByLabel('Use custom formatting', { exact: true }).check()
     await preferences.getByLabel(/Format indent width/).fill('4')
     await preferences.getByLabel(/Inline expression width/).fill('20')
@@ -82,10 +83,10 @@ for (const engine of engineSchema.options) test(`${engine} schema autocomplete a
     if (['sqlite', 'duckdb'].includes(engine)) {
       await page.getByRole('button', { name: 'New query tab', exact: true }).click()
       await expect(page.locator('.status-text')).toHaveText('Connected'); await expect(page.getByRole('button', { name: /^Run SQL/ })).toBeEnabled()
-      await expect(page.locator('.schema-list')).not.toContainText(name)
+      await expect(page.locator('.schema-list')).toContainText(name)
       await enter(source)
       for (let i = 0; i < source.length - 'select c.'.length; i++) await page.keyboard.press('ArrowLeft')
-      await page.keyboard.press('Control+Space'); await expect(widget.getByText('Display Name', { exact: true })).not.toBeVisible()
+      await page.keyboard.press('Control+Space'); await expect(widget.getByText('Display Name', { exact: true })).toBeVisible()
     }
   } finally { await app.close(); rmSync(directory, { recursive: true, force: true }) }
 })

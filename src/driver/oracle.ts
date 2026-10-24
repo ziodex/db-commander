@@ -114,6 +114,7 @@ export class OracleDriver implements DatabaseDriver {
   }
   async editGrid(request: GridOperation, context?: ImportContext): Promise<GridResponse> {
     const session = this.session(request.sessionId)
+    if (request.action === 'release') this.results.forget(request.sessionId, request.viewId)
     if (session.busy) throw new Error('Wait for the running query before editing data.')
     session.editor ??= new TableEditor('oracle', async (sql, values = []) => {
       const binds = Object.fromEntries(values.map((value, index) => [`p${index + 1}`, { val: value, type: oracledb.STRING }]))
@@ -146,7 +147,7 @@ export class OracleDriver implements DatabaseDriver {
     if (statements.length > 200) throw new Error('A script may contain up to 200 statements in this preview.')
     session.editor?.invalidate()
     const operation: Operation = { id: request.queryId ?? randomUUID(), cancelled: false, active: false, outputBytes: 1_000_000 }
-    session.busy = operation; this.results.begin(request.sessionId, operation.id, request.fullExport)
+    session.busy = operation; this.results.begin(request.sessionId, operation.id, request.fullExport, request.viewId)
     operation.done = this.execute(session, operation, request, statements, completed)
     return operation.id
   }

@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { _electron as electron, test, expect, type ElectronApplication, type Page } from '@playwright/test'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -16,7 +17,7 @@ test('PostgreSQL desktop workflow, secure bridge, export and crash recovery', as
     })
     if (process.env.SQLCOMMANDER_TEST_EXECUTABLE) expect(await application.evaluate(({ app }) => app.isPackaged)).toBe(true)
     const page = await application.firstWindow()
-    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(page)
     await expect(page.locator('.monaco-editor').first()).toBeVisible()
     return page
   }
