@@ -1,12 +1,12 @@
 import { _electron as electron, expect } from '@playwright/test'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { assertDesktopReady } from './desktop-readiness.mjs'
 
-const root = fileURLToPath(new URL('../', import.meta.url))
+const root = resolve(fileURLToPath(new URL('../', import.meta.url)))
 const output = join(root, 'docs/screenshots')
 const profile = await mkdtemp(join(tmpdir(), 'dbcommander-screenshots-'))
 const modifier = process.platform === 'darwin' ? 'Meta' : 'Control'
