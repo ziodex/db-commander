@@ -1,5 +1,6 @@
 import { waitForWorkspaceReady } from './workspace-ready'
-import { _electron as electron, test, expect, type ElectronApplication, type Page } from '@playwright/test'
+import { _electron as electron, test, expect, type ElectronApplication, type Page, type JSHandle } from '@playwright/test'
+import type { BrowserWindow } from 'electron'
 import { mkdtempSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -54,6 +55,14 @@ async function toggle(app: ElectronApplication, enabled: boolean) {
   await expect.poll(() => app.evaluate(({ Menu }) => Menu.getApplicationMenu()!.getMenuItemById('minimize-to-tray')!.enabled)).toBe(true)
 }
 async function checked(app: ElectronApplication) { return app.evaluate(({ Menu }) => Menu.getApplicationMenu()!.getMenuItemById('minimize-to-tray')!.checked) }
+async function minimize(window: JSHandle<BrowserWindow>) {
+  // On macOS, visibility can change before the minimize event invokes the
+  // application's tray handler. Wait for that event before restoring/disabling.
+  await window.evaluate(window => new Promise<void>(resolve => {
+    window.once('minimize', () => resolve())
+    window.minimize()
+  }))
+}
 async function trayCommand(app: ElectronApplication, id: string) {
   await app.evaluate(({ BrowserWindow }, id) => {
     const item = (globalThis as any).observedTrayMenu.getMenuItemById(id)
@@ -68,7 +77,7 @@ test('system tray is opt-in, restores buffers and sessions, and persists across 
     let launched = await launch(directory); app = launched.app; let page = launched.page
     expect(await checked(app)).toBe(false)
     let native = await app.browserWindow(page)
-    await native.evaluate(window => window.minimize())
+    await minimize(native)
     await expect.poll(() => native.evaluate(window => window.isMinimized())).toBe(true)
     await native.evaluate(window => { window.restore(); window.show() })
     await toggle(app, true); expect(await checked(app)).toBe(true)
@@ -82,7 +91,7 @@ test('system tray is opt-in, restores buffers and sessions, and persists across 
     if (await page.locator('.result-tabs button').count()) await page.locator('.result-tabs button').last().click()
     await expect(page.getByRole('cell', { name: '42', exact: true })).toBeVisible()
     const history = await page.evaluate(() => window.dbCommander.history())
-    await native.evaluate(window => window.minimize())
+    await minimize(native)
     await expect.poll(() => native.evaluate(window => window.isVisible())).toBe(false)
     await trayCommand(app, 'tray-show')
     await expect.poll(() => native.evaluate(window => window.isVisible() && !window.isMinimized())).toBe(true)
@@ -99,13 +108,13 @@ test('system tray is opt-in, restores buffers and sessions, and persists across 
     expect(await checked(app)).toBe(true)
     expect((await page.evaluate(() => window.dbCommander.loadWorkspace()))?.tabs[0].sql).toBe('select n from tray_data;')
     await expect(page.getByRole('button', { name: /^Run SQL/ })).toBeDisabled()
-    await native.evaluate(window => window.minimize()); await expect.poll(() => native.evaluate(window => window.isVisible())).toBe(false)
+    await minimize(native); await expect.poll(() => native.evaluate(window => window.isVisible())).toBe(false)
     await app.evaluate(({ app }) => app.emit('activate'))
     await expect.poll(() => native.evaluate(window => window.isVisible() && !window.isMinimized())).toBe(true)
-    await native.evaluate(window => window.minimize()); await expect.poll(() => native.evaluate(window => window.isVisible())).toBe(false)
+    await minimize(native); await expect.poll(() => native.evaluate(window => window.isVisible())).toBe(false)
     await toggle(app, false); expect(await checked(app)).toBe(false)
     await expect.poll(() => native.evaluate(window => window.isVisible() && !window.isMinimized())).toBe(true)
-    await native.evaluate(window => window.minimize()); await expect.poll(() => native.evaluate(window => window.isMinimized())).toBe(true)
+    await minimize(native); await expect.poll(() => native.evaluate(window => window.isMinimized())).toBe(true)
     await native.evaluate(window => window.restore())
   } finally { await close(app); rmSync(directory, { recursive: true, force: true }) }
 })
@@ -120,7 +129,7 @@ test('system tray restores individual workspaces, survives renderer recovery and
     let secondary = await created; await ready(secondary)
     await enter(primary, 'select primary_tray_buffer;'); await enter(secondary, 'select secondary_tray_buffer;')
     const first = await app.browserWindow(primary); let second = await app.browserWindow(secondary)
-    await first.evaluate(window => window.minimize()); await second.evaluate(window => window.minimize())
+    await minimize(first); await minimize(second)
     await expect.poll(() => first.evaluate(window => window.isVisible())).toBe(false); await expect.poll(() => second.evaluate(window => window.isVisible())).toBe(false)
     const secondId = await second.evaluate(window => window.id)
     await trayCommand(app, `tray-window-${secondId}`)
@@ -134,7 +143,7 @@ test('system tray restores individual workspaces, survives renderer recovery and
     const newId = await second.evaluate(window => window.id)
     const ids = await app.evaluate(() => (globalThis as any).observedTrayMenu.items.map((item: any) => item.id))
     expect(ids).not.toContain(`tray-window-${secondId}`); expect(ids).toContain(`tray-window-${newId}`)
-    await second.evaluate(window => window.minimize()); await expect.poll(() => second.evaluate(window => window.isVisible())).toBe(false)
+    await minimize(second); await expect.poll(() => second.evaluate(window => window.isVisible())).toBe(false)
     await trayCommand(app, `tray-window-${newId}`)
     await second.evaluate(window => window.close()); await expect.poll(() => secondary.isClosed()).toBe(true)
     expect(primary.isClosed()).toBe(false)
@@ -159,7 +168,7 @@ test('system tray quit honors transaction cancellation and failed preference wri
     await form.getByRole('button', { name: 'Connect', exact: true }).click(); await expect(form).not.toBeVisible()
     await enter(page, 'begin; create table tray_transaction(n integer); insert into tray_transaction values(7);')
     await page.getByRole('button', { name: /^Run SQL/ }).click(); await expect(page.locator('.transaction-badge')).toHaveText('In transaction')
-    const native = await app.browserWindow(page); await native.evaluate(window => window.minimize())
+    const native = await app.browserWindow(page); await minimize(native)
     await expect.poll(() => native.evaluate(window => window.isVisible())).toBe(false)
     // A failed disable retains both the preference and a working restore menu.
     rmSync(join(directory, 'desktop-settings.json')); mkdirSync(join(directory, 'desktop-settings.json'))
@@ -170,7 +179,7 @@ test('system tray quit honors transaction cancellation and failed preference wri
     await expect.poll(() => native.evaluate(window => window.isVisible() && !window.isMinimized())).toBe(true)
     await expect(page.locator('.transaction-badge')).toHaveText('In transaction')
     // OS/application-menu Quit also makes a hidden window's guard reachable.
-    await native.evaluate(window => window.minimize()); await expect.poll(() => native.evaluate(window => window.isVisible())).toBe(false)
+    await minimize(native); await expect.poll(() => native.evaluate(window => window.isVisible())).toBe(false)
     await app.evaluate(({ app }) => { (globalThis as any).lastTrayPrompt = undefined; app.quit() })
     await expect.poll(() => app!.evaluate(() => (globalThis as any).lastTrayPrompt?.title)).toBe('Close database sessions?')
     await expect.poll(() => native.evaluate(window => window.isVisible() && !window.isMinimized())).toBe(true)

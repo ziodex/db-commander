@@ -75,8 +75,11 @@ async function readyForSnapshot(page: Page) {
   // editors with the same lazy suggestion controls, not two creation stages.
   await expect.poll(() => editor.evaluate(element => element.clientWidth > 100 && element.clientHeight > 100)).toBe(true)
   await editor.locator('textarea').focus(); await page.keyboard.press('Control+Space')
-  await expect(editor.locator('.suggest-widget')).toHaveCount(1)
+  const suggestions = editor.locator('.suggest-widget')
+  await expect(suggestions).toHaveClass(/\bvisible\b/)
+  await expect(suggestions).not.toContainText('Loading...')
   await page.keyboard.press('Escape')
+  await expect(suggestions).not.toHaveClass(/\bvisible\b/)
 }
 
 test('closed scratch tabs release view states while open tabs retain selection, scroll and undo', async ({}, testInfo) => {
@@ -123,7 +126,12 @@ test('native input DOM retention plateaus without clearing the open SQL buffer u
     await readyForSnapshot(page)
     for (let i = 1; i <= 1500; i++) {
       await page.keyboard.press(`${modifier}+A`); await page.keyboard.insertText(`SELECT '${String(i).padStart(4, '0')}' AS n;`); await page.keyboard.press('Escape')
-      if ([100, 1100, 1500].includes(i)) samples.push(await sample(cdp, `edit_${i}`))
+      if ([100, 1100, 1500].includes(i)) {
+        // Compare the same settled completion UI. Merely creating its shell
+        // can leave asynchronous list/action listeners pending at a sample.
+        await readyForSnapshot(page)
+        samples.push(await sample(cdp, `edit_${i}`))
+      }
     }
     // Blink retains native textarea undo commands as well as Monaco's model
     // undo. Measure after that native history is warm, not against an empty one.
