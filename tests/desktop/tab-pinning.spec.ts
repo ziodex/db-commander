@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { fileMenu } from './file-menu'
 import { _electron as electron, test, expect, type ElectronApplication, type Page } from '@playwright/test'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
@@ -17,7 +18,7 @@ test('query tab pinning: group boundaries, close protection, file saves and rest
   async function launch() {
     app = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: process.env.SQLCOMMANDER_TEST_EXECUTABLE } : { args: [resolve('.')] }), env: env as Record<string, string> })
     const page = await app.firstWindow()
-    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(page)
     await expect(page.getByRole('button', { name: 'Open SQL file', exact: true })).toBeEnabled()
     // Keep unsaved file buffers in recovery when quitting; never write them implicitly.
     await app.evaluate(({ dialog }) => { dialog.showMessageBox = (async () => ({ response: 1, checkboxChecked: false })) as typeof dialog.showMessageBox })

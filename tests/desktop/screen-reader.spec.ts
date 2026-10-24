@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { _electron as electron, test, expect, type ElectronApplication, type Page, type CDPSession, type TestInfo } from '@playwright/test'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -11,7 +12,7 @@ async function launch() {
   const env: Record<string, string | undefined> = { ...process.env, SQLCOMMANDER_USER_DATA: directory }; delete env.ELECTRON_RUN_AS_NODE
   const app = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: resolve(process.env.SQLCOMMANDER_TEST_EXECUTABLE) } : { args: [resolve('.')] }), env: env as Record<string, string> })
   try {
-    const page = await app.firstWindow(); await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    const page = await app.firstWindow(); await waitForWorkspaceReady(page)
     const cdp = await app.context().newCDPSession(page); await cdp.send('Accessibility.enable')
     return { app, page, directory, cdp }
   } catch (error) { await close(app, directory); throw error }

@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { openSeparateQueryTab } from './separate-query-tab'
 import { profileAction } from './profile-actions'
 import { _electron as electron, test, expect, type ElectronApplication, type Page } from '@playwright/test'
@@ -12,7 +13,7 @@ for (const engine of ['duckdb', 'postgres'] as const) test(`${engine} saved prof
   let app: ElectronApplication | undefined
   async function launch() {
     app = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: process.env.SQLCOMMANDER_TEST_EXECUTABLE } : { args: [resolve('.')] }), env: env as Record<string, string> })
-    const page = await app.firstWindow(); await expect(page.getByText('Saved locally', { exact: true })).toBeVisible(); return page
+    const page = await app.firstWindow(); await waitForWorkspaceReady(page); return page
   }
   async function enter(page: Page, sql: string) {
     await page.locator('.monaco-editor').click(); await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A'); await page.keyboard.insertText(sql)

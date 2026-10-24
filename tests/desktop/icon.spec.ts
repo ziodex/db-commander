@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { _electron as electron, test, expect } from '@playwright/test'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
@@ -9,7 +10,7 @@ test('application icon: runtime image and packaged Finder identity use the Db Co
   const app = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: resolve(process.env.SQLCOMMANDER_TEST_EXECUTABLE) } : { args: [resolve('.')] }), env: env as Record<string, string> })
   const ownedProcess = app.process()
   try {
-    const page = await app.firstWindow(); await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    const page = await app.firstWindow(); await waitForWorkspaceReady(page)
     await expect(page.locator('.brand-mark svg')).toBeVisible()
     await expect(page).toHaveTitle(/Db Commander/)
     await page.screenshot({ path: info.outputPath('db-commander.png') })

@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { openConnectionSettings } from './profile-actions'
 import { _electron as electron, test, expect, type ElectronApplication, type Page } from '@playwright/test'
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
@@ -14,7 +15,7 @@ for (const engine of ['mariadb', 'azure-sql'] as const) test(`saved server conne
   let app: ElectronApplication | undefined, page: Page, failed = false
   async function launch() {
     app = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: resolve(process.env.SQLCOMMANDER_TEST_EXECUTABLE) } : { args: [resolve('.')] }), env: env as Record<string, string> })
-    page = await app.firstWindow(); await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    page = await app.firstWindow(); await waitForWorkspaceReady(page)
   }
   async function configure(name: string) {
     const form = page.getByRole('dialog')

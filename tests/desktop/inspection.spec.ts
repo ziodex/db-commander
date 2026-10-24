@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { tableAction } from './explorer-actions'
 import { withClipboard } from './clipboard-fixture'
 import { _electron as electron, test, expect } from '@playwright/test'
@@ -30,7 +31,7 @@ for (const engine of engineSchema.options) test(`inspection ${engine}: values, c
   }
   const inspector = page.getByRole('dialog',{name:'Value inspector',exact:true})
   try {
-    await expect(page.getByText('Saved locally',{exact:true})).toBeVisible()
+    await waitForWorkspaceReady(page)
     await page.getByRole('button',{name:'Connect database',exact:true}).click()
     const form = page.getByRole('dialog'); await form.getByLabel('Database engine').selectOption(engine)
     if (['sqlite','duckdb'].includes(engine)) { await form.getByLabel('Open mode').selectOption('create'); await form.getByLabel('Database file').fill(join(directory,'plans.db')) }

@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { fileMenu } from './file-menu'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
@@ -25,7 +26,7 @@ for (const failure of ['capacity', 'workspace', 'association'] as const) test(`S
   async function launch() {
     const env: Record<string, string | undefined> = { ...process.env, SQLCOMMANDER_USER_DATA: directory }; delete env.ELECTRON_RUN_AS_NODE
     app = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: resolve(process.env.SQLCOMMANDER_TEST_EXECUTABLE) } : { args: [resolve('.')] }), env: env as Record<string, string> })
-    const page = await app.firstWindow(); await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    const page = await app.firstWindow(); await waitForWorkspaceReady(page)
     await expect(page.getByRole('button', { name: 'Open SQL file', exact: true })).toBeEnabled()
     await app.evaluate(({ dialog }) => {
       ;(globalThis as any).__reloadPrompts = []
@@ -65,7 +66,7 @@ for (const failure of ['capacity', 'workspace', 'association'] as const) test(`S
     if (failure === 'capacity') {
       await fileMenu(app!, page, 'Save')
       await expect(page.getByRole('button', { name: 'Open SQL file', exact: true })).toBeEnabled()
-      expect(await app!.evaluate(() => (globalThis as any).__reloadPrompts)).toContain('SQL file changed')
+      await expect.poll(() => app!.evaluate(() => (globalThis as any).__reloadPrompts)).toContain('SQL file changed')
       expect(digest(readFileSync(path))).toBe(digest(external))
       // A smaller reviewed reload fits without deleting the other saved buffers.
       writeFileSync(path, 'SELECT smaller_reviewed_file;')
@@ -84,9 +85,11 @@ for (const failure of ['capacity', 'workspace', 'association'] as const) test(`S
       }
     }
     await reload(page)
-    await expect(page.locator('.sql-file-bar')).toContainText('Saved to file')
     const expected = failure === 'capacity' ? 'SELECT smaller_reviewed_file;' : external
-    expect((await stored(page))?.tabs[0].sql).toBe(expected)
+    // The previous buffer also says "Saved to file" while the native command is
+    // being dispatched. Observe the reviewed SQL commit before its UI status.
+    await expect.poll(async () => (await stored(page))?.tabs[0].sql).toBe(expected)
+    await expect(page.locator('.sql-file-bar')).toContainText('Saved to file')
     expect(await page.evaluate(() => window.dbCommander.history())).toEqual([])
     await page.screenshot({ path: info.outputPath(`${failure}-reload-recovered.png`) })
     await close(); page = await launch()

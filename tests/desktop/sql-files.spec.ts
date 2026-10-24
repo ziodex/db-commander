@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { fileMenu } from './file-menu'
 import { _electron as electron, test as base, expect, type ElectronApplication, type Page } from '@playwright/test'
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
@@ -16,7 +17,7 @@ const test = base.extend<{ files: Harness }>({ files: async ({}, use) => {
   async function launch() {
     app = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: process.env.SQLCOMMANDER_TEST_EXECUTABLE } : { args: [resolve('.')] }), env: env as Record<string, string> })
     const page = await app.firstWindow()
-    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(page)
     await expect(page.getByRole('button', { name: 'Open SQL file', exact: true })).toBeEnabled()
     await app.evaluate(({ dialog }) => {
       ;(globalThis as any).filePrompts = []

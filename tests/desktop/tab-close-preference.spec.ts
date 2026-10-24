@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { _electron as electron, test, expect } from '@playwright/test'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -24,7 +25,7 @@ test('tab-close confirmation can be disabled without bypassing connection and tr
     await expect(page.getByRole('button', { name: /^Run SQL/ })).toBeEnabled()
   }
   try {
-    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(page)
     await close('Untitled.sql'); await expect(confirmation).toBeVisible()
     await confirmation.getByRole('button', { name: 'Keep tab', exact: true }).click()
     await settings(); await expect(checkbox).toBeChecked(); await checkbox.uncheck()

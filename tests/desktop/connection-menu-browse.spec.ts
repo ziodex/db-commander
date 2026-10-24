@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { _electron as electron, test, expect } from '@playwright/test'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -18,7 +19,7 @@ for (const engine of ['sqlite', 'duckdb'] as const) test(`${engine}: connection 
     return page.evaluate(async () => { const workspace = (await window.dbCommander.loadWorkspace())!; return workspace.tabs.find(tab => tab.id === workspace.activeTabId)!.sql })
   }
   try {
-    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(page)
     await page.evaluate(async ({ engine, directory }) => {
       const workspace = (await window.dbCommander.loadWorkspace())!
       const config = { engine, name: '', host: 'local', port: 1, user: 'local', database: engine, tls: 'disable' as const, ...(engine === 'sqlite' ? { sqliteMode: 'create' as const } : { duckdbMode: 'create' as const }) }
@@ -125,7 +126,7 @@ for (const engine of ['sqlite', 'duckdb'] as const) test(`${engine}: named brows
     await expect(page.getByRole('button', { name: /^Run SQL/ })).toBeEnabled()
   }
   try {
-    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(page)
     await page.getByRole('button', { name: 'Connect database', exact: true }).click()
     const form = page.getByRole('dialog')
     await form.getByLabel('Database engine').selectOption(engine)

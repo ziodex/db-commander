@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { _electron as electron, test, expect, type Page, type ElectronApplication } from '@playwright/test'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -19,7 +20,7 @@ test('DuckDB file dialog, analytics, transactions, cancellation, export and pers
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] })
     }, path)
     const page = await application.firstWindow()
-    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(page)
     return page
   }
   async function enter(page: Page, sql: string) {

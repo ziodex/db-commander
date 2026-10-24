@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { _electron as electron, test, expect } from '@playwright/test'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -18,7 +19,7 @@ for (const engine of ['sqlite', 'duckdb'] as const) test(`${engine}: tabs share 
   const select = (name: string) => page.getByRole('tab', { name, exact: true }).click()
   const saved = () => page.getByRole('button', { name: 'Open Shared data in new tab', exact: true })
   try {
-    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(page)
     await app.evaluate(({ ipcMain }) => {
       (globalThis as any).connectionTraffic = []
       for (const method of ['connect', 'cloneSession', 'disconnect', 'run', 'editGrid']) {

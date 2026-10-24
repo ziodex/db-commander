@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { openConnectionSettings } from './profile-actions'
 import { _electron as electron, test, expect } from '@playwright/test'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
@@ -26,7 +27,7 @@ for(const engine of engineSchema.options) test(`schema comparison ${engine}: con
   }
   const dialog=page.getByRole('dialog',{name:'Compare schemas',exact:true})
   try{
-    await expect(page.getByText('Saved locally',{exact:true})).toBeVisible();await page.getByRole('button',{name:'Connect database',exact:true}).click();await configure()
+    await waitForWorkspaceReady(page);await page.getByRole('button',{name:'Connect database',exact:true}).click();await configure()
     await run(`CREATE TABLE ${full(sourceSchema,name)} (${q('id')} INTEGER,${q('added column')} INTEGER)`)
     await run(engine==='oracle'?'SELECT 42 FROM dual':'SELECT 42')
     const originalBuffer=await page.locator('.monaco-editor').innerText()

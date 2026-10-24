@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { _electron as electron, test, expect } from '@playwright/test'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -24,7 +25,7 @@ for (const engine of engineSchema.options) test(`data comparison ${engine}: boun
   async function open() { await tableNode(page, target).click({ button: 'right' }); await page.getByRole('menuitem', { name: `Compare data ${target}`, exact: true }).click(); await expect(dialog).toBeVisible() }
   async function compare() { await dialog.getByRole('button', { name: 'Compare data', exact: true }).click() }
   try {
-    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible(); await page.getByRole('button', { name: 'Connect database', exact: true }).click()
+    await waitForWorkspaceReady(page); await page.getByRole('button', { name: 'Connect database', exact: true }).click()
     const form = page.getByRole('dialog'); await form.getByLabel('Database engine').selectOption(engine)
     if (embedded) { await form.getByLabel('Open mode').selectOption('create'); await form.getByLabel('Database file').fill(join(directory, 'comparison.db')) }
     else {

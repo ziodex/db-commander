@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { databaseAction } from './workspace-actions'
 import { tableAction, tableNode } from './explorer-actions'
 import { verifyMigrationExport } from './migration-export'
@@ -54,7 +55,7 @@ for (const engine of engineSchema.options) test(`schema changes ${engine}: revie
     await review(); await approve(); await apply()
   }
   try {
-    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(page)
     await page.getByRole('button', { name: 'Connect database', exact: true }).click()
     const form = page.getByRole('dialog'); await form.getByLabel('Database engine').selectOption(engine)
     if (['sqlite', 'duckdb'].includes(engine)) {

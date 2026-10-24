@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { withClipboard } from './clipboard-fixture'
 import { _electron as electron, test, expect, type Page } from '@playwright/test'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -19,7 +20,7 @@ async function launch() {
   try {
     const page = await app.firstWindow()
     const errors: string[] = []; page.on('pageerror', error => errors.push(error.message))
-    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible(); await expect(page.locator('.monaco-editor')).toBeVisible()
+    await waitForWorkspaceReady(page); await expect(page.locator('.monaco-editor')).toBeVisible()
     return { app, page, errors, close }
   } catch (error) { await close(); throw error }
 }

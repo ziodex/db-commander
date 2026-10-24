@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { _electron as electron, test, expect, type ElectronApplication } from '@playwright/test'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -20,7 +21,7 @@ test('Windows title bar integrates application menus, native roles and accessibl
   try {
     const page = await app.firstWindow(), errors: string[] = []
     page.on('pageerror', error => errors.push(error.message))
-    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(page)
     const bar = page.getByRole('menubar', { name: 'Application menu' })
     await expect(bar.getByRole('menuitem')).toHaveText(['File', 'Edit', 'View', 'Window', 'Help'])
     expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isMenuBarVisible())).toBe(false)
@@ -113,7 +114,7 @@ test('Windows title bar integrates application menus, native roles and accessibl
     const secondWindow = app.waitForEvent('window')
     await page.evaluate(() => window.dbCommander.createWorkspaceWindow('Menu targeting'))
     const secondPage = await secondWindow
-    await expect(secondPage.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(secondPage)
     await page.evaluate(async () => {
       const file = (await window.dbCommander.applicationMenu())!.find(item => item.label === 'File')!
       await window.dbCommander.executeApplicationMenu(file.items!.find(item => item.label === 'Recent SQL files…')!.path)

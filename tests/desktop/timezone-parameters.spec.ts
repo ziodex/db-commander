@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { _electron as electron, test, expect } from '@playwright/test'
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -18,7 +19,7 @@ for (const engine of engineSchema.options) test(`timezone parameters ${engine}: 
   const from = engine === 'oracle' ? ' FROM dual' : '', q = (s: string) => quoteIdentifier(s, engine)
   const timestamp = '2026-10-25T02:30:00.123456+02:00', utc = '2026-10-25T00:30:00.123456+00:00'
   try {
-    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(page)
     await page.getByRole('button', { name: 'Connect database', exact: true }).click()
     const form = page.getByRole('dialog'); await form.getByLabel('Database engine').selectOption(engine)
     if (['sqlite', 'duckdb'].includes(engine)) await form.getByLabel('Open mode').selectOption('memory')

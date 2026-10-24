@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { profileAction } from './profile-actions'
 import { _electron as electron, test, expect, type ElectronApplication, type Page } from '@playwright/test'
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
@@ -7,7 +8,7 @@ import { join, resolve } from 'node:path'
 async function launch(directory: string) {
   const env: Record<string, string | undefined> = { ...process.env, SQLCOMMANDER_USER_DATA: directory }; delete env.ELECTRON_RUN_AS_NODE
   const app = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: process.env.SQLCOMMANDER_TEST_EXECUTABLE } : { args: [resolve('.')] }), env: env as Record<string, string> })
-  try { const page = await app.firstWindow(); await expect(page.getByText('Saved locally', { exact: true })).toBeVisible(); return { app, page } }
+  try { const page = await app.firstWindow(); await waitForWorkspaceReady(page); return { app, page } }
   catch (error) { await app.evaluate(({ app }) => app.exit(0)).catch(() => {}); throw error }
 }
 async function profile(page: Page) { return (await page.evaluate(() => window.dbCommander.loadWorkspace()))!.profiles[0] }
@@ -262,7 +263,7 @@ for (const tunneled of [false, true]) test(`credentials postgres ${tunneled ? 'S
     await run('SELECT 123 AS still_connected'); await expect(page.getByRole('cell', { name: '123', exact: true })).toBeVisible()
     await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
     const recovered = app.waitForEvent('window'); await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.forcefullyCrashRenderer())
-    page = await recovered; await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    page = await recovered; await waitForWorkspaceReady(page)
     await expect(page.getByRole('button', { name: /^Run SQL/ })).toBeDisabled()
     noWorkspaceSecrets(directory, ['local-test-only', 'local-key-passphrase', 'BEGIN OPENSSH PRIVATE KEY'])
   } finally { await cleanup(app, ids, directory) }

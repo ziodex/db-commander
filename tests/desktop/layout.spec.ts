@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { tableAction } from './explorer-actions'
 import { _electron as electron, test, expect, type ElectronApplication, type Page, type Locator } from '@playwright/test'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -14,7 +15,7 @@ async function launch(directory: string) {
     // macOS constrains a newly created window to the runner's small display.
     // Set the test's initial size explicitly before asserting resize deltas.
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 940))
-    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(page)
     await expect.poll(() => page.evaluate(() => innerWidth)).toBeGreaterThan(1024)
     return { app, page }
   } catch (error) { await forceClose(app); throw error }
@@ -169,7 +170,7 @@ test('layout persists through immediate quit and renderer recovery and fits smal
     const newWindow = app.waitForEvent('window')
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.forcefullyCrashRenderer())
     page = await newWindow
-    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(page)
     await expect(page.locator('.sidebar')).toBeHidden(); await expect(page.locator('#query-panel')).toBeHidden()
     await expect(page.getByRole('region', { name: 'Execution output' })).toBeVisible()
     await page.getByRole('button', { name: 'Restore editor and results', exact: true }).click()

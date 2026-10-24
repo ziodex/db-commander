@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { _electron as electron, test, expect, type ElectronApplication } from '@playwright/test'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -11,7 +12,7 @@ test('readable workbench, connection context actions and application-wide prefer
   async function launch() {
     app = await electron.launch({ args: [resolve('.')], env: env as Record<string, string> })
     const page = await app.firstWindow()
-    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(page)
     return page
   }
   async function close() { await app?.evaluate(({ app }) => app.exit(0)); await app?.close(); app = undefined }
@@ -22,7 +23,7 @@ test('readable workbench, connection context actions and application-wide prefer
       const config = { engine: 'duckdb' as const, name: 'Local analytics', host: 'local', port: 1, user: 'local', database: 'DuckDB', tls: 'disable' as const, duckdbMode: 'memory' as const }
       await window.dbCommander.saveWorkspace({ version: 2, tabs: old.tabs, activeTabId: old.activeTabId, profiles: [{ id: crypto.randomUUID(), config }] })
     })
-    await page.reload(); await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    await page.reload(); await waitForWorkspaceReady(page)
     await expect(page.locator('.titlebar')).not.toContainText(/Db Commander|Primary|PREVIEW/)
     await expect(page.locator('.editor-tabs').getByRole('button', { name: 'File', exact: true })).toHaveCount(0)
     await expect(page.locator('.editor-tabs').getByRole('button', { name: 'Save SQL file', exact: true })).toHaveCount(0)
@@ -132,7 +133,7 @@ test('readable workbench, connection context actions and application-wide prefer
     await draft.getByRole('button', { name: 'Cancel', exact: true }).click()
     const created = app!.waitForEvent('window')
     await page.evaluate(() => window.dbCommander.createWorkspaceWindow('Preferences check'))
-    const second = await created; await expect(second.getByText('Saved locally', { exact: true })).toBeVisible()
+    const second = await created; await waitForWorkspaceReady(second)
     await second.locator('.activity-bar').getByRole('button', { name: 'Application preferences', exact: true }).click()
     const preferences = second.getByRole('dialog', { name: 'Preferences', exact: true })
     await expect(preferences).toContainText('all application windows')

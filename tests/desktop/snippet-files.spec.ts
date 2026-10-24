@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { _electron as electron, test, expect } from '@playwright/test'
 import { mkdtempSync, readFileSync, writeFileSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -16,7 +17,7 @@ for (const engine of engineSchema.options) test(`snippet files ${engine}: review
   const from = engine === 'oracle' ? ' FROM dual' : '', q = (s: string) => quoteIdentifier(s, engine)
 
   try {
-    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(page)
     await page.getByRole('button', { name: 'Connect database', exact: true }).click()
     const form = page.getByRole('dialog'); await form.getByLabel('Database engine').selectOption(engine)
     if (['sqlite', 'duckdb'].includes(engine)) await form.getByLabel('Open mode').selectOption('memory')
@@ -112,7 +113,7 @@ for (const engine of engineSchema.options) test(`snippet files ${engine}: review
     const retained = await page.evaluate(() => window.dbCommander.snippets())
     await app.evaluate(({ app }) => app.exit()); await app.close()
     const restarted = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: process.env.SQLCOMMANDER_TEST_EXECUTABLE } : { args: [resolve('.')] }), env })
-    try { const restored = await restarted.firstWindow(); await expect(restored.getByText('Saved locally', { exact: true })).toBeVisible(); expect(await restored.evaluate(() => window.dbCommander.snippets())).toEqual(retained) }
+    try { const restored = await restarted.firstWindow(); await waitForWorkspaceReady(restored); expect(await restored.evaluate(() => window.dbCommander.snippets())).toEqual(retained) }
     finally { await restarted.evaluate(({ app }) => app.exit()); await restarted.close() }
     expect(existsSync(file)).toBe(true)
   } finally { await app.evaluate(({ app }) => app.exit()).catch(() => {}); await app.close().catch(() => {}); rmSync(directory, { recursive: true, force: true }) }

@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { _electron as electron, test, expect, type CDPSession, type Page, type TestInfo } from '@playwright/test'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -10,7 +11,7 @@ async function launch() {
   const app = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: resolve(process.env.SQLCOMMANDER_TEST_EXECUTABLE) } : { args: [resolve('.')] }), env: env as Record<string, string> })
   try {
     const page = await app.firstWindow()
-    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(page)
     await expect(page.locator('.monaco-editor')).toBeVisible()
     const cdp = await app.context().newCDPSession(page); await cdp.send('Performance.enable')
     return { app, page, cdp, close: async () => {

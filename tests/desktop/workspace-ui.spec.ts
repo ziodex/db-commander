@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { _electron as electron, test, expect, type ElectronApplication, type Page } from '@playwright/test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -10,7 +11,7 @@ test.beforeEach(async () => {
   const env: Record<string, string | undefined> = { ...process.env, SQLCOMMANDER_USER_DATA: directory }; delete env.ELECTRON_RUN_AS_NODE
   app = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: process.env.SQLCOMMANDER_TEST_EXECUTABLE } : { args: [resolve('.')] }), env: env as Record<string, string> })
   page = await app.firstWindow()
-  await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+  await waitForWorkspaceReady(page)
 })
 test.afterEach(async () => {
   await app?.evaluate(({ app }) => app.exit(0)).catch(() => {})

@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { _electron as electron, test, expect, type ElectronApplication, type Page } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
 import { DatabaseSync } from 'node:sqlite'
@@ -13,7 +14,7 @@ async function launch(directory: string) {
   const app = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: resolve(process.env.SQLCOMMANDER_TEST_EXECUTABLE) } : { args: [resolve('.')] }), env: env as Record<string, string> })
   try {
     const page = await app.firstWindow()
-    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(page)
     await expect(page.locator('.monaco-editor')).toBeVisible()
     return { app, page }
   } catch (error) { await close(app); throw error }

@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { _electron as electron, test, expect, type ElectronApplication, type Page } from '@playwright/test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -11,7 +12,7 @@ async function launch(directory: string) {
   catch (error) { await close(app); throw error }
 }
 async function close(app?: ElectronApplication) { await app?.evaluate(({ app }) => app.exit(0)).catch(() => {}); await app?.close().catch(() => {}) }
-async function ready(page: Page) { await expect(page.getByText('Saved locally', { exact: true })).toBeVisible(); await expect(page.locator('.monaco-editor').first()).toBeVisible() }
+async function ready(page: Page) { await waitForWorkspaceReady(page); await expect(page.locator('.monaco-editor').first()).toBeVisible() }
 async function enter(page: Page, sql: string) {
   await page.locator('.monaco-editor').first().click(); await page.keyboard.press(`${modifier}+A`); await page.keyboard.insertText(sql); await page.keyboard.press('Escape')
 }

@@ -8,6 +8,8 @@ runs:
       shell: bash
       env:
         SQLCOMMANDER_DISPOSABLE_INSTALL_TEST: '1'
+        # Keep pre-attachment Electron stderr when a portable launcher exits early.
+        DEBUG: 'pw:browser'
       run: bash scripts/with-test-keyring.sh node scripts/with-test-desktop.mjs node scripts/test-installers.mjs
     - name: Fedora RPM lifecycle
       if: runner.os == 'Linux'

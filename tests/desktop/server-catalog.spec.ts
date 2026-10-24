@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { _electron as electron, test, expect, type ElectronApplication } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -57,7 +58,7 @@ for (const engine of ['postgres','mysql','mariadb','sqlserver','oracle'] as cons
         const page = await app.firstWindow(), key = process.platform === 'darwin' ? 'Meta' : 'Control', last = table(SERVER_CATALOG_TABLES-1)
         const refresh = page.getByRole('button',{name:'Refresh schema',exact:true}), filter = page.getByLabel('Filter database objects')
         const sqlText = () => page.evaluate(async () => { const workspace = await window.dbCommander.loadWorkspace(); return workspace!.tabs.find(tab => tab.id === workspace!.activeTabId)!.sql })
-        await expect(page.getByText('Saved locally',{exact:true})).toBeVisible()
+        await waitForWorkspaceReady(page)
         await page.getByRole('button',{name:'Connect database',exact:true}).click()
         const form = page.getByRole('dialog'); await form.getByLabel('Database engine').selectOption(profile)
         await form.getByLabel('Host',{exact:true}).fill(config.host); await form.getByLabel('Port',{exact:true}).fill(String(config.port))

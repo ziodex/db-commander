@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { _electron as electron, test, expect } from '@playwright/test'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -19,7 +20,7 @@ for(const engine of engineSchema.options) test(`visual query builder ${engine}: 
   async function open(){await tableNode(page,parent).click({button:'right'});await page.getByRole('menuitem',{name:`Build query from ${parent}`,exact:true}).click();await expect(dialog).toBeVisible()}
   async function review(){await dialog.getByRole('button',{name:'Review builder SQL',exact:true}).click();await expect(dialog.getByLabel('Builder SQL preview')).toBeVisible({timeout:30000});await expect(dialog.getByRole('status')).toHaveText('SQL reviewed against current schema. No query executed.')}
   try {
-    await expect(page.getByText('Saved locally',{exact:true})).toBeVisible();await page.getByRole('button',{name:'Connect database',exact:true}).click()
+    await waitForWorkspaceReady(page);await page.getByRole('button',{name:'Connect database',exact:true}).click()
     const form=page.getByRole('dialog');await form.getByLabel('Database engine').selectOption(engine)
     if(embedded){await form.getByLabel('Open mode').selectOption('create');await form.getByLabel('Database file').fill(join(directory,'data.db'))}
     else{const key=engine==='postgres'?'PG':engine==='azure-sql'?'SQLSERVER':engine.toUpperCase();await form.getByLabel('Port',{exact:true}).fill(process.env[`SQLCOMMANDER_${key}_PORT`]!);await form.getByLabel(engine==='oracle'?'Service name':'Database',{exact:true}).fill(engine==='oracle'?'FREEPDB1':'dbcommander');await form.getByLabel('User',{exact:true}).fill('dbcommander');await form.getByLabel('Password',{exact:true}).fill(['sqlserver','azure-sql'].includes(engine)?'Local-Test-Only!2026':'local-test-only');if(engine!=='oracle'){await form.getByText('Custom CA certificate',{exact:true}).click();await form.getByLabel('CA certificate PEM').fill(readFileSync(process.env[`SQLCOMMANDER_${key}_CA`]!,'utf8'))}}

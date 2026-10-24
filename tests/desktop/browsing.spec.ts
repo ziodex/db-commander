@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { tableDataAction } from './table-data-actions'
 import { tableAction } from './explorer-actions'
 import { _electron as electron, test, expect } from '@playwright/test'
@@ -23,7 +24,7 @@ for (const engine of engineSchema.options) test(`browsing ${engine}: server page
   async function loaded(range: string) { await expect(page.locator('.status-text')).toHaveText('Table loaded'); await expect(page.locator('.page-range')).toHaveText(range) }
   async function options() { await page.getByRole('button', { name: /^Filters & sort/ }).click(); return page.getByRole('dialog', { name: 'Table filters and sorting' }) }
   try {
-    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(page)
     await page.getByRole('button', { name: 'Connect database', exact: true }).click()
     const form = page.getByRole('dialog'); await form.getByLabel('Database engine').selectOption(engine)
     if (['sqlite', 'duckdb'].includes(engine)) {

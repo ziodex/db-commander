@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { _electron as electron, test, expect, type ElectronApplication, type Page, type CDPSession } from '@playwright/test'
 import { createReadStream, mkdtempSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createInterface } from 'node:readline'
@@ -12,7 +13,7 @@ const modifier = process.platform === 'darwin' ? 'Meta' : 'Control'
 type WindowProbe = { page: Page; cdp: CDPSession; id: number; engine: 'duckdb' | 'sqlite'; marker: string; recordId: string }
 type ResourceSample = { elapsedSeconds: number; cycle: number; windows: { id: number; heap: number; nodes: number; listeners: number }[]; processes: { pid: number; type: string; name?: string; workingSetKiB: number }[]; ownedProcesses: { pid: number; ppid: number; rssKiB: number; executable: string }[] }
 async function ready(page: Page) {
-  await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+  await waitForWorkspaceReady(page)
   await expect(page.locator('.monaco-editor').first()).toBeVisible()
 }
 async function enter(page: Page, sql: string) {

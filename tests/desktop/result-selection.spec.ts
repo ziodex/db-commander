@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { _electron as electron, test, expect, type ElectronApplication, type Page } from '@playwright/test'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -12,7 +13,7 @@ async function launch() {
   const env: Record<string, string | undefined> = { ...process.env, SQLCOMMANDER_USER_DATA: directory }; delete env.ELECTRON_RUN_AS_NODE
   const app = await electron.launch({ args: [resolve('.')], env: env as Record<string, string> })
   const page = await app.firstWindow()
-  await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+  await waitForWorkspaceReady(page)
   return { app, page, directory }
 }
 async function close(app: ElectronApplication, directory: string) {

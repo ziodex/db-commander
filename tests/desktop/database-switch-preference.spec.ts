@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { _electron as electron, test, expect } from '@playwright/test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -18,7 +19,7 @@ test('database-switch confirmation is optional while tab ownership, failure reco
     await preferences.getByRole('tab', { name: 'Tabs', exact: true }).click()
   }
   try {
-    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(page)
     // Deterministic server replies exercise renderer flow without requiring a local DB server.
     await app.evaluate(({ ipcMain }) => {
       const sessions = new Map<string, SessionInfo>(), control = globalThis as any

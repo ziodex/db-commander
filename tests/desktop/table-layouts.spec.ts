@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { tableDataAction } from './table-data-actions'
 import { _electron as electron, test, expect, type ElectronApplication, type Page } from '@playwright/test'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -12,7 +13,7 @@ for (const engine of ['sqlite', 'duckdb'] as const) test(`saved table layouts ${
   let app: ElectronApplication | undefined, page: Page
   async function launch() {
     app = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: process.env.SQLCOMMANDER_TEST_EXECUTABLE } : { args: [resolve('.')] }), env: env as Record<string, string> })
-    const window = await app.firstWindow(); await expect(window.getByText('Saved locally', { exact: true })).toBeVisible()
+    const window = await app.firstWindow(); await waitForWorkspaceReady(window)
     return window
   }
   async function connect(mode: 'create' | 'read-write' | 'memory') {

@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { _electron as electron, test, expect, type ElectronApplication, type Page } from '@playwright/test'
 import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
@@ -13,7 +14,7 @@ async function launch(directory: string, status = 200) {
   const app = await electron.launch({ args: [application], env: env as Record<string, string> })
   try {
     const page = await app.firstWindow()
-    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(page)
     return { app, page, profile }
   } catch (error) {
     await app.evaluate(({ app }) => app.exit(1)).catch(() => {})

@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { queryTool } from './workspace-actions'
 import { _electron as electron, test, expect } from '@playwright/test'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
@@ -17,7 +18,7 @@ for (const engine of engineSchema.options) test(`explain ${engine}: selected SQL
   async function run(sql: string) { await enter(sql); await page.getByRole('button', { name: /^Run SQL/ }).click(); await expect(page.locator('.status-text')).toHaveText('Completed'); await expect(page.getByRole('button',{name:/^Run SQL/})).toBeEnabled() }
   const plan = page.getByRole('dialog', { name: 'Query plan', exact: true })
   try {
-    await expect(page.getByText('Saved locally',{exact:true})).toBeVisible()
+    await waitForWorkspaceReady(page)
     await page.getByRole('button',{name:'Connect database',exact:true}).click()
     const form = page.getByRole('dialog'); await form.getByLabel('Database engine').selectOption(engine)
     if (['sqlite','duckdb'].includes(engine)) { await form.getByLabel('Open mode').selectOption('create'); await form.getByLabel('Database file').fill(join(directory,'plans.db')) }

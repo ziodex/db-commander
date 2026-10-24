@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { _electron as electron, test, expect } from '@playwright/test'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -16,7 +17,7 @@ test('bulk tab closing uses the context tab, protects pinned and busy tabs, and 
   }
   const newTab = () => page.getByRole('button', { name: 'New query tab', exact: true }).click()
   try {
-    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(page)
     await app.evaluate(({ ipcMain }) => {
       const original = (ipcMain as any)._invokeHandlers.get('sql:disconnect')
       ;(globalThis as any).disconnectCalls = 0
