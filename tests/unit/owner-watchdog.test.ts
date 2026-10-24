@@ -12,8 +12,10 @@ describe.skipIf(process.platform !== 'win32')('Windows kernel-handle ownership',
     const install = join(directory, 'helper with spaces % # é'); mkdirSync(install)
     executable = join(install, 'windows-owner-guard.exe')
     const compiler = join(process.env.SystemRoot!, 'Microsoft.NET/Framework64/v4.0.30319/csc.exe')
-    execFileSync(compiler, ['/nologo', '/target:winexe', '/platform:x64', `/out:${executable}`, resolve('src/main/windows-owner-guard.cs')], { windowsHide: true, timeout: 10000 })
-  })
+    // Hosted Windows can spend more than ten seconds starting the cold .NET
+    // compiler. This setup deadline is separate from the guard exit checks.
+    execFileSync(compiler, ['/nologo', '/target:winexe', '/platform:x64', `/out:${executable}`, resolve('src/main/windows-owner-guard.cs')], { windowsHide: true, timeout: 30000 })
+  }, 45000)
   afterEach(async () => {
     await Promise.all(children.splice(0).map(child => new Promise<void>(resolve => {
       if (child.exitCode !== null || child.signalCode !== null) { resolve(); return }
