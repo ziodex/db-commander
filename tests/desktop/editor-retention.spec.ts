@@ -77,7 +77,8 @@ async function readyForSnapshot(page: Page) {
   await editor.locator('textarea').focus(); await page.keyboard.press('Control+Space')
   const suggestions = editor.locator('.suggest-widget')
   await expect(suggestions).toHaveClass(/\bvisible\b/)
-  await expect(suggestions).not.toContainText('Loading...')
+  // Monaco hides this message after loading but retains its text in the DOM.
+  await expect(suggestions.getByText('Loading...', { exact: true })).not.toBeVisible()
   await page.keyboard.press('Escape')
   await expect(suggestions).not.toHaveClass(/\bvisible\b/)
 }
