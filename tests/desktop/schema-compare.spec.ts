@@ -1,3 +1,4 @@
+import { openConnectionSettings } from './profile-actions'
 import { _electron as electron, test, expect } from '@playwright/test'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -30,7 +31,7 @@ for(const engine of engineSchema.options) test(`schema comparison ${engine}: con
     await run(engine==='oracle'?'SELECT 42 FROM dual':'SELECT 42')
     const originalBuffer=await page.locator('.monaco-editor').innerText()
     await page.getByRole('button',{name:'New query tab',exact:true}).click();await expect(page.getByRole('button',{name:/^Run SQL/})).toBeEnabled()
-    if(!separateSchema){await page.getByRole('button',{name:'Connection settings',exact:true}).click();await configure(true)}
+    if(!separateSchema){await openConnectionSettings(page);await configure(true)}
     else await run(`CREATE SCHEMA ${q(targetSchema)}`)
     await run(`CREATE TABLE ${full(targetSchema,name)} (${q('id')} INTEGER)`);await run(`CREATE TABLE ${full(targetSchema,extra)} (${q('id')} INTEGER)`)
     await page.getByLabel('Filter database objects').fill(prefix)

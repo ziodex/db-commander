@@ -96,9 +96,8 @@ try {
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1440, 960))
   await expect.poll(() => page.evaluate(() => ({ width: innerWidth, height: innerHeight }))).toEqual({ width: 1440, height: 960 })
   async function appearance(theme) {
-    await page.getByRole('button', { name: 'Workspace', exact: true }).click()
-    await page.getByRole('menuitem', { name: 'Editor settings', exact: true }).click()
-    const settings = page.getByRole('dialog', { name: 'Editor settings', exact: true })
+    await page.getByRole('button', { name: 'Application preferences', exact: true }).click()
+    const settings = page.getByRole('dialog', { name: 'Preferences', exact: true })
     await settings.getByLabel('Appearance', { exact: true }).selectOption(theme)
     await settings.getByRole('button', { name: 'Apply settings', exact: true }).click()
     await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
@@ -142,6 +141,9 @@ try {
   await expect.poll(() => page.locator('.results-region').evaluate(element => element.getBoundingClientRect().height)).toBe(470)
   await page.locator('.monaco-editor').first().click({ position: { x: 180, y: 60 } })
   await expect(page.getByRole('row').last()).toBeInViewport({ ratio: 1 })
+  await page.locator('[data-result-row="0"][data-result-column="0"]').click()
+  await page.locator('[data-result-row="2"][data-result-column="3"]').click({ modifiers: ['Shift'] })
+  await expect(page.locator('[data-selected=true]')).toHaveCount(12)
   await capture('query-workbench-dark.png')
 
   await appearance('light')

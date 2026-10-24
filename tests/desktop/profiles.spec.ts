@@ -54,7 +54,7 @@ for (const engine of engineSchema.options) test(`connections ${engine}: SSH, fol
     expect(await page!.evaluate(() => window.dbCommander.history())).toHaveLength(0)
     await unlock(); await page!.getByRole('button', { name: /^Run SQL/ }).click(); await expect(page!.getByRole('cell', { name: '42', exact: true })).toBeVisible()
     await page!.getByRole('button', { name: 'New query tab', exact: true }).click(); await expect(page!.locator('.status-text')).toHaveText('Connected')
-    await expect(page!.getByLabel('Connection safeguards')).toContainText('Protected · Locked')
+    await expect(page!.getByLabel('Connection safeguards')).toContainText('Unlocked')
     await page!.getByRole('tab', { name: 'Untitled.sql', exact: true }).click(); await expect(page!.getByLabel('Connection safeguards')).toContainText('Unlocked')
     await expect(page!.getByRole('button', { name: 'Begin', exact: true })).toBeEnabled(); await page!.getByRole('button', { name: 'Begin', exact: true }).click(); await expect(page!.locator('.transaction-badge')).toHaveText('In transaction')
     await page!.getByRole('button', { name: 'Lock connection', exact: true }).click(); await page!.getByRole('button', { name: 'Rollback', exact: true }).click(); await expect(page!.locator('.transaction-badge')).toHaveText(engine === 'oracle' ? 'Manual commit mode' : 'Autocommit')

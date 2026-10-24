@@ -42,8 +42,7 @@ test('DuckDB file dialog, analytics, transactions, cancellation, export and pers
     await expect(form.getByLabel('Database file', { exact: true })).toHaveValue(path)
     await form.getByRole('button', { name: 'Connect', exact: true }).click()
     await expect(form).not.toBeVisible()
-    await expect(page.locator('.statusbar').getByText('Local DuckDB', { exact: true })).toBeVisible()
-    await expect(page.locator('.dialect-label')).toHaveText('DuckDB')
+    await expect(page.locator('.statusbar .dialect-label')).toHaveText('DuckDB')
   }
   try {
     let page = await launch()

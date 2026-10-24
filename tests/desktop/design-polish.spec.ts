@@ -25,8 +25,8 @@ async function launch() {
 }
 async function preferences(page: Page) {
   await page.getByRole('button', { name: 'Workspace', exact: true }).click()
-  await page.getByRole('menuitem', { name: 'Editor settings', exact: true }).click()
-  return page.getByRole('dialog', { name: 'Editor settings', exact: true })
+  await page.getByRole('menuitem', { name: 'Preferences', exact: true }).click()
+  return page.getByRole('dialog', { name: 'Preferences', exact: true })
 }
 async function appearance(page: Page, theme: 'light' | 'dark') {
   const form = await preferences(page)
@@ -115,7 +115,7 @@ test('design polish preserves readable themes, visible settings actions and comp
         }
         const form = await preferences(page)
         await expect(form.locator('legend').first()).toHaveText('Display')
-        await expect(form.locator('.editor-settings-transfer')).not.toHaveAttribute('open', '')
+        await expect(form.getByRole('tabpanel', { name: 'Display', exact: true })).toBeVisible()
         for (const name of ['Reset defaults', 'Cancel', 'Apply settings']) await expect(form.getByRole('button', { name, exact: true })).toBeInViewport({ ratio: 1 })
         const input = form.getByLabel(/Font size/)
         await input.focus(); await page.keyboard.press('Tab'); await page.keyboard.press('Shift+Tab')
@@ -138,9 +138,9 @@ test('design polish preserves readable themes, visible settings actions and comp
         measurements.push({ theme, width, height, identity, tokens, gutter, colors })
       }
     }
-    const actions = page.getByRole('button', { name: 'Actions for Warehouse production', exact: true })
-    await actions.focus(); await page.keyboard.press('Enter'); await page.keyboard.press('End')
-    await expect(page.getByRole('menuitem', { name: 'Delete profile Warehouse production', exact: true })).toBeFocused()
+    const actions = page.getByRole('button', { name: 'Open Warehouse production in new tab', exact: true })
+    await actions.focus(); await page.keyboard.press('Shift+F10'); await page.keyboard.press('End')
+    await expect(page.getByRole('menuitem', { name: 'Delete connection', exact: true })).toBeFocused()
     await page.keyboard.press('Escape'); await expect(actions).toBeFocused()
     await app.evaluate(({ BrowserWindow }) => { const window = BrowserWindow.getAllWindows()[0]; window.setSize(1440, 940); window.webContents.setZoomFactor(1.5) })
     for (const theme of ['dark', 'light'] as const) {

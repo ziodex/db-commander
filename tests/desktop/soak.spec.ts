@@ -56,7 +56,7 @@ test('local soak keeps repeated query results, scratch tabs and DOM resources bo
       await expect(grid).toHaveAttribute('aria-rowcount', '1001')
       expect(await grid.getByRole('row').count()).toBeLessThan(80)
       await page.getByRole('button', { name: 'New query tab', exact: true }).click()
-      // New tabs clone the current session asynchronously. Respect the same
+      // New tabs reuse the current session. Respect the same
       // connection/metadata guard that protects an interactive close request.
       await expect(page.locator('.status-text')).toHaveText('Connected')
       await expect(page.getByRole('button', { name: /^Run SQL/ })).toBeEnabled()

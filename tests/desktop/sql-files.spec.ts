@@ -1,3 +1,4 @@
+import { fileMenu } from './file-menu'
 import { _electron as electron, test as base, expect, type ElectronApplication, type Page } from '@playwright/test'
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -16,7 +17,7 @@ const test = base.extend<{ files: Harness }>({ files: async ({}, use) => {
     app = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: process.env.SQLCOMMANDER_TEST_EXECUTABLE } : { args: [resolve('.')] }), env: env as Record<string, string> })
     const page = await app.firstWindow()
     await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Save SQL file', exact: true })).toBeEnabled()
+    await expect(page.getByRole('button', { name: 'Open SQL file', exact: true })).toBeEnabled()
     await app.evaluate(({ dialog }) => {
       ;(globalThis as any).filePrompts = []
       ;(globalThis as any).fileAnswer = 0
@@ -32,7 +33,7 @@ const test = base.extend<{ files: Harness }>({ files: async ({}, use) => {
     async open(path) {
       await h.app.evaluate(({ dialog }, path) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] }) }, path)
       await h.page.getByRole('button', { name: 'Open SQL file', exact: true }).click()
-      await expect(h.page.getByRole('button', { name: 'Save SQL file', exact: true })).toBeEnabled()
+      await expect(h.page.getByRole('button', { name: 'Open SQL file', exact: true })).toBeEnabled()
     },
     async destination(path) {
       await h.app.evaluate(({ dialog }, path) => {
@@ -49,11 +50,11 @@ const test = base.extend<{ files: Harness }>({ files: async ({}, use) => {
 async function enter(page: Page, sql: string) {
   await page.locator('.monaco-editor').click(); await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A'); await page.keyboard.insertText(sql); await page.keyboard.press('Escape')
 }
-async function menu(page: Page, name: string) { await page.getByRole('button', { name: 'File', exact: true }).click(); await page.getByRole('menuitem', { name, exact: true }).click() }
+async function menu(app: ElectronApplication, page: Page, name: string) { await fileMenu(app, page, name) }
 async function shortcut(app: ElectronApplication, keyCode: string, shift = false) {
   // Disk writes precede workspace persistence/refresh. Wait until the UI accepts
   // another file command, including when a prior save already changed the file.
-  await expect((await app.firstWindow()).getByRole('button', { name: 'Save SQL file', exact: true })).toBeEnabled()
+  await expect((await app.firstWindow()).getByRole('button', { name: 'Open SQL file', exact: true })).toBeEnabled()
   await app.evaluate(({ BrowserWindow }, { keyCode, shift, mac }) => {
     const window = BrowserWindow.getAllWindows()[0]; window.focus()
     const modifiers: Electron.KeyboardInputEvent['modifiers'] = [mac ? 'meta' : 'control', ...(shift ? ['shift' as const] : [])]
@@ -87,7 +88,7 @@ test('SQL files open in associated tabs, focus duplicates, Save and Save As via 
   await h.page.getByRole('tab', { name: 'Untitled.sql', exact: true }).click()
   await expect(h.page.locator('.monaco-editor')).toContainText('original_scratch')
   await shortcut(h.app, 'o'); await expect(h.page.getByRole('tab', { name: 'opened.sql', exact: true })).toBeVisible()
-  await menu(h.page, 'Recent SQL files…'); await expect(h.page.getByRole('dialog', { name: 'Recent SQL files' })).toContainText('copy.sql')
+  await menu(h.app, h.page, 'Recent SQL files…'); await expect(h.page.getByRole('dialog', { name: 'Recent SQL files' })).toContainText('copy.sql')
   await h.page.screenshot({ path: testInfo.outputPath('recent-sql-files.png') })
   await h.page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click()
 })
@@ -127,7 +128,7 @@ test('SQL files retain their association and dirty buffer when registry publicat
   try {
     await h.destination(target); await shortcut(h.app, 's', true)
     await expect(h.page.locator('.error-banner')).toBeVisible()
-    await expect(h.page.getByRole('button', { name: 'Save SQL file', exact: true })).toBeEnabled()
+    await expect(h.page.getByRole('button', { name: 'Open SQL file', exact: true })).toBeEnabled()
     expect(readFileSync(target, 'utf8')).toBe('SELECT retained_buffer;')
     expect(readFileSync(original, 'utf8')).toBe('SELECT original_file;')
     expect(await h.page.evaluate(() => window.dbCommander.checkSqlFiles())).toEqual(before)
@@ -179,8 +180,8 @@ test('SQL files detect external edits, revalidate replacement, confirm reload an
   writeFileSync(file, 'SELECT disk_initial;'); await h.open(file); await enter(h.page, 'SELECT local_edits;')
   writeFileSync(file, 'SELECT external_edits;')
   await expect(h.page.locator('.sql-file-notice')).toContainText('File changed on disk.', { timeout: 10000 })
-  await h.answer(0); await h.page.getByRole('button', { name: 'Save SQL file', exact: true }).click()
-  await expect(h.page.getByRole('button', { name: 'Save SQL file', exact: true })).toBeEnabled()
+  await h.answer(0); await fileMenu(h.app, h.page, 'Save')
+  await expect(h.page.getByRole('button', { name: 'Open SQL file', exact: true })).toBeEnabled()
   expect(readFileSync(file, 'utf8')).toBe('SELECT external_edits;')
   await expect(h.page.locator('.monaco-editor')).toContainText('local_edits')
   await h.app.evaluate(({ dialog }) => {
@@ -190,7 +191,7 @@ test('SQL files detect external edits, revalidate replacement, confirm reload an
       ;(globalThis as any).finishReplacementReview = () => resolve({ response: 2, checkboxChecked: false })
     })) as typeof dialog.showMessageBox
   })
-  await h.page.getByRole('button', { name: 'Save SQL file', exact: true }).click()
+  await fileMenu(h.app, h.page, 'Save')
   await expect.poll(() => h.app.evaluate(() => (globalThis as any).replacementReview)).toBe(true)
   writeFileSync(file, 'SELECT changed_during_review;')
   await h.app.evaluate(() => (globalThis as any).finishReplacementReview())
@@ -206,7 +207,7 @@ test('SQL files detect external edits, revalidate replacement, confirm reload an
   await expect(h.page.locator('.sql-file-bar')).toContainText('Saved to file')
   unlinkSync(file)
   await expect(h.page.locator('.sql-file-notice')).toContainText('File removed from disk.', { timeout: 10000 })
-  await h.page.getByRole('button', { name: 'Save SQL file', exact: true }).click()
+  await fileMenu(h.app, h.page, 'Save')
   await expect(h.page.locator('.error-banner')).toContainText('removed. Use Save As')
   await h.destination(copy); await h.page.getByRole('button', { name: 'Save As…', exact: true }).click()
   await expect(h.page.getByRole('tab', { name: 'recovered.sql', exact: true })).toBeVisible()
@@ -231,7 +232,7 @@ test('SQL files retain dirty buffers and recent files across quit, and save all 
   await h.restart(2)
   expect(readFileSync(file, 'utf8')).toBe('SELECT recovered_buffer;'); expect(readFileSync(second, 'utf8')).toBe('SELECT second_recovered;')
   await expect(h.page.locator('.sql-file-bar')).toContainText('Saved to file')
-  await menu(h.page, 'Recent SQL files…')
+  await menu(h.app, h.page, 'Recent SQL files…')
   const dialog = h.page.getByRole('dialog', { name: 'Recent SQL files' })
   await expect(dialog).toContainText('recovery.sql'); await dialog.getByRole('button', { name: 'Clear recent files' }).click()
   await expect(dialog).toContainText('No recent SQL files.'); expect(readFileSync(file, 'utf8')).toBe('SELECT recovered_buffer;')
@@ -248,7 +249,7 @@ test('SQL files reject invalid files, handle cancelled open and report missing r
   const file = join(h.directory, 'missing.sql'); writeFileSync(file, 'SELECT missing;'); await h.open(file)
   await h.page.getByRole('button', { name: 'Close missing.sql', exact: true }).click()
   await h.page.getByRole('dialog').getByRole('button', { name: 'Close tab', exact: true }).click()
-  unlinkSync(file); await menu(h.page, 'Recent SQL files…')
+  unlinkSync(file); await menu(h.app, h.page, 'Recent SQL files…')
   const dialog = h.page.getByRole('dialog', { name: 'Recent SQL files' })
   await dialog.getByRole('button', { name: /missing.sql/ }).click()
   await expect(dialog.getByRole('alert')).toContainText('ENOENT')
@@ -264,7 +265,7 @@ test('SQL files leave database sessions, transactions and query results unchange
   await h.page.getByRole('button', { name: 'Begin', exact: true }).click(); await expect(h.page.locator('.transaction-badge')).toHaveText('In transaction')
   await enter(h.page, 'SELECT 42 AS retained_result;'); await h.page.getByRole('button', { name: /^Run SQL/ }).click()
   await expect(h.page.getByRole('cell', { name: '42', exact: true })).toBeVisible()
-  await h.destination(file); await h.page.getByRole('button', { name: 'Save SQL file', exact: true }).click()
+  await h.destination(file); await fileMenu(h.app, h.page, 'Save')
   await expect(h.page.getByRole('tab', { name: 'transaction.sql', exact: true })).toBeVisible()
   await h.page.getByRole('button', { name: 'Close transaction.sql', exact: true }).click()
   await expect(h.page.locator('.error-banner')).toContainText('Commit or roll back'); await expect(h.page.getByRole('dialog')).not.toBeVisible()

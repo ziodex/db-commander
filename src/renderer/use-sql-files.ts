@@ -98,6 +98,7 @@ export function useSqlFiles(options: Options) {
     }))
   }
   async function reload(id = latest.current.workspaceRef.current.activeTabId) {
+    if (!files[id]) return
     await work(async () => {
       const tab = currentTab(id); if (!tab) return
       const opened = await api.reloadSqlFile({ tabId: id, sql: tab.sql })
@@ -126,11 +127,12 @@ export function useSqlFiles(options: Options) {
     const file = files[tab.id], cached = hashes[tab.id]
     return file ? cached?.sql !== normalizedSql(tab.sql) || cached.hash !== file.savedHash : Boolean(tab.sql.trim())
   }
-  const actions = useRef({ open, save }); actions.current = { open, save }
+  const actions = useRef({ open, save, reload }); actions.current = { open, save, reload }
   useEffect(() => api.onFileCommand(command => {
     if (document.querySelector('dialog[open], [role="dialog"]')) return
     if (command === 'recent') setRecentOpen(true)
     else if (command === 'open') void actions.current.open()
+    else if (command === 'reload') void actions.current.reload()
     else void actions.current.save(undefined, command === 'save-as')
   }), [])
   return { files, error, recent: state.recent, notice: state.notice, busy: busy || !initialized, dirty, open, save, reload, forget, clearRecent, recentOpen, setRecentOpen }

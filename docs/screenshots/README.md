@@ -1,10 +1,10 @@
 # App screenshots
 
-These PNGs show the running Db Commander developer preview, version 0.1.0, with a synthetic shop database. The capture uses a separate temporary profile and in-memory DuckDB connection. It does not open existing workspaces, save credentials or use production data. Screenshots preserve the application's interface and are not mockups or edited composites.
+These PNGs show the running Db Commander developer preview, version 0.2.0, with a synthetic shop database. The capture uses a separate temporary profile and in-memory DuckDB connection. It does not open existing workspaces, save credentials or use production data. Screenshots preserve the application's interface and are not mockups or edited composites.
 
 | Image | What it shows |
 | --- | --- |
-| [Query workbench, dark](query-workbench-dark.png) | A revenue-by-market query, exact results, the database explorer and saved demo profile |
+| [Query workbench, dark](query-workbench-dark.png) | A revenue-by-market query, a selected range of result cells, the database explorer and active saved connection |
 | [Table browser, light](table-browser-light.png) | Keyed product data, column types and table browsing/edit actions |
 | [ER diagram, light](schema-diagram-light.png) | Four related tables and their live catalog columns, primary keys and foreign keys |
 

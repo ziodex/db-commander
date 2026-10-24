@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Pin, X } from './WorkbenchIcons'
 import { MaterialIcon } from './MaterialIcon'
 import type { WorkspaceTab } from '../shared/contracts'
+import { hasConfiguredConnection } from '../shared/connection-profiles'
 import type { QueryTabState } from './query-tabs'
 import { ContextMenu, type MenuAnchor } from './ContextMenu'
 import { dropIndex, tabMoveBounds, tabMoveIndex } from '../shared/tab-order'
@@ -9,7 +10,7 @@ import { dropIndex, tabMoveBounds, tabMoveIndex } from '../shared/tab-order'
 export function QueryTabStrip({ tabs, activeId, states, disabled, closeDisabled, dirty, path, onSelect, onMove, onPin, onClose, onSplit, splitDisabled }: {
   tabs: WorkspaceTab[]; activeId: string; states: Record<string, QueryTabState>; disabled: boolean; closeDisabled: boolean
   dirty(tab: WorkspaceTab): boolean; path(id: string): string | undefined
-  onSelect(id: string): void; onMove(id: string, index: number): void; onPin(id: string, pinned: boolean): void; onClose(id: string): void
+  onSelect(id: string): void; onMove(id: string, index: number): void; onPin(id: string, pinned: boolean): void; onClose(id: string, scope?: 'tab' | 'others' | 'all'): void
   onSplit(id: string, orientation: 'vertical' | 'horizontal'): void; splitDisabled: boolean
 }) {
   const drag = useRef<string | null>(null)
@@ -43,11 +44,14 @@ export function QueryTabStrip({ tabs, activeId, states, disabled, closeDisabled,
     { label: 'Move tab to start', disabled: disabled || index <= bounds.first, action: () => move(menu.id, bounds.first) },
     { label: 'Move tab to end', disabled: disabled || index >= bounds.last, action: () => move(menu.id, bounds.last) },
     { label: 'Split editor side by side', disabled: disabled || splitDisabled, action: () => onSplit(menu.id, 'vertical') },
-    { label: 'Split editor stacked', disabled: disabled || splitDisabled, action: () => onSplit(menu.id, 'horizontal') }
+    { label: 'Split editor stacked', disabled: disabled || splitDisabled, action: () => onSplit(menu.id, 'horizontal') },
+    { label: 'Close other tabs', disabled: disabled || closeDisabled || !tabs.some(tab => tab.id !== menu.id && !tab.pinned), title: 'Close other unpinned tabs.', action: () => onClose(menu.id, 'others') },
+    { label: 'Close all tabs', disabled: disabled || closeDisabled || !tabs.some(tab => !tab.pinned), title: 'Close all unpinned tabs.', action: () => onClose(menu.id, 'all') }
   ] : []
   return <>
     <div className="query-tab-list" role="tablist" aria-label="Query tabs" onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOver(null) }}>
       {tabs.map((item, tabIndex) => {
+        const connectionName = states[item.id]?.session?.name ?? (hasConfiguredConnection(item) ? item.profile.name : 'No connection')
         const runtime = states[item.id], activity = runtime?.transferBusy ? 'Data transfer' : runtime?.backupBusy ? 'Backup / restore' : runtime?.switching ? 'Switching database' : runtime?.gridBusy ? 'Editing data' : runtime?.gridChanges.length ? `${runtime.gridChanges.length} staged` : runtime?.running ? 'Running' : runtime?.connecting ? 'Connecting' : runtime?.session?.transaction === 'failed' ? 'Transaction failed' : runtime?.session?.transaction === 'transaction' ? 'In transaction' : runtime?.session?.transaction === 'unknown' ? 'State unknown' : ''
         return <div key={item.id} className={`editor-tab ${item.id === activeId ? 'selected' : ''} ${item.pinned ? 'pinned' : ''} ${item.pinned && tabs[tabIndex + 1] && !tabs[tabIndex + 1].pinned ? 'pinned-end' : ''} ${over?.id === item.id ? over.after ? 'drop-after' : 'drop-before' : ''}`}
           onDragOver={event => {
@@ -68,7 +72,7 @@ export function QueryTabStrip({ tabs, activeId, states, disabled, closeDisabled,
             clearDrag(); if (destination >= 0) move(source, destination)
           }}>
           <button role="tab" id={`tab-${item.id}`} aria-controls="query-panel" aria-selected={item.id === activeId} aria-label={item.title}
-            aria-description={[item.pinned ? 'Pinned. Unpin from the tab menu or Commands before closing.' : '', dirty(item) ? 'Unsaved SQL changes.' : '', activity ? `${activity}.` : '', `Connection: ${runtime?.session?.name ?? item.profile.name}.`, 'Use the tab menu to reorder or split.'].filter(Boolean).join(' ')}
+            aria-description={[item.pinned ? 'Pinned. Unpin from the tab menu or Commands before closing.' : '', dirty(item) ? 'Unsaved SQL changes.' : '', activity ? `${activity}.` : '', `Connection: ${connectionName}.`, 'Use the tab menu to reorder or split.'].filter(Boolean).join(' ')}
             title={`${path(item.id) ?? item.title}\n${item.pinned ? 'Pinned. Unpin before closing.\n' : ''}Drag to reorder within this group, or use Ctrl/Cmd+Shift+Left/Right while the tab is focused.`} tabIndex={item.id === activeId ? 0 : -1}
             draggable={!disabled && tabs.length > 1} onDragStart={event => { if (disabled) { event.preventDefault(); return }; drag.current = item.id; event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('application/x-dbcommander-tab', item.id); setMenu(null) }} onDragEnd={clearDrag}
             onClick={() => onSelect(item.id)} onContextMenu={event => { event.preventDefault(); setMenu({ id: item.id, owner: event.currentTarget, x: event.clientX, y: event.clientY }) }}
@@ -84,7 +88,7 @@ export function QueryTabStrip({ tabs, activeId, states, disabled, closeDisabled,
                 onSelect(next.id); document.getElementById(`tab-${next.id}`)?.focus()
               }
             }}>
-            {item.pinned ? <Pin className="tab-pin" size={14} aria-hidden="true"/> : <MaterialIcon name="database"/>}{dirty(item) && <span className="sql-dirty" aria-label="Unsaved SQL changes" title="Unsaved SQL changes">●</span>}<span>{item.title}<small>{runtime?.session?.name ?? item.profile.name}</small></span>{activity && <span className={`tab-activity ${runtime?.running ? 'running' : ''}`} title={activity}>{activity}</span>}
+            {item.pinned ? <Pin className="tab-pin" size={14} aria-hidden="true"/> : <MaterialIcon name="database"/>}{dirty(item) && <span className="sql-dirty" aria-label="Unsaved SQL changes" title="Unsaved SQL changes">●</span>}<span>{item.title}<small>{connectionName}</small></span>{activity && <span className={`tab-activity ${runtime?.running ? 'running' : ''}`} title={activity}>{activity}</span>}
           </button>{!item.pinned && <button className="close-tab" aria-label={`Close ${item.title}`} disabled={closeDisabled || disabled} onClick={() => onClose(item.id)}><X size={12}/></button>}
         </div>
       })}

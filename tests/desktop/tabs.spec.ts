@@ -1,3 +1,4 @@
+import { openSeparateQueryTab } from './separate-query-tab'
 import { profileAction } from './profile-actions'
 import { _electron as electron, test, expect, type ElectronApplication, type Page } from '@playwright/test'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
@@ -36,10 +37,12 @@ for (const engine of ['duckdb', 'postgres'] as const) test(`${engine} saved prof
     await form.getByRole('button', { name: 'Connect', exact: true }).click(); await expect(form).not.toBeVisible()
     await expect(page.getByRole('button', { name: 'Open Team database in new tab', exact: true })).toBeVisible()
     await run(page, 'CREATE TEMP TABLE local_to_tab(n INT); INSERT INTO local_to_tab VALUES(1)')
+    await openSeparateQueryTab(page, engine === 'postgres' ? 'local-test-only' : undefined)
+    await page.getByRole('tab', { name: 'Untitled.sql', exact: true }).click()
     await page.getByRole('button', { name: 'Begin', exact: true }).click(); await expect(page.locator('.transaction-badge')).toHaveText('In transaction')
     await run(page, 'UPDATE local_to_tab SET n=2; SELECT n FROM local_to_tab')
     await page.getByRole('button', { name: 'Result 2', exact: true }).click()
-    await page.getByRole('button', { name: 'New query tab', exact: true }).click()
+    await page.getByRole('tab', { name: 'Query 2.sql', exact: true }).click()
     await expect(page.getByRole('tab', { name: 'Query 2.sql', exact: true })).toHaveAttribute('aria-selected', 'true')
     await expect(page.locator('.status-text')).toHaveText('Connected'); await expect(page.locator('.transaction-badge')).toHaveText('Autocommit')
     // Window close must see the transaction in the inactive first tab.

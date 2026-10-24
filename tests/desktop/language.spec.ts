@@ -38,10 +38,10 @@ for (const engine of engineSchema.options) test(`${engine} schema autocomplete a
     await expect(page.locator('.schema-list')).toContainText(name)
     // Every engine's custom formatting overrides the two-space global default.
     await page.getByRole('button', { name: 'Workspace', exact: true }).click()
-    await page.getByRole('menuitem', { name: 'Editor settings', exact: true }).click()
-    const preferences = page.getByRole('dialog', { name: 'Editor settings', exact: true })
+    await page.getByRole('menuitem', { name: 'Preferences', exact: true }).click()
+    const preferences = page.getByRole('dialog', { name: 'Preferences', exact: true })
     await preferences.getByLabel('Automatic suggestions').uncheck()
-    await preferences.getByLabel('Formatting settings for', { exact: true }).selectOption(engine)
+    await preferences.getByRole('tab', { name: 'SQL formatting', exact: true }).click(); await preferences.getByLabel('Formatting settings for', { exact: true }).selectOption(engine)
     await preferences.getByLabel('Use custom formatting', { exact: true }).check()
     await preferences.getByLabel(/Format indent width/).fill('4')
     await preferences.getByLabel(/Inline expression width/).fill('20')

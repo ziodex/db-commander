@@ -1,6 +1,6 @@
 import { useJobFeed } from './use-job-feed'
 import { useWorkspaceRecovery } from './use-workspace-recovery'
-import { DbCommanderMark } from './DbCommanderMark'
+import { TitleBar } from './TitleBar'
 import { UpdateBanner } from './UpdateBanner'
 import { ModalDialog } from './ModalDialog'
 import { workspaceSqlLimit } from '../shared/workspace-limits'
@@ -13,10 +13,10 @@ import { QueryTabStrip } from './QueryTabStrip'
 import { moveTab, setTabPinned } from '../shared/tab-order'
 import { CommandPalette } from './CommandPalette'
 import { useAppearance } from './appearance'
-import { MaterialIcon } from './MaterialIcon'
 import { DEFAULT_EDITOR_SHORTCUTS, shortcutLabel } from '../shared/editor-shortcuts'
 import { WorkspaceWindowsDialog } from './WorkspaceWindowsDialog'
 import { EditorSettingsDialog } from './EditorSettingsDialog'
+import { useApplicationPreferences } from './use-application-preferences'
 import { DEFAULT_EDITOR_SETTINGS } from '../shared/editor-settings'
 import { ActivityDialog } from './ActivityDialog'
 import { QueryBuilderDialog } from './QueryBuilderDialog'
@@ -33,7 +33,7 @@ import { matchingTableLayout, saveTableLayout, tableColumns, tableColumnViewKey,
 import type { ExplainRequest } from '../shared/explain'
 import { ObjectInspector, type ObjectView } from './ObjectInspector'
 import { ConnectionDialog } from './ConnectionDialog'
-import { ProfileList } from './ProfileList'
+import { ProfileList, type ProfileConnectionState } from './ProfileList'
 import { SessionSafetyBar } from './SessionSafetyBar'
 import { SchemaChangeDialog } from './SchemaChangeDialog'
 import type { SchemaChange, ApplySchemaChange } from '../shared/schema-changes'
@@ -42,7 +42,7 @@ import { BackupDialog } from './BackupDialog'
 import { TransferDialog } from './TransferDialog'
 import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from 'react'
 import type * as Monaco from 'monaco-editor'
-import { PanelLeft, PanelBottom, Maximize2, Minimize2, Search, Activity, ArrowDownToLine, Save, Check, Database, FolderOpen, History, LockKeyhole, Play, Plus, Settings2, Square, Table2, Terminal, Unplug, X } from './WorkbenchIcons'
+import { PanelLeft, PanelBottom, Maximize2, Minimize2, Search, Activity, ArrowDownToLine, Check, Database, FolderOpen, History, LockKeyhole, Play, Plus, Settings2, Square, Table2, Terminal, Unplug, X } from './WorkbenchIcons'
 import type { ConnectionConfig, ConnectionProfile, HistoryEntry } from '../shared/contracts'
 import { DEFAULT_PROFILE, MAX_PROFILES, MAX_TABS, engineNames, type DatabaseEngine, type Workspace, type WorkspaceTab, type SavedConnectionProfile } from '../shared/contracts'
 import { tablePreviewSql } from '../shared/sql/common'
@@ -53,7 +53,7 @@ import { formatEditor } from './language-service'
 import { changesSchema } from '../language/completion'
 import { DEFAULT_LAYOUT, applyLayoutCommand, clampSize, panelBounds, layoutCommands, type LayoutCommand, type WorkspaceLayout } from '../shared/layout'
 import { passwordEligible, type PasswordChoice } from '../shared/credentials'
-import { connectionProfile, sameConnectionProfile } from '../shared/connection-profiles'
+import { connectionProfile, hasConfiguredConnection, sameConnectionProfile } from '../shared/connection-profiles'
 import { Splitter } from './Splitter'
 import { useElementSize } from './use-element-size'
 import { DatabaseExplorer } from './DatabaseExplorer'
@@ -61,6 +61,7 @@ import { TableData } from './TableData'
 import type { DatabaseEvent, GridTable, GridQueryOptions, GridSnapshot, SessionInfo } from '../shared/contracts'
 import { ResultGrid } from './ResultGrid'
 import { applyDatabaseEvent, tabOperationBusy, canCloseTab, canSwitchDatabase, emptyTabState, type QueryTabState } from './query-tabs'
+import { patchSessionState, reconcileSessionBusy, sessionOwners } from './shared-sessions'
 
 const INITIAL_SQL = `SELECT\n  current_database() AS database,\n  current_user AS connected_as,\n  now() AS server_time;\n`
 const INITIAL_PROFILE = DEFAULT_PROFILE
@@ -88,7 +89,7 @@ export function App() {
   const workspaceBodyRef = useRef<HTMLDivElement>(null), queryPanesRef = useRef<HTMLDivElement>(null)
   const bodySize = useElementSize(workspaceBodyRef), panesSize = useElementSize(queryPanesRef)
   const layout = workspace.layout ?? DEFAULT_LAYOUT
-  const editorSettings = workspace.editorSettings ?? DEFAULT_EDITOR_SETTINGS
+  const { settings: editorSettings, apply: applyPreferences } = useApplicationPreferences(api, workspace.editorSettings ?? DEFAULT_EDITOR_SETTINGS)
   const theme = useAppearance(editorSettings.appearance)
   const editorKeys = editorSettings.shortcuts ?? DEFAULT_EDITOR_SHORTCUTS
   const keyHint = (action: keyof typeof editorKeys) => shortcutLabel(editorKeys[action], shortcutKey === '⌘')
@@ -101,9 +102,12 @@ export function App() {
   const generation = useRef(0)
   const [dialogInfo, setDialogInfo] = useState<{ tabId: string; profile: ConnectionProfile; profileId?: string; saveOnly?: boolean } | null>(null)
   const [dialogError, setDialogError] = useState('')
+  const [connectionWarning, setConnectionWarning] = useState<{ tabId: string; profileId: string; name: string; error: string } | null>(null)
   const [profileBusy, setProfileBusy] = useState(false)
   const [switchTarget, setSwitchTarget] = useState<{ tabId: string; sessionId: string; database: string } | null>(null)
-  const [closeId, setCloseId] = useState<string | null>(null)
+  const [closeRequest, setCloseRequest] = useState<{ ids: string[]; confirm: boolean } | null>(null)
+  const closeId = closeRequest?.ids[0] ?? null
+  const [closingTabs, setClosingTabs] = useState(false), closeOperation = useRef(false)
   const [deleteProfileId, setDeleteProfileId] = useState<string | null>(null)
   const [activityOpen,setActivityOpen]=useState<{tabId:string;sessionId:string}|null>(null)
   const [builderOpen,setBuilderOpen]=useState<{tabId:string;sessionId:string;table?:GridTable}|null>(null)
@@ -127,8 +131,6 @@ export function App() {
     if (owner) patchState(owner, { backupBusy: job.status === 'running' })
   })
   const [palette, setPalette] = useState(false)
-  const [windowName, setWindowName] = useState('Primary')
-  useEffect(() => { void api.workspaceWindows().then(info => setWindowName(info.windows.find(item => item.id === info.currentId)?.name ?? 'Primary')).catch(() => {}) }, [])
   const [windowsOpen, setWindowsOpen] = useState(false)
   useEffect(() => api.onWindowsCommand(() => setWindowsOpen(true)), [])
   const [editorSettingsOpen, setEditorSettingsOpen] = useState(false)
@@ -171,11 +173,11 @@ export function App() {
     setHistoryView(history); changeLayout(layout => ({ ...layout, sidebarVisible: true }))
   }
   function changeStates(update: (previous: Record<string, QueryTabState>) => Record<string, QueryTabState>) {
-    const next = update(statesRef.current); statesRef.current = next; setStates(next)
+    const next = reconcileSessionBusy(update(statesRef.current)); statesRef.current = next; setStates(next)
   }
   function patchState(id: string, patch: Partial<QueryTabState>) {
     if (!workspaceRef.current.tabs.some(tab => tab.id === id)) return
-    changeStates(previous => ({ ...previous, [id]: { ...(previous[id] ?? emptyTabState()), ...('error' in patch ? { failure: undefined } : {}), ...patch } }))
+    changeStates(previous => patchSessionState(previous, id, patch))
   }
   function patchTab(id: string, patch: Partial<WorkspaceTab>) {
     changeWorkspace(previous => ({ ...previous, tabs: previous.tabs.map(tab => tab.id === id ? { ...tab, ...patch } : tab) }))
@@ -184,7 +186,8 @@ export function App() {
   const report = (error: unknown, id = tabId) => patchState(id, { error: message(error), failure: undefined })
   function appendSelect(table: GridTable) {
     const current = workspaceRef.current.tabs.find(tab => tab.id === workspaceRef.current.activeTabId)!
-    const generated = tablePreviewSql(table.schema, table.name, current.profile.engine, table.catalog), text = `${current.sql ? '\n\n' : ''}${generated}`
+    const generated = tablePreviewSql(table.schema, table.name, current.profile.engine, table.catalog)
+    const text = `${current.sql ? '\n\n' : ''}${generated}`
     const sql = current.sql + text
     if (workspaceSqlLimit(workspaceRef.current.tabs.map(tab => tab.id === current.id ? { ...tab, sql } : tab))) {
       report(new Error('The generated SELECT would exceed the saved workspace SQL limit. Your SQL buffer was kept.'), current.id); return
@@ -194,7 +197,8 @@ export function App() {
       const end = model.getPositionAt(model.getValueLength())
       editor.pushUndoStop()
       editor.executeEdits('append-table-select', [{ range: { startLineNumber: end.lineNumber, startColumn: end.column, endLineNumber: end.lineNumber, endColumn: end.column }, text }])
-      editor.pushUndoStop(); editor.setPosition(model.getPositionAt(model.getValueLength())); editor.revealPosition(editor.getPosition()!); editor.focus()
+      editor.pushUndoStop()
+      editor.setPosition(model.getPositionAt(sql.length)); editor.revealPosition(editor.getPosition()!); editor.focus()
     } else patchTab(current.id, { sql })
   }
   const setError = (error: string) => patchState(tabId, { error })
@@ -214,7 +218,7 @@ export function App() {
   }
   async function inspectObject(object: CatalogObject) {
     const current = statesRef.current[tabId], sessionId = current?.session?.id
-    if (!sessionId || current.schemaLoading || current.running || current.gridBusy || current.backupBusy || current.transferBusy || current.switching || current.databasesLoading) return
+    if (!sessionId || current.sharedSessionBusy || current.schemaLoading || current.running || current.gridBusy || current.backupBusy || current.transferBusy || current.switching || current.databasesLoading) return
     setObjectView({ tabId, sessionId, object, loading: true }); patchState(tabId, { schemaLoading: true })
     try {
       const detail = await api.inspectObject({ sessionId, object })
@@ -273,7 +277,7 @@ export function App() {
   }
   async function refreshTables(id = tabId, sessionId = statesRef.current[id]?.session?.id) {
     const current = statesRef.current[id]
-    if (!sessionId || current?.schemaLoading || current?.running || current?.backupBusy || current?.transferBusy || current?.gridBusy || current?.switching || current?.databasesLoading) return
+    if (!sessionId || current?.sharedSessionBusy || current?.schemaLoading || current?.running || current?.backupBusy || current?.transferBusy || current?.gridBusy || current?.switching || current?.databasesLoading) return
     patchState(id, { schemaLoading: true, schemaError: '' })
     try {
       const schema = await api.schema(sessionId)
@@ -284,7 +288,7 @@ export function App() {
   }
   async function refreshDatabases(id = tabId, sessionId = statesRef.current[id]?.session?.id) {
     const current = statesRef.current[id]
-    if (!sessionId || current?.databasesLoading || current?.schemaLoading || current?.running || current?.backupBusy || current?.transferBusy || current?.gridBusy || current?.switching) return
+    if (!sessionId || current?.sharedSessionBusy || current?.databasesLoading || current?.schemaLoading || current?.running || current?.backupBusy || current?.transferBusy || current?.gridBusy || current?.switching) return
     patchState(id, { databasesLoading: true, databasesError: '' })
     try {
       const databases = await api.databases(sessionId)
@@ -297,29 +301,32 @@ export function App() {
     if (!current?.session) return
     const reason = canSwitchDatabase(current)
     if (reason) { report(new Error(reason)); return }
-    setSwitchTarget({ tabId, sessionId: current.session.id, database })
+    const target = { tabId, sessionId: current.session.id, database }
+    if (editorSettings.confirmDatabaseSwitch === false) void switchDatabase(target)
+    else setSwitchTarget(target)
   }
-  async function switchDatabase() {
-    const target = switchTarget
+  async function switchDatabase(target = switchTarget) {
     if (!target) return
+    const clearConfirmation = () => setSwitchTarget(previous => previous?.tabId === target.tabId && previous.sessionId === target.sessionId ? null : previous)
     const current = statesRef.current[target.tabId]
-    if (current?.session?.id !== target.sessionId) { setSwitchTarget(null); return }
+    if (current?.session?.id !== target.sessionId) { clearConfirmation(); return }
     const reason = canSwitchDatabase(current)
-    if (reason) { report(new Error(reason), target.tabId); setSwitchTarget(null); return }
+    if (reason) { report(new Error(reason), target.tabId); clearConfirmation(); return }
     patchState(target.tabId, { switching: true, error: '', status: 'Switching database' })
     try {
-      const connected = await api.switchDatabase({ sessionId: target.sessionId, database: target.database })
+      const connected = await api.switchDatabase({ sessionId: target.sessionId, database: target.database, retainSource: sessionOwners(statesRef.current, target.sessionId).length > 1 })
       if (statesRef.current[target.tabId]?.session?.id !== target.sessionId) { await api.disconnect(connected.id).catch(() => {}); return }
+      if (connected.id !== target.sessionId && sessionOwners(statesRef.current, target.sessionId).length > 1) await api.editGrid({ action: 'release', sessionId: target.sessionId, viewId: target.tabId }).catch(() => {})
       const owner = workspaceRef.current.tabs.find(tab => tab.id === target.tabId)!
       patchTab(target.tabId, { profile: { ...owner.profile, database: connected.database } })
       patchState(target.tabId, { ...emptyTabState(), session: connected, connectionDatabase: connected.database, databases: current.databases ? { ...current.databases, current: connected.database } : null, status: 'Connected' })
       await refreshTables(target.tabId, connected.id)
     } catch (error) { report(error, target.tabId); patchState(target.tabId, { status: 'Switch failed' }) }
-    finally { patchState(target.tabId, { switching: false }); setSwitchTarget(null); cleanupLostSession(target.sessionId) }
+    finally { patchState(target.tabId, { switching: false }); clearConfirmation(); cleanupLostSession(target.sessionId) }
   }
   const sqlFiles = useSqlFiles({ workspace, workspaceRef, ready, changeWorkspace, patchTab, persist, report })
   const receiveDatabaseEvent = useEffectEvent((event: DatabaseEvent) => {
-      const owner = event.type === 'host-lost' ? undefined : Object.entries(statesRef.current).find(([, state]) => state.session?.id === event.sessionId)?.[0]
+      const owner = event.type === 'host-lost' ? undefined : Object.entries(statesRef.current).find(([, state]) => state.session?.id === event.sessionId && (event.type === 'session-lost' || state.queryId === event.queryId))?.[0]
       const previousDatabase = owner ? statesRef.current[owner]?.session?.database : undefined
       if (event.type === 'host-lost') { generation.current++; lostSessions.current.clear() }
       if (event.type === 'session-lost' && owner) {
@@ -330,11 +337,12 @@ export function App() {
       if (event.type !== 'host-lost' && ['session-lost', 'complete'].includes(event.type)) cleanupLostSession(event.sessionId)
       changeStates(previous => Object.fromEntries(Object.entries(previous).map(([id, state]) => [id, applyDatabaseEvent(state, event)])))
       if (event.type === 'complete') {
+        if (owner && statesRef.current[owner]?.session) patchState(owner, { session: statesRef.current[owner].session })
         void api.history().then(setHistory).catch(error => { if (owner) report(error, owner) })
         const owned = owner ? statesRef.current[owner] : undefined
         if (owner && owned?.session && event.database !== undefined && event.database !== previousDatabase) {
-          const ownerTab = workspaceRef.current.tabs.find(tab => tab.id === owner)!
-          patchTab(owner, { profile: { ...ownerTab.profile, database: event.database } })
+          const owners = sessionOwners(statesRef.current, event.sessionId)
+          changeWorkspace(previous => ({ ...previous, tabs: previous.tabs.map(tab => owners.includes(tab.id) ? { ...tab, profile: { ...tab.profile, database: event.database! } } : tab) }))
         }
         if (owner && owned?.queryId === event.queryId && owned.session && (owned.schemaStale || event.database !== undefined && event.database !== previousDatabase)) {
           patchState(owner, { schema: null, tables: [] }); void refreshTables(owner, owned.session.id)
@@ -363,7 +371,7 @@ export function App() {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); setPalette(value => !value) }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 't') { event.preventDefault(); if (!dialog && !closeId && !deleteProfileId && ready) newTab() }
       if (event.key === 'F6' && !event.altKey && !event.metaKey && !event.ctrlKey && !document.querySelector('dialog[open], [role="dialog"]') && workspaceRef.current.editorViews) { event.preventDefault(); focusNextEditor(event.shiftKey ? -1 : 1) }
-      if (event.key === 'Escape') { setPalette(false); setBackupOpen(false); if (!connecting && !profileBusy && !sqlFiles.busy) { setDialog(false); setCloseId(null); setDeleteProfileId(null) } }
+      if (event.key === 'Escape') { setPalette(false); setBackupOpen(false); if (!connecting && !profileBusy && !sqlFiles.busy && !closeOperation.current) { setDialog(false); setCloseRequest(null); setDeleteProfileId(null) } }
   })
   useEffect(() => {
     const listener = (event: KeyboardEvent) => receiveKeyboardEvent(event)
@@ -393,7 +401,7 @@ export function App() {
     const id = crypto.randomUUID(), sessionId = current.session.id
     const retainedGrid = text && /^(COMMIT|ROLLBACK)$/.test(text) ? current.grid : null
     patchState(tabId, { execution: source, failure: undefined, grid: retainedGrid, gridChanges: [], gridExpired: Boolean(retainedGrid), error: '', running: true, queryId: id, results: [], activeResult: 0, messages: [], duration: null, status: 'Running', showMessages: false, schemaStale: current.schemaStale || changesSchema(query, current.session.engine) })
-    try { await api.run({ sessionId, queryId: id, sql: query, parameters, singleUnit: source?.singleUnit, maxRows: 1000 }) }
+    try { await api.run({ sessionId, viewId: tabId, queryId: id, sql: query, parameters, singleUnit: source?.singleUnit, maxRows: 1000 }) }
     catch (error) { if (statesRef.current[tabId]?.queryId === id) patchState(tabId, { running: false, status: 'Failed', error: message(error), failure: { start: 0, end: query.length, scope: 'script' } }) }
   }
   runRef.current = () => { void run() }
@@ -420,7 +428,7 @@ export function App() {
     editor.focus()
     requestAnimationFrame(() => { if (editorRef.current?.getModel() === model) { editor.revealPositionInCenter(start); editor.focus() } })
   }
-  async function connect(config: ConnectionConfig, saveProfile = true, target: { tabId: string; profile: ConnectionProfile; profileId?: string; saveOnly?: boolean; preserveProfile?: boolean } = dialogInfo ?? { tabId, profile }, choice?: PasswordChoice, sourceSessionId?: string) {
+  async function connect(config: ConnectionConfig, saveProfile = true, target: { tabId: string; profile: ConnectionProfile; profileId?: string; saveOnly?: boolean; preserveProfile?: boolean; savedConnection?: boolean } = dialogInfo ?? { tabId, profile }, choice?: PasswordChoice) {
     const id = target.tabId, previous = statesRef.current[id] ?? emptyTabState()
     const reason = canCloseTab(previous)
     if (reason) { setDialogError(reason); return }
@@ -432,9 +440,11 @@ export function App() {
     if (saveProfile && !reuseId && !target.preserveProfile && workspaceRef.current.profiles.length >= MAX_PROFILES) { setDialogError(`Up to ${MAX_PROFILES} profiles can be saved. Uncheck Save connection profile or delete an unused profile.`); return }
     const epoch = generation.current
     patchState(id, { connecting: true, error: '' }); setDialogError('')
+    if (target.savedConnection) setConnectionWarning(null)
     try {
-      if (previous.session) { await api.disconnect(previous.session.id); patchState(id, { session: null, tables: [], schema: null, schemaLoading: false, schemaError: '', databases: null, databasesError: '', databasesLoading: false, results: [], queryId: '', status: 'Disconnected' }) }
-      const connected = sourceSessionId ? await api.cloneSession(sourceSessionId) : choice?.useSaved && target.profileId ? await api.connectSavedPassword(target.profileId, connectionProfile(config), config.sshSecrets) : await api.connect(config)
+      if (previous.session) { if (sessionOwners(statesRef.current, previous.session.id).length === 1) await api.disconnect(previous.session.id); else await api.editGrid({ action: 'release', sessionId: previous.session.id, viewId: id }); patchState(id, { session: null, tables: [], schema: null, schemaLoading: false, schemaError: '', databases: null, databasesError: '', databasesLoading: false, results: [], queryId: '', status: 'Disconnected' }) }
+      const useSaved = target.savedConnection && target.profileId && passwordEligible(config) ? (await api.passwordStatus(target.profileId)).saved : choice?.useSaved
+      const connected = useSaved && target.profileId ? await api.connectSavedPassword(target.profileId, connectionProfile(config), config.sshSecrets) : await api.connect(config)
       if (generation.current !== epoch || !workspaceRef.current.tabs.some(tab => tab.id === id)) { await api.disconnect(connected.id).catch(() => {}); return }
       const savedId = saveProfile ? reuseId ? workspaceRef.current.profiles.some(profile => profile.id === reuseId) ? reuseId : undefined : target.preserveProfile ? undefined : crypto.randomUUID() : undefined
       changeWorkspace(previous => ({ ...previous,
@@ -447,26 +457,37 @@ export function App() {
         catch (error) { report(new Error(`Connected, but profile or password storage failed. ${message(error)}`), id) }
       }
       setDialogInfo(previous => previous?.tabId === id && !previous.saveOnly ? null : previous)
-      void refreshDatabases(id, connected.id).then(() => refreshTables(id, connected.id))
-    } catch (error) { report(error, id); setDialogError(message(error)) }
+      await refreshDatabases(id, connected.id)
+      await refreshTables(id, connected.id)
+      return connected
+    } catch (error) {
+      report(error, id)
+      if (target.savedConnection && target.profileId) setConnectionWarning({ tabId: id, profileId: target.profileId, name: config.name, error: message(error) })
+      else setDialogError(message(error))
+    }
     finally { patchState(id, { connecting: false }) }
   }
   function newTab(savedProfile?: SavedConnectionProfile, definition?: { sql: string; title: string }) {
+    if (closeId || closeOperation.current || sqlFiles.busy) return
     if (!ready || workspaceRef.current.tabs.length >= MAX_TABS) { report(new Error(`Up to ${MAX_TABS} query tabs can be open.`)); return }
     if (workspaceRef.current.tabs.reduce((size, tab) => size + tab.sql.length, definition?.sql.length ?? 1000) > 5_000_000) { report(new Error('Save and shorten a SQL buffer before opening another tab. Workspace SQL is limited to 5 MB.')); return }
     const current = workspaceRef.current.tabs.find(tab => tab.id === workspaceRef.current.activeTabId)!
-    const id = crypto.randomUUID(), source = savedProfile?.config ?? current.profile
+    const existing = savedProfile ? workspaceRef.current.tabs.find(tab => tab.profileId === savedProfile.id && sameConnectionProfile(tab.profile, savedProfile.config) && (statesRef.current[tab.id]?.session || statesRef.current[tab.id]?.connecting)) : current
+    const original = existing ? statesRef.current[existing.id] : undefined
+    if (original?.closing || original?.connecting || original?.switching) { report(new Error('Wait for this connection operation to finish before opening another tab.')); return }
+    const id = crypto.randomUUID(), source = existing && original?.session ? existing.profile : savedProfile?.config ?? current.profile
     const next: WorkspaceTab = { id, title: definition?.title.slice(0, 255) ?? `Query ${workspaceRef.current.tabs.length + 1}.sql`, sql: definition?.sql ?? starterSql(source.engine), profile: source, profileId: savedProfile?.id ?? current.profileId }
     changeWorkspace(previous => ({ ...previous, tabs: [...previous.tabs, next], activeTabId: id }))
     patchState(id, emptyTabState())
     const target = { tabId: id, profile: source, profileId: next.profileId }
-    if (savedProfile) {
-      if (['sqlite', 'duckdb'].includes(source.engine)) void connect({ ...source, password: '' }, true, target)
-      else { setDialogError(''); setDialogInfo(target) }
-    } else {
-      const sourceSession = statesRef.current[current.id]?.session
-      if (sourceSession) void connect({ ...source, password: '' }, Boolean(next.profileId), { ...target, preserveProfile: true }, undefined, sourceSession.id)
+    let connected: Promise<SessionInfo | undefined> | undefined
+    if (original?.session) {
+      patchState(id, { session: original.session, connectionDatabase: original.connectionDatabase, schema: original.schema, tables: original.tables, databases: original.databases, status: 'Connected' })
+      connected = Promise.resolve(original.session)
+    } else if (savedProfile) {
+      connected = connect({ ...source, password: '' }, true, { ...target, savedConnection: true })
     }
+    return { id, connected }
   }
   async function savePasswordChoice(id: string, config: ConnectionConfig, choice?: PasswordChoice) {
     if (!choice) return
@@ -494,13 +515,26 @@ export function App() {
     } catch (error) { setDialogError(message(error)) } finally { setProfileBusy(false) }
   }
   async function disconnect() {
-    const current = statesRef.current[tabId]
-    if (!current?.session) return
-    const reason = canCloseTab(current)
-    if (reason) { report(new Error(reason)); return }
-    patchState(tabId, { closing: true })
-    try { await api.disconnect(current.session.id); patchState(tabId, { session: null, tables: [], schema: null, schemaLoading: false, schemaError: '', databases: null, databasesError: '', databasesLoading: false, results: [], queryId: '', status: 'Disconnected' }) }
-    catch (error) { report(error) } finally { patchState(tabId, { closing: false }) }
+    await disconnectTabs([tabId])
+  }
+  async function disconnectTabs(ids: string[]) {
+    const targets = workspaceRef.current.tabs.filter(tab => ids.includes(tab.id)).map(tab => ({ tab, state: statesRef.current[tab.id] }))
+    for (const { tab, state } of targets) {
+      const reason = state && canCloseTab(state)
+      if (reason) { report(new Error(`${tab.title}: ${reason}`)); return }
+    }
+    const connected = targets.filter(target => target.state?.session)
+    for (const { tab } of connected) patchState(tab.id, { closing: true })
+    const sessions = new Set(connected.map(({ state }) => state.session!.id))
+    await Promise.all([...sessions].map(async sessionId => {
+      const owners = connected.filter(({ state }) => state.session!.id === sessionId)
+      try {
+        if (sessionOwners(statesRef.current, sessionId).every(id => ids.includes(id))) await api.disconnect(sessionId)
+        else for (const { tab } of owners) await api.editGrid({ action: 'release', sessionId, viewId: tab.id })
+        for (const { tab } of owners) patchState(tab.id, { session: null, tables: [], schema: null, schemaLoading: false, schemaError: '', databases: null, databasesError: '', databasesLoading: false, results: [], queryId: '', status: 'Disconnected' })
+      } catch (error) { report(new Error(`${owners[0].tab.title}: ${message(error)}`)) }
+      finally { for (const { tab } of owners) patchState(tab.id, { closing: false }) }
+    }))
   }
   function pinTab(id: string, pinned: boolean) {
     if (!ready || sqlFiles.busy || closeId) return
@@ -512,53 +546,96 @@ export function App() {
       button?.focus({ preventScroll: true }); button?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
     })
   }
-  function requestClose(id: string) {
-    if (sqlFiles.busy) return
-    const tab = workspaceRef.current.tabs.find(tab => tab.id === id)
-    if (!tab) return
-    const reason = tab.pinned ? 'Unpin this tab before closing it.' : canCloseTab(statesRef.current[id] ?? emptyTabState())
-    if (reason) { changeWorkspace(previous => ({ ...previous, activeTabId: id })); report(new Error(reason), id); return }
-    setCloseId(id)
+  function checkCloseTabs(ids: string[]) {
+    for (const tab of workspaceRef.current.tabs.filter(tab => ids.includes(tab.id))) {
+      const reason = tab.pinned ? 'Unpin this tab before closing it.' : canCloseTab(statesRef.current[tab.id] ?? emptyTabState())
+      if (reason) {
+        changeWorkspace(previous => ({ ...previous, activeTabId: tab.id }))
+        report(new Error(ids.length > 1 ? `${tab.title}: ${reason}` : reason), tab.id)
+        return false
+      }
+    }
+    return true
   }
-  async function closeTab() {
-    const id = closeId
-    if (!id) return
+  function requestClose(id: string, scope: 'tab' | 'others' | 'all' = 'tab') {
+    if (sqlFiles.busy || closeId || closeOperation.current) return
+    const ids = workspaceRef.current.tabs.filter(tab => scope === 'tab' ? tab.id === id : !tab.pinned && (scope === 'all' || tab.id !== id)).map(tab => tab.id)
+    if (!ids.length || !checkCloseTabs(ids)) return
+    if (editorSettings.confirmTabClose === false) void closeTabs(ids)
+    else setCloseRequest({ ids, confirm: true })
+  }
+  async function closeTabs(ids = closeRequest?.ids) {
+    if (!ids?.length || sqlFiles.busy || closeOperation.current) return
+    if (!checkCloseTabs(ids)) { setCloseRequest(null); return }
+    closeOperation.current = true; setClosingTabs(true)
+    setCloseRequest(previous => previous ?? { ids, confirm: false })
+    try {
+      // Sequential releases keep a shared connection alive until its final tab closes.
+      for (const id of ids) if (!await closeTab(id)) break
+    } finally { closeOperation.current = false; setClosingTabs(false); setCloseRequest(null) }
+  }
+  async function closeTab(id: string): Promise<boolean> {
     const tab = workspaceRef.current.tabs.find(tab => tab.id === id)
-    if (!tab || tab.pinned) { setCloseId(null); return }
-    const current = statesRef.current[id] ?? emptyTabState(), reason = canCloseTab(current)
-    if (reason) { report(new Error(reason), id); setCloseId(null); return }
+    if (!tab) return true
+    if (!checkCloseTabs([id])) return false
+    const current = statesRef.current[id] ?? emptyTabState()
     patchState(id, { closing: true })
     try {
-      if (current.session) await api.disconnect(current.session.id)
+      if (current.session) {
+        if (sessionOwners(statesRef.current, current.session.id).length === 1) await api.disconnect(current.session.id)
+        else await api.editGrid({ action: 'release', sessionId: current.session.id, viewId: id })
+      }
       changeWorkspace(previous => {
         const index = previous.tabs.findIndex(tab => tab.id === id), remaining = previous.tabs.filter(tab => tab.id !== id)
         if (!remaining.length) remaining.push({ id: crypto.randomUUID(), title: 'Untitled.sql', sql: '', profile: INITIAL_PROFILE })
         return { ...previous, tabs: remaining, activeTabId: previous.activeTabId === id ? remaining[Math.min(index, remaining.length - 1)].id : previous.activeTabId }
       })
       changeStates(previous => { const next = { ...previous }; delete next[id]; return next })
-      setCloseId(null); await persist(); await sqlFiles.forget(id)
-    } catch (error) { report(error, workspaceRef.current.tabs.some(tab => tab.id === id) ? id : workspaceRef.current.activeTabId) } finally { patchState(id, { closing: false }) }
+      await persist(); await sqlFiles.forget(id)
+      return true
+    } catch (error) {
+      report(error, workspaceRef.current.tabs.some(tab => tab.id === id) ? id : workspaceRef.current.activeTabId)
+      return false
+    } finally { patchState(id, { closing: false }) }
   }
   async function openSql() { await sqlFiles.open() }
   async function saveSql() { if (await sqlFiles.save()) setStatus('SQL file saved') }
   async function exportCsv() {
+    if (tabOperationBusy(statesRef.current[tabId])) return
     try { const path = await api.exportCsv(queryId, activeResult); if (path && statesRef.current[tabId]?.queryId === queryId) setStatus('Fetched rows exported') }
     catch (error) { report(error) }
   }
-  async function openGrid(table: GridTable, mode: GridSnapshot['mode'] = 'edit', query?: GridQueryOptions, preserveBack=false) {
-    const current = statesRef.current[tabId]
+  async function openGrid(table: GridTable, mode: GridSnapshot['mode'] = 'edit', query?: GridQueryOptions, preserveBack=false, id = tabId) {
+    const current = statesRef.current[id]
     if (!current?.session || tabOperationBusy(current)) return
-    if (current.gridChanges.length) { report(new Error('Apply or discard staged table edits before opening another table.')); return }
+    if (current.gridChanges.length) { report(new Error('Apply or discard staged table edits before opening another table.'), id); return }
     const sessionId = current.session.id
-    patchState(tabId, { gridBusy: true, error: '', status: 'Loading table', showMessages: false })
+    patchState(id, { gridBusy: true, error: '', status: 'Loading table', showMessages: false })
     try {
-      const response = await api.editGrid({ action: mode === 'browse' ? 'browse' : 'open', sessionId, query, table: { schema: table.schema, name: table.name, ...(table.catalog ? { catalog: table.catalog } : {}) } })
-      if (statesRef.current[tabId]?.session?.id !== sessionId) return
-      patchState(tabId, { session: response.session, grid: response.grid ?? current.grid, ...(response.grid ? { columnViews: loadedTableViews(tabId, response.session, response.grid) } : {}), gridChanges: [], gridExpired: Boolean(response.error), status: response.error ? 'Table load failed' : 'Table loaded', error: response.error ?? '' })
-      if(response.grid&&!preserveBack&&JSON.stringify(current.grid?.table)!==JSON.stringify(response.grid.table))patchState(tabId,{gridBack:[]})
+      const response = await api.editGrid({ action: mode === 'browse' ? 'browse' : 'open', sessionId, viewId: id, query, table: { schema: table.schema, name: table.name, ...(table.catalog ? { catalog: table.catalog } : {}) } })
+      if (statesRef.current[id]?.session?.id !== sessionId) return
+      patchState(id, { session: response.session, grid: response.grid ?? current.grid, ...(response.grid ? { columnViews: loadedTableViews(id, response.session, response.grid) } : {}), gridChanges: [], gridExpired: Boolean(response.error), status: response.error ? 'Table load failed' : 'Table loaded', error: response.error ?? '' })
+      if(response.grid&&!preserveBack&&JSON.stringify(current.grid?.table)!==JSON.stringify(response.grid.table))patchState(id,{gridBack:[]})
       if (response.grid) changeWorkspace(previous => ({ ...previous, layout: { ...(previous.layout ?? DEFAULT_LAYOUT), resultsVisible: true } }))
-    } catch (error) { patchState(tabId, { gridExpired: true }); report(error) }
-    finally { patchState(tabId, { gridBusy: false }) }
+      return response.error ? undefined : response.grid
+    } catch (error) { patchState(id, { gridExpired: true }); report(error, id) }
+    finally { patchState(id, { gridBusy: false }) }
+  }
+  async function browseTable(table: GridTable) {
+    const source = statesRef.current[tabId]
+    if (!source?.session || tabOperationBusy(source) || source.session.transaction !== 'idle' || source.gridChanges.length || sqlFiles.busy || closeId) return
+    const created = newTab(undefined, { sql: '', title: table.name.trim() || 'Table data' })
+    if (!created) return
+    changeLayout(layout => ({ ...layout, resultsVisible: true, resultsMaximized: false }))
+    if (!await created.connected) return
+    const grid = await openGrid(table, 'browse', undefined, false, created.id)
+    const owner = workspaceRef.current.tabs.find(tab => tab.id === created.id)
+    if (!grid?.statement || !owner || owner.sql) return
+    const sql = `${grid.statement};`
+    const limit = workspaceSqlLimit(workspaceRef.current.tabs.map(tab => tab.id === created.id ? { ...tab, sql } : tab))
+    if (limit) { report(new Error(limit), created.id); return }
+    patchTab(created.id, { sql })
+    if (workspaceRef.current.activeTabId === created.id) focusEditor(created.id)
   }
   function saveColumnView(key:string, view:ColumnLayout) {
     const current=statesRef.current[tabId]
@@ -604,10 +681,10 @@ export function App() {
   async function inspectGrid(action:'inspect-cell'|'foreign-keys'|'follow-reference',row=0,column=0,referenceId='') {
     const current=statesRef.current[tabId], session=current?.session, grid=current?.grid
     if(!session||!grid||current.gridExpired)throw new Error('Reload the table before inspecting or navigating.')
-    if(current.running||current.gridBusy||current.schemaLoading||current.switching||current.databasesLoading||current.backupBusy||current.transferBusy||current.connecting||current.closing||current.gridChanges.length)throw new Error('Finish the current operation and apply or discard staged edits first.')
+    if(tabOperationBusy(current)||current.gridChanges.length)throw new Error('Finish the current operation and apply or discard staged edits first.')
     patchState(tabId,{gridBusy:true})
     try {
-      const base={sessionId:session.id,snapshotId:grid.id}
+      const base={sessionId:session.id,viewId:tabId,snapshotId:grid.id}
       const response=await api.editGrid(action==='inspect-cell'?{...base,action,row,column}:action==='foreign-keys'?{...base,action}:{...base,action,row,referenceId})
       if(statesRef.current[tabId]?.session?.id!==session.id)throw new Error('This session changed.')
       patchState(tabId,{session:response.session})
@@ -624,11 +701,11 @@ export function App() {
   }
   async function applyGrid() {
     const current = statesRef.current[tabId]
-    if (!current?.session || !current.grid || current.backupBusy || current.transferBusy || current.gridBusy || current.gridExpired || !current.gridChanges.length || current.switching || current.databasesLoading) return
+    if (!current?.session || !current.grid || tabOperationBusy(current) || current.gridExpired || !current.gridChanges.length || current.switching || current.databasesLoading) return
     const sessionId = current.session.id
     patchState(tabId, { gridBusy: true, error: '', status: 'Applying edits' })
     try {
-      const response = await api.editGrid({ action: 'apply', sessionId, snapshotId: current.grid.id, changes: current.gridChanges })
+      const response = await api.editGrid({ action: 'apply', sessionId, viewId: tabId, snapshotId: current.grid.id, changes: current.gridChanges })
       if (statesRef.current[tabId]?.session?.id !== sessionId) return
       patchState(tabId, { session: response.session, gridExpired: true, gridChanges: response.applied === undefined ? current.gridChanges : [],
         status: response.applied === undefined ? 'Edits not applied' : `${response.applied} row edits applied · Commit or Rollback`, error: response.error ?? '' })
@@ -727,24 +804,34 @@ export function App() {
   ]
   const workspaceTools = [
     { label: 'Workspace windows', action: () => setWindowsOpen(true), disabled: !ready },
-    { label: 'Editor settings', action: () => setEditorSettingsOpen(true), disabled: !ready }
+    { label: 'Preferences', action: () => setEditorSettingsOpen(true), disabled: !ready }
   ]
+  const profileConnections = new Map<string, ProfileConnectionState>()
+  for (const tab of workspace.tabs) {
+    if (!tab.profileId) continue
+    const state = states[tab.id]
+    if (!state) continue
+    const connection = profileConnections.get(tab.profileId) ?? { connected: false, busy: false }
+    connection.connected ||= Boolean(state.session)
+    connection.busy ||= state.connecting || state.closing
+    connection.disconnectReason ??= canCloseTab(state)
+    profileConnections.set(tab.profileId, connection)
+  }
 
   return <div className="app-shell">
-    <header className="titlebar"><div className="brand"><span className="brand-mark"><DbCommanderMark /></span>Db Commander<span className="workspace-window-name" title="Current workspace window">{windowName}</span><span className="preview-tag">PREVIEW</span></div><ActionMenu label="Workspace" items={workspaceTools}/><div className="panel-controls" role="group" aria-label="Panel layout"><button id="toggle-sidebar" aria-label="Toggle sidebar" aria-pressed={layout.sidebarVisible} title={`${layout.sidebarVisible ? 'Hide' : 'Show'} sidebar (Cmd/Ctrl+B)`} disabled={!ready} onClick={() => layoutCommand('toggle-sidebar')}><PanelLeft size={16} /></button><button id="toggle-results" aria-label="Toggle results" aria-pressed={layout.resultsVisible} title={`${layout.resultsVisible ? 'Hide' : 'Show'} results (Cmd/Ctrl+J)`} disabled={!ready} onClick={() => layoutCommand('toggle-results')}><PanelBottom size={16} /></button></div><button className="command-button" aria-label="Commands" title="Search commands (Cmd/Ctrl+K)" onClick={() => setPalette(true)}><Search size={13} />Commands<kbd>{shortcutKey} K</kbd></button></header>
+    <TitleBar api={api} appearance={theme}><ActionMenu label="Workspace" items={workspaceTools}/><div className="panel-controls" role="group" aria-label="Panel layout"><button id="toggle-sidebar" aria-label="Toggle sidebar" aria-pressed={layout.sidebarVisible} title={`${layout.sidebarVisible ? 'Hide' : 'Show'} sidebar (Cmd/Ctrl+B)`} disabled={!ready} onClick={() => layoutCommand('toggle-sidebar')}><PanelLeft size={16} /></button><button id="toggle-results" aria-label="Toggle results" aria-pressed={layout.resultsVisible} title={`${layout.resultsVisible ? 'Hide' : 'Show'} results (Cmd/Ctrl+J)`} disabled={!ready} onClick={() => layoutCommand('toggle-results')}><PanelBottom size={16} /></button></div><button className="command-button" aria-label="Commands" title="Search commands (Cmd/Ctrl+K)" onClick={() => setPalette(true)}><Search size={13} />Commands<kbd>{shortcutKey} K</kbd></button></TitleBar>
     <UpdateBanner api={api} />
     <div className="workspace-body" ref={workspaceBodyRef}>
-      <nav className="activity-bar" aria-label="Workspace navigation"><button className={!historyView ? 'active' : ''} aria-label="Database explorer" title="Database explorer" onClick={() => showSidebar(false)}><Database size={20} /></button><button className={historyView ? 'active' : ''} aria-label="Query history" title="Query history" onClick={() => showSidebar(true)}><History size={20} /></button><button aria-label="Open SQL file" title="Open SQL file (Cmd/Ctrl+O)" disabled={sqlFiles.busy} onClick={openSql}><FolderOpen size={20} /></button><div className="activity-spacer" /><button aria-label="Connection settings" title="Connection settings" disabled={connectionBlocked} onClick={() => setDialog(true)}><Settings2 size={20} /></button></nav>
+      <nav className="activity-bar" aria-label="Workspace navigation"><button className={!historyView ? 'active' : ''} aria-label="Database explorer" title="Database explorer" onClick={() => showSidebar(false)}><Database size={20} /></button><button className={historyView ? 'active' : ''} aria-label="Query history" title="Query history" onClick={() => showSidebar(true)}><History size={20} /></button><button aria-label="Open SQL file" title="Open SQL file (Cmd/Ctrl+O)" disabled={sqlFiles.busy} onClick={openSql}><FolderOpen size={20} /></button><div className="activity-spacer" /><button aria-label="Application preferences" title="Application preferences" disabled={!ready} onClick={() => setEditorSettingsOpen(true)}><Settings2 size={20} /></button></nav>
       <aside id="workspace-sidebar" aria-label="Sidebar" className="sidebar" hidden={!layout.sidebarVisible} style={{ width: sidebarWidth }}>
         <div className="sidebar-title">{historyView ? 'History' : 'Connections'}<button aria-label={historyView ? 'History library settings' : 'New connection'} disabled={connectionBlocked} onClick={() => historyView ? openLibrary() : setDialog(true, true)}>{historyView ? <Settings2 size={15} /> : <Plus size={16} />}</button></div>
         {historyView ? <><button onClick={openLibrary}>Search history &amp; snippets</button><div className="history-list">{history.length ? history.map(item => <button key={item.id} onClick={() => newTab(undefined, { sql: item.sql, title: 'History.sql' })}><span className={`history-dot ${item.status}`} /><span><code>{item.sql.replace(/\s+/g, ' ').slice(0, 70)}</code><small>{item.connection} · <time dateTime={item.startedAt} title={new Date(item.startedAt).toLocaleString()}>{new Date(item.startedAt).toLocaleString([], { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</time></small></span></button>) : <p className="sidebar-description">No query history.</p>}</div></> : <>
-          <ProfileList profiles={workspace.profiles} full={workspace.tabs.length >= MAX_TABS} ready={ready} onNew={() => { setDialogError(''); setDialogInfo({ tabId, profile: INITIAL_PROFILE, saveOnly: true }) }} onOpen={newTab}
+          <ProfileList profiles={workspace.profiles} connections={profileConnections} activeProfileId={tab.profileId} full={workspace.tabs.length >= MAX_TABS} ready={ready} onNew={() => { setDialogError(''); setDialogInfo({ tabId, profile: INITIAL_PROFILE, saveOnly: true }) }} onOpen={newTab}
+            onDisconnect={savedProfile => void disconnectTabs(workspaceRef.current.tabs.filter(tab => tab.profileId === savedProfile.id).map(tab => tab.id))}
             onEdit={savedProfile => { setDialogError(''); setDialogInfo({ tabId, profile: savedProfile.config, profileId: savedProfile.id, saveOnly: true }) }}
             onDelete={savedProfile => { setDialogError(''); setDeleteProfileId(savedProfile.id) }}
             onFavorite={(id, favorite) => changeWorkspace(previous => ({ ...previous, profiles: previous.profiles.map(profile => profile.id === id ? { ...profile, config: { ...profile.config, favorite } } : profile) }))}/>
-          <div className="connection-group"><span>Current connection</span></div>
-          <button className={`connection-item ${session ? 'connected' : ''}`} onClick={() => { if (!session) setDialog(true) }}><MaterialIcon name="database" size={18} /><span><strong>{session?.name ?? profile.name}</strong><small>{session ? ['sqlite', 'duckdb'].includes(session.engine) ? session.host : `${session.host}:${session.port}` : 'Not connected'}</small></span><i className={session ? 'online-dot' : 'offline-dot'} /></button>
-          {session ? <DatabaseExplorer onActivity={()=>setActivityOpen({tabId,sessionId:session.id})} onBuilder={table=>setBuilderOpen({tabId,sessionId:session.id,table})} onCompareData={table=>session&&setDataCompareOpen({tabId,sessionId:session.id,table})} key={tabId} state={state} onBackup={()=>setBackupOpen(true)} onCompare={()=>setCompareOpen({tabId,sessionId:session.id})} onDiagram={() => setDiagramOpen({tabId,sessionId:session.id})} onSchemaChange={target => setSchemaEditor({ tabId, sessionId: session.id, target })} onInspect={object => void inspectObject(object)} onRefreshDatabases={() => void refreshDatabases()} onRefreshSchema={() => void refreshTables()} onSwitch={requestSwitch} onFilter={setTableSearch} onAppendSelect={appendSelect} onEdit={table => void openGrid(table)} onBrowse={table => void openGrid(table, 'browse')} /> : <p className="sidebar-description">Connect to load databases.</p>}
+          {session ? <DatabaseExplorer browseDisabled={!ready || sqlFiles.busy || Boolean(closeId) || workspace.tabs.length >= MAX_TABS} onActivity={()=>setActivityOpen({tabId,sessionId:session.id})} onBuilder={table=>setBuilderOpen({tabId,sessionId:session.id,table})} onCompareData={table=>session&&setDataCompareOpen({tabId,sessionId:session.id,table})} key={tabId} state={state} onBackup={()=>setBackupOpen(true)} onCompare={()=>setCompareOpen({tabId,sessionId:session.id})} onDiagram={() => setDiagramOpen({tabId,sessionId:session.id})} onSchemaChange={target => setSchemaEditor({ tabId, sessionId: session.id, target })} onInspect={object => void inspectObject(object)} onRefreshDatabases={() => void refreshDatabases()} onRefreshSchema={() => void refreshTables()} onSwitch={requestSwitch} onFilter={setTableSearch} onAppendSelect={appendSelect} onEdit={table => void openGrid(table)} onBrowse={table => void browseTable(table)} /> : <p className="sidebar-description">Connect to load databases.</p>}
         </>}
       </aside>
       {layout.sidebarVisible && <Splitter orientation="vertical" label="Resize sidebar" controls="workspace-sidebar" value={sidebarWidth} preferredValue={layout.sidebarWidth} min={bounds.sidebarMin} max={bounds.sidebarMax} disabled={!ready}
@@ -755,14 +842,8 @@ export function App() {
           dirty={sqlFiles.dirty} path={id => sqlFiles.files[id]?.path} onSelect={activateEditor} onClose={requestClose} onSplit={splitEditors} splitDisabled={(workspace.editorViews?.tabIds.length ?? 1) >= MAX_EDITOR_VIEWS}
           onPin={pinTab}
           onMove={(id, index) => changeWorkspace(previous => ({ ...previous, tabs: moveTab(previous.tabs, id, index) }))}/>
-        <button aria-label="New query tab" title="New query tab (Cmd/Ctrl+T)" disabled={!ready || workspace.tabs.length >= MAX_TABS} onClick={() => newTab()}><Plus size={16} /></button><ActionMenu label="File" items={[
-          { label: 'Open SQL file…', disabled: sqlFiles.busy, action: () => void sqlFiles.open() },
-          { label: 'Save', disabled: sqlFiles.busy, action: () => void saveSql() },
-          { label: 'Save As…', disabled: sqlFiles.busy, action: () => void sqlFiles.save(tabId, true) },
-          { label: 'Reload from disk', disabled: sqlFiles.busy || !sqlFiles.files[tabId], action: () => void sqlFiles.reload() },
-          { label: 'Recent SQL files…', disabled: sqlFiles.busy, action: () => sqlFiles.setRecentOpen(true) }
-        ]}/><ActionMenu label="Editor views" items={editorViewTools}/><button aria-label="Save SQL file" title="Save SQL file (Cmd/Ctrl+S)" disabled={sqlFiles.busy} onClick={saveSql}><Save size={16} /></button><span className="dialect-label">{engineNames[session?.engine ?? profile.engine]}</span></div>
-        <div className="query-toolbar"><button className="run-button" title={`Run selected SQL, or the entire script when nothing is selected (${keyHint('run')})`} disabled={!session || operationBusy} onClick={() => void run()}><Play size={13} fill="currentColor" />Run SQL{editorKeys.run !== 'none' && <kbd>{keyHint('run')}</kbd>}</button><button className="stop-button" disabled={!running} onClick={() => { if (session) { setStatus('Cancellation requested'); void api.cancel(session.id).catch(report) } }}><Square size={12} />Stop</button><button aria-label="Format SQL" title={`Format selection or document (${keyHint('format')})`} onClick={() => void formatEditor(editorRef.current)}>Format SQL</button><ActionMenu key={tabId} label="Query tools" items={queryTools}/><span className="toolbar-separator" /><span className="target-label" title={session?.database || 'No database selected'}><Database size={13} /><span>{session ? session.database || 'Server connection' : 'No connection'}</span></span><div className="tabs-spacer" />{session ? <div className="transaction-controls"><span role="status" aria-label="Transaction status" className={`transaction-badge ${session.transaction}`}>{session.transaction === 'idle' ? (session.autocommit === false ? 'Manual commit mode' : 'Autocommit') : session.transaction === 'failed' ? 'Transaction failed' : session.transaction === 'transaction' ? 'In transaction' : 'State unknown'}</span>{inTransaction ? <><button disabled={running || state.schemaLoading || state.backupBusy || state.transferBusy || state.gridBusy || state.switching || state.databasesLoading || session.transaction === 'failed' || session.transaction === 'unknown'} onClick={() => void run('COMMIT')}>Commit</button><button disabled={running || state.schemaLoading || state.backupBusy || state.transferBusy || state.gridBusy || state.switching || state.databasesLoading} onClick={() => void run('ROLLBACK')}>Rollback</button></> : <button disabled={running || state.schemaLoading || state.backupBusy || state.transferBusy || state.gridBusy || state.switching || state.databasesLoading} onClick={() => void run(session.engine === 'oracle' ? 'SAVEPOINT DBCOMMANDER_BEGIN' : ['sqlserver', 'azure-sql'].includes(session.engine) ? 'BEGIN TRANSACTION' : 'BEGIN')}>Begin</button>}<button title="Disconnect" aria-label="Disconnect" disabled={connectionBlocked} onClick={disconnect}><Unplug size={14} /></button></div> : <button className="connect-button" onClick={() => setDialog(true)}><Plus size={13} />Connect database</button>}</div>
+        <button aria-label="New query tab" title="New query tab (Cmd/Ctrl+T)" disabled={!ready || workspace.tabs.length >= MAX_TABS} onClick={() => newTab()}><Plus size={16} /></button><ActionMenu label="Editor views" items={editorViewTools}/></div>
+        <div className="query-toolbar"><button className="run-button" title={`Run selected SQL, or the entire script when nothing is selected (${keyHint('run')})`} disabled={!session || operationBusy} onClick={() => void run()}><Play size={13} fill="currentColor" />Run SQL{editorKeys.run !== 'none' && <kbd>{keyHint('run')}</kbd>}</button><button className="stop-button" disabled={!running} onClick={() => { if (session) { setStatus('Cancellation requested'); void api.cancel(session.id).catch(report) } }}><Square size={12} />Stop</button><button aria-label="Format SQL" title={`Format selection or document (${keyHint('format')})`} onClick={() => void formatEditor(editorRef.current)}>Format SQL</button><ActionMenu key={tabId} label="Query tools" items={queryTools}/><span className="toolbar-separator" /><span className="target-label" title={session?.database || 'No database selected'}><Database size={13} /><span>{session ? session.database || 'Server connection' : 'No connection'}</span></span><div className="tabs-spacer" />{session ? <div className="transaction-controls"><span role="status" aria-label="Transaction status" className={`transaction-badge ${session.transaction}`}>{session.transaction === 'idle' ? (session.autocommit === false ? 'Manual commit mode' : 'Autocommit') : session.transaction === 'failed' ? 'Transaction failed' : session.transaction === 'transaction' ? 'In transaction' : 'State unknown'}</span>{inTransaction ? <><button disabled={operationBusy || session.transaction === 'failed' || session.transaction === 'unknown'} onClick={() => void run('COMMIT')}>Commit</button><button disabled={operationBusy} onClick={() => void run('ROLLBACK')}>Rollback</button></> : <button disabled={operationBusy} onClick={() => void run(session.engine === 'oracle' ? 'SAVEPOINT DBCOMMANDER_BEGIN' : ['sqlserver', 'azure-sql'].includes(session.engine) ? 'BEGIN TRANSACTION' : 'BEGIN')}>Begin</button>}<button title="Disconnect" aria-label="Disconnect" disabled={connectionBlocked} onClick={disconnect}><Unplug size={14} /></button></div> : <button className="connect-button" onClick={() => setDialog(true)}><Plus size={13} />Connect database</button>}</div>
         {error && <div className="error-banner" role="alert" aria-label="Application error"><span>{error}</span>{state.execution && state.failure && <button className="sql-error-link" disabled={!errorSource(state.execution, state.failure, sql)} title={state.execution.document !== sql ? 'SQL changed since this execution. Run again to locate the error.' : 'Select the submitted SQL that failed; no SQL will be executed.'} onClick={showSqlError}>{state.execution.document !== sql ? 'SQL changed since execution' : state.failure.scope === 'statement' ? 'Go to failed statement' : state.failure.scope === 'batch' ? 'Go to failed batch' : 'Go to executed SQL'}</button>}<button aria-label="Dismiss error" onClick={() => setError('')}><X size={15} /></button></div>}
         {sqlFiles.notice && <div className="sql-file-notice" role="status">{sqlFiles.notice}</div>}
         {sqlFiles.files[tabId] && <div className="sql-file-bar" aria-label="SQL file status"><span title={sqlFiles.files[tabId].path}>{sqlFiles.files[tabId].path}</span><strong>{sqlFiles.dirty(tab) ? 'Unsaved changes' : 'Saved to file'}</strong></div>}
@@ -775,15 +856,23 @@ export function App() {
           onError={(id, error) => patchState(id, { error, failure: undefined })} onChange={(id, sql) => patchTab(id, { sql })} /></section>
         {layout.resultsVisible && !layout.resultsMaximized && <Splitter orientation="horizontal" label="Resize results" controls="execution-output" value={resultsHeight} preferredValue={layout.resultsHeight} min={bounds.resultsMin} max={bounds.resultsMax} disabled={!ready}
           onChange={resultsHeight => changeLayout(layout => ({ ...layout, resultsHeight }))} onToggle={() => layoutCommand('toggle-results')} onReset={() => changeLayout(layout => ({ ...layout, resultsHeight: DEFAULT_LAYOUT.resultsHeight }))} />}
-        <section id="execution-output" tabIndex={-1} hidden={!layout.resultsVisible} className={`results-region ${layout.resultsMaximized ? 'maximized' : ''}`} style={layout.resultsMaximized ? undefined : { height: resultsHeight }} aria-label="Execution output"><div className="results-toolbar"><button aria-pressed={!showMessages} className={!showMessages ? 'selected' : ''} onClick={() => setShowMessages(false)}><Table2 size={14} />Results{(state.grid || result) && <span className="count">{state.grid?.rows.length ?? result?.rows.length}</span>}</button><button aria-pressed={showMessages} className={showMessages ? 'selected' : ''} onClick={() => setShowMessages(true)}><Terminal size={14} />Messages{messages.length > 0 && <span className="count">{messages.length}</span>}</button><div className="tabs-spacer" />{duration !== null && <span className="execution-time"><Activity size={12} />{duration} ms</span>}<button disabled={Boolean(state.grid) || state.backupBusy || state.transferBusy || state.gridBusy || state.switching || state.databasesLoading || !result?.columns.length || running || !queryId} onClick={() => void exportCsv()}><ArrowDownToLine size={14} />Export CSV</button><button aria-label={layout.resultsMaximized ? 'Restore editor and results' : 'Maximize results'} title="Maximize / restore results (Cmd/Ctrl+Shift+J)" disabled={!ready} onClick={() => layoutCommand('maximize-results')}>{layout.resultsMaximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}</button><button aria-label="Hide results" title="Hide results (Cmd/Ctrl+J)" disabled={!ready} onClick={() => layoutCommand('toggle-results')}><X size={14} /></button></div>
+        <section id="execution-output" tabIndex={-1} hidden={!layout.resultsVisible} className={`results-region ${layout.resultsMaximized ? 'maximized' : ''}`} style={layout.resultsMaximized ? undefined : { height: resultsHeight }} aria-label="Execution output"><div className="results-toolbar"><button aria-pressed={!showMessages} className={!showMessages ? 'selected' : ''} onClick={() => setShowMessages(false)}><Table2 size={14} />Results{(state.grid || result) && <span className="count">{state.grid?.rows.length ?? result?.rows.length}</span>}</button><button aria-pressed={showMessages} className={showMessages ? 'selected' : ''} onClick={() => setShowMessages(true)}><Terminal size={14} />Messages{messages.length > 0 && <span className="count">{messages.length}</span>}</button><div className="tabs-spacer" />{duration !== null && <span className="execution-time"><Activity size={12} />{duration} ms</span>}{!state.grid && !showMessages && <button disabled={operationBusy || !result?.columns.length || !queryId} onClick={() => void exportCsv()}><ArrowDownToLine size={14} />Export CSV</button>}<button aria-label={layout.resultsMaximized ? 'Restore editor and results' : 'Maximize results'} title="Maximize / restore results (Cmd/Ctrl+Shift+J)" disabled={!ready} onClick={() => layoutCommand('maximize-results')}>{layout.resultsMaximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}</button><button aria-label="Hide results" title="Hide results (Cmd/Ctrl+J)" disabled={!ready} onClick={() => layoutCommand('toggle-results')}><X size={14} /></button></div>
           {results.length > 1 && !state.grid && !showMessages && <div className="result-tabs">{results.map(item => <button key={item.index} aria-pressed={activeResult === item.index} className={activeResult === item.index ? 'selected' : ''} onClick={() => setActiveResult(item.index)}>Result {item.index + 1}</button>)}</div>}
-          {showMessages ? <div className="messages-panel"><div className="message-status" data-status={status}>{status}{duration !== null ? ` in ${duration} ms` : ''}</div>{messages.map((message, index) => <pre key={index}>{message}</pre>)}</div> : state.grid ? <TableData key={`${tabId}:${JSON.stringify(state.grid.table)}`} grid={state.grid} changes={state.gridChanges} disconnected={!session} busy={running || state.schemaLoading || state.backupBusy || state.transferBusy || state.gridBusy || state.switching || state.databasesLoading} expired={state.gridExpired} transaction={inTransaction} onChange={gridChanges => patchState(tabId, { gridChanges })} onApply={() => void applyGrid()} onLoad={(query, mode) => void openGrid(state.grid!.table, mode, query)} onClose={() => patchState(tabId, { grid: null, gridBack: [] })} view={state.columnViews?.[tableViewKey]} savedColumns={savedTableColumns()} onView={view=>saveColumnView(tableViewKey,view)} onBack={state.gridBack?.length?()=>void backGrid():undefined} actions={{load:async(row,column)=>(await inspectGrid('inspect-cell',row,column)).inspection!,references:async()=>(await inspectGrid('foreign-keys')).references!,follow:async(row,id)=>{await inspectGrid('follow-reference',row,0,id)}}} /> : result ? <ResultGrid key={`${tabId}:${queryId}:${activeResult}`} result={result} view={state.columnViews?.[resultViewKey]} onView={view=>saveColumnView(resultViewKey,view)}/> : <div className="results-empty"><h2>{running ? 'Running…' : 'No results'}</h2><p>{running ? 'Use Stop to cancel.' : session ? `Run SQL${editorKeys.run === 'none' ? '' : ` (${keyHint('run')})`} or browse a table.` : 'Connect to a database to run SQL.'}</p></div>}
+          {showMessages ? <div className="messages-panel"><div className="message-status" data-status={status}>{status}{duration !== null ? ` in ${duration} ms` : ''}</div>{messages.map((message, index) => <pre key={index}>{message}</pre>)}</div> : state.grid ? <TableData key={`${tabId}:${JSON.stringify(state.grid.table)}`} grid={state.grid} changes={state.gridChanges} disconnected={!session} busy={operationBusy} expired={state.gridExpired} transaction={inTransaction} onChange={gridChanges => patchState(tabId, { gridChanges })} onApply={() => void applyGrid()} onLoad={(query, mode) => void openGrid(state.grid!.table, mode, query)} onClose={() => patchState(tabId, { grid: null, gridBack: [] })} view={state.columnViews?.[tableViewKey]} savedColumns={savedTableColumns()} onView={view=>saveColumnView(tableViewKey,view)} onBack={state.gridBack?.length?()=>void backGrid():undefined} actions={{load:async(row,column)=>(await inspectGrid('inspect-cell',row,column)).inspection!,references:async()=>(await inspectGrid('foreign-keys')).references!,follow:async(row,id)=>{await inspectGrid('follow-reference',row,0,id)}}} /> : result ? <ResultGrid key={`${tabId}:${queryId}:${activeResult}`} result={result} view={state.columnViews?.[resultViewKey]} onView={view=>saveColumnView(resultViewKey,view)}/> : <div className="results-empty"><h2>{running ? 'Running…' : 'No results'}</h2><p>{running ? 'Use Stop to cancel.' : session ? `Run SQL${editorKeys.run === 'none' ? '' : ` (${keyHint('run')})`} or browse a table.` : 'Connect to a database to run SQL.'}</p></div>}
           {result && !state.grid && <div className="result-footer"><span>{result.rows.length.toLocaleString()} rows fetched{result.truncated ? ' · Preview limit reached; result is incomplete' : ''}</span><span title="Right-click a table in the sidebar and choose Edit data to make changes.">Read-only result</span></div>}
         </section>
         </div>
       </main>
     </div>
-    <footer className="statusbar"><span className={session ? 'status-connected' : ''}><i className={session ? 'online-dot' : 'offline-dot'} />{session ? `${session.name} / ${session.database || 'Server connection'}` : 'Disconnected'}</span><span>{session?.tls ? <><LockKeyhole size={11} />TLS verified</> : session && ['sqlite', 'duckdb'].includes(session.engine) ? `Local ${engineNames[session.engine]}` : session ? 'TLS disabled' : `${engineNames[profile.engine]} driver`}</span><div className="tabs-spacer" /><span className="status-text" role="status" aria-label="Execution status">{status}</span><span title={workspaceLoadError || saveError || undefined}>{!ready ? workspaceLoadError ? 'Workspace not loaded' : 'Loading workspace…' : saveError ? 'Workspace not saved' : saved ? <><Check size={11} />Saved locally</> : 'Saving workspace…'}</span><span className="sr-only" role="status" aria-label="Workspace save">{saveAnnouncement}</span>{saveError && <button onClick={() => void persist().catch(error => report(error, workspaceRef.current.activeTabId))}>Retry workspace save</button>}</footer>
+    <footer className="statusbar">
+      {session && !['sqlite', 'duckdb'].includes(session.engine) && <span>{session.tls ? <><LockKeyhole size={11} />TLS verified</> : 'TLS disabled'}</span>}
+      <span className={`status-text${status === 'Connected' ? ' sr-only' : ''}`} role="status" aria-label="Execution status">{status}</span>
+      <div className="tabs-spacer" />
+      <span title={workspaceLoadError || saveError || undefined}>{!ready ? workspaceLoadError ? 'Workspace not loaded' : 'Loading workspace…' : saveError ? 'Workspace not saved' : saved ? <><Check size={11} />Saved locally</> : 'Saving workspace…'}</span>
+      <span className="sr-only" role="status" aria-label="Workspace save">{saveAnnouncement}</span>
+      {saveError && <button onClick={() => void persist().catch(error => report(error, workspaceRef.current.activeTabId))}>Retry workspace save</button>}
+      <span className="dialect-label" title={session ? `${session.name} / ${session.database || 'Server connection'}` : 'Not connected'}>{hasConfiguredConnection(tab, session) ? engineNames[session?.engine ?? profile.engine] : 'SQL'}</span>
+    </footer>
     {explainText !== null && session && <ExplainDialog key={session.id} session={session} sql={explainText} previous={state.plan} onRun={explainQuery} onClose={() => setExplainText(null)} />}
     {transferSql !== null && <TransferDialog key={tabId} session={session} tables={state.tables.filter(table => table.kind === 'table')} sql={transferSql} jobs={transferJobs} blocked={!session || tabOperationBusy(state) || Boolean(state.gridChanges.length) || inTransaction || session.engine !== 'oracle' && session.autocommit === false} onClose={() => setTransferSql(null)} />}
     {schemaEditor?.tabId === tabId && schemaEditor.sessionId === session?.id && session && <SchemaChangeDialog key={`${tabId}:${session.id}`} session={session} snapshot={state.schema} initialTarget={schemaEditor.target} blocked={schemaChangeBlocked()} onClose={() => setSchemaEditor(null)} onPrepare={prepareSchemaChange} onApply={applySchemaChange} />}
@@ -805,15 +894,30 @@ export function App() {
     {diagramOpen?.tabId===tabId && diagramOpen.sessionId===session?.id && <DiagramDialog key={session.id} initialTables={state.schema?.catalog?.objects??[]} title={`${session.name} · ${session.database}`} onClose={()=>setDiagramOpen(null)} load={async scope=>{const id=session.id;patchState(tabId,{schemaLoading:true});try{return await api.diagram({sessionId:id,...scope})}finally{if(statesRef.current[tabId]?.session?.id===id)patchState(tabId,{schemaLoading:false});cleanupLostSession(id)}}}/>}
     {objectView && objectView.tabId === tabId && objectView.sessionId === session?.id && <ObjectInspector view={objectView} onClose={() => setObjectView(null)} onRefresh={() => void inspectObject(objectView.object)} onOpen={(sql, title) => { if (workspace.tabs.length >= MAX_TABS || workspace.tabs.reduce((size, tab) => size + tab.sql.length, sql.length) > 5_000_000) { setObjectView({ ...objectView, error: 'Close a query tab or save and shorten a SQL buffer before opening this definition. The workspace supports 20 tabs and 5 MB of SQL.' }); return }; setObjectView(null); newTab(undefined, { sql, title }) }} />}
     {backupOpen && <BackupDialog key={session?.id ?? 'disconnected'} session={session} jobs={backupJobs} blocked={!session || tabOperationBusy(state) || Boolean(state.gridChanges.length) || inTransaction || session.engine !== 'oracle' && session.autocommit === false} onClose={() => setBackupOpen(false)} />}
-    {dialogInfo && <ConnectionDialog key={`${dialogInfo.tabId}:${dialogInfo.saveOnly}`} profile={dialogInfo.profile} profileId={dialogInfo.profileId} saveOnly={dialogInfo.saveOnly} busy={Boolean(states[dialogInfo.tabId]?.connecting) || profileBusy} error={dialogError} onClose={() => setDialog(false)} onConnect={(config, save, choice) => connect(config, save, undefined, choice)} onSave={saveProfile} />}
+    {dialogInfo && <ConnectionDialog key={`${dialogInfo.tabId}:${dialogInfo.saveOnly}`} profile={dialogInfo.profile} profileId={dialogInfo.profileId} saveOnly={dialogInfo.saveOnly} busy={Boolean(states[dialogInfo.tabId]?.connecting) || profileBusy} error={dialogError} onClose={() => setDialog(false)} onConnect={async (config, save, choice) => { await connect(config, save, undefined, choice) }} onSave={saveProfile} />}
+    {connectionWarning && <ModalDialog className="confirmation-dialog" aria-label="Connection failed" onDismiss={() => setConnectionWarning(null)}>
+      <h2>Could not connect to {connectionWarning.name}</h2><p role="alert">{connectionWarning.error}</p>
+      <p>Check the saved connection details and credentials, then try again.</p>
+      <div className="dialog-actions"><button autoFocus onClick={() => setConnectionWarning(null)}>OK</button><button onClick={() => {
+        const saved = workspaceRef.current.profiles.find(profile => profile.id === connectionWarning.profileId)
+        if (saved) { setDialogError(''); setDialogInfo({ tabId: workspaceRef.current.tabs.some(tab => tab.id === connectionWarning.tabId) ? connectionWarning.tabId : workspaceRef.current.activeTabId, profile: saved.config, profileId: saved.id, saveOnly: true }) }
+        setConnectionWarning(null)
+      }}>Edit connection</button></div>
+    </ModalDialog>}
     {switchTarget && <ModalDialog className="confirmation-dialog" aria-label="Switch database" onDismiss={() => { if (!states[switchTarget.tabId]?.switching) setSwitchTarget(null) }}><h2>Switch to {switchTarget.database}?</h2><p>This opens a fresh connection for this tab. Temporary tables and session settings will be lost. Your SQL buffer and other tabs are preserved. If the target connection fails, this tab keeps its current session.</p><div className="dialog-actions"><button autoFocus disabled={states[switchTarget.tabId]?.switching} onClick={() => setSwitchTarget(null)}>Keep current database</button><button className="primary-button" disabled={states[switchTarget.tabId]?.switching} onClick={() => void switchDatabase()}>{states[switchTarget.tabId]?.switching ? 'Switching…' : 'Switch database'}</button></div></ModalDialog>}
     {sqlFiles.recentOpen && <RecentSqlFiles error={sqlFiles.error} files={sqlFiles.recent} busy={sqlFiles.busy} onOpen={id => void sqlFiles.open(id)} onClear={() => void sqlFiles.clearRecent()} onClose={() => sqlFiles.setRecentOpen(false)}/>}
-    {closeId && <ModalDialog className="confirmation-dialog" aria-label="Close query tab" onDismiss={() => { if (!sqlFiles.busy && !states[closeId]?.closing) setCloseId(null) }}><h2>Close query tab?</h2>{sqlFiles.error && <p role="alert">{sqlFiles.error}</p>}<p>Close tab discards this tab’s SQL buffer and results from workspace recovery. Unsaved file edits will be lost. Choose Save and close to keep the SQL in a file.</p><div className="dialog-actions"><button autoFocus disabled={sqlFiles.busy} onClick={() => setCloseId(null)}>Keep tab</button><button disabled={sqlFiles.busy || states[closeId]?.closing} onClick={() => { const id = closeId; void sqlFiles.save(id).then(saved => { if (saved) void closeTab() }) }}>Save and close</button><button className="primary-button" disabled={sqlFiles.busy || states[closeId]?.closing} onClick={() => void closeTab()}>Close tab</button></div></ModalDialog>}
+    {closeRequest?.confirm && <ModalDialog className="confirmation-dialog" aria-label={closeRequest.ids.length === 1 ? 'Close query tab' : 'Close query tabs'} onDismiss={() => { if (!sqlFiles.busy && !closeOperation.current) setCloseRequest(null) }}>
+      <h2>{closeRequest.ids.length === 1 ? 'Close query tab?' : `Close ${closeRequest.ids.length} query tabs?`}</h2>{sqlFiles.error && <p role="alert">{sqlFiles.error}</p>}
+      <p>{closeRequest.ids.length === 1 ? 'Close tab discards this tab’s SQL buffer and results from workspace recovery. Unsaved file edits will be lost. Choose Save and close to keep the SQL in a file.' : 'Closing these tabs discards their SQL buffers and results from workspace recovery. Unsaved file edits will be lost. Save any SQL you want to keep before closing. Pinned tabs stay open.'}</p>
+      <div className="dialog-actions"><button autoFocus disabled={sqlFiles.busy || closingTabs} onClick={() => setCloseRequest(null)}>{closeRequest.ids.length === 1 ? 'Keep tab' : 'Keep tabs'}</button>
+        {closeRequest.ids.length === 1 && <button disabled={sqlFiles.busy || closingTabs} onClick={() => { const id = closeRequest.ids[0]; void sqlFiles.save(id).then(saved => { if (saved) void closeTabs([id]) }) }}>Save and close</button>}
+        <button className="primary-button" disabled={sqlFiles.busy || closingTabs} onClick={() => void closeTabs()}>{closeRequest.ids.length === 1 ? 'Close tab' : 'Close tabs'}</button></div>
+    </ModalDialog>}
     {deleteProfileId && <ModalDialog className="confirmation-dialog" aria-label="Delete saved profile" onDismiss={() => { if (!profileBusy) setDeleteProfileId(null) }}><h2>Delete saved profile?</h2><p>Open tabs keep their current connections and transactions. Their connection details remain available in tab recovery. Any saved password is removed from the operating system credential store.</p>{dialogError && <p className="dialog-error" role="alert">{dialogError}</p>}<div className="dialog-actions"><button autoFocus disabled={profileBusy} onClick={() => setDeleteProfileId(null)}>Keep profile</button><button className="primary-button" disabled={profileBusy} onClick={() => void deleteProfile()}>Delete profile</button></div></ModalDialog>}
     {librarySql!==undefined&&<QueryLibrary sql={librarySql} engine={session?.engine??profile.engine} onClose={()=>setLibrarySql(undefined)} onChanged={()=>void api.history().then(setHistory).catch(report)} onOpen={(sql,title)=>{if(workspace.tabs.length>=MAX_TABS||workspace.tabs.reduce((size,tab)=>size+tab.sql.length,sql.length)>5_000_000)throw new Error('Close a query tab or save and shorten a SQL buffer. The workspace supports 20 tabs and 5 MB of SQL.');newTab(undefined,{sql,title});setLibrarySql(undefined)}}/>}
     {parameterRun&&<ParameterDialog engine={statesRef.current[parameterRun.tabId]?.session?.engine} sql={parameterRun.sql} names={parameterRun.names} onClose={()=>setParameterRun(undefined)} onRun={async values=>{if(tabId!==parameterRun.tabId||statesRef.current[tabId]?.session?.id!==parameterRun.sessionId)throw new Error('The target session changed. Close this dialog and run again.');await run(parameterRun.sql,values,parameterRun.source);setParameterRun(undefined)}}/>}
     {windowsOpen && <WorkspaceWindowsDialog onClose={() => setWindowsOpen(false)}/>}
-    {editorSettingsOpen && <EditorSettingsDialog settings={editorSettings} onClose={() => setEditorSettingsOpen(false)} onApply={settings => changeWorkspace(previous => ({ ...previous, editorSettings: settings }))}/>}
+    {editorSettingsOpen && <EditorSettingsDialog settings={editorSettings} onClose={() => setEditorSettingsOpen(false)} onApply={async settings => { await applyPreferences(settings); changeWorkspace(previous => ({ ...previous, editorSettings: settings })) }}/>}
     {palette && <CommandPalette onClose={() => setPalette(false)} commands={[
       { label: 'New query tab', action: () => newTab(), disabled: !ready || workspace.tabs.length >= MAX_TABS },
       { label: tab.pinned ? 'Unpin query tab' : 'Pin query tab', keywords: 'keep protect close', action: () => pinTab(tabId, !workspaceRef.current.tabs.find(tab => tab.id === tabId)?.pinned), disabled: !ready || sqlFiles.busy || Boolean(closeId) },
@@ -825,7 +929,7 @@ export function App() {
       { label: 'Save SQL file as', action: () => void sqlFiles.save(tabId, true) },
       { label: 'Recent SQL files', action: () => sqlFiles.setRecentOpen(true) },
       ...editorViewTools,
-      ...[...queryTools, ...workspaceTools].map(command => ({ ...command, ...(command.label === 'Query library' ? { keywords: 'history snippets favorites retention' } : command.label === 'Editor settings' ? { keywords: 'preferences font size wrap line numbers minimap suggestions completion indentation tabs spaces formatting database engine style defaults import export theme dark light appearance keyboard shortcuts' } : {}) })),
+      ...[...queryTools, ...workspaceTools].map(command => ({ ...command, ...(command.label === 'Query library' ? { keywords: 'history snippets favorites retention' } : command.label === 'Preferences' ? { keywords: 'preferences font size wrap line numbers minimap suggestions completion indentation tabs spaces formatting database engine style defaults import export theme dark light appearance keyboard shortcuts' } : {}) })),
       { label: 'Database backup and restore', action: () => setBackupOpen(true) },
       { label: 'Sessions and locks', action: () => session && setActivityOpen({tabId,sessionId:session.id}), disabled: !session || state.closing || state.switching },
       { label: 'Compare table data', action: () => session && setDataCompareOpen({tabId,sessionId:session.id}), disabled: !session || operationBusy },

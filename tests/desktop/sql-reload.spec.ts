@@ -1,3 +1,4 @@
+import { fileMenu } from './file-menu'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { createHash, randomUUID } from 'node:crypto'
@@ -25,7 +26,7 @@ for (const failure of ['capacity', 'workspace', 'association'] as const) test(`S
     const env: Record<string, string | undefined> = { ...process.env, SQLCOMMANDER_USER_DATA: directory }; delete env.ELECTRON_RUN_AS_NODE
     app = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: resolve(process.env.SQLCOMMANDER_TEST_EXECUTABLE) } : { args: [resolve('.')] }), env: env as Record<string, string> })
     const page = await app.firstWindow(); await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Save SQL file', exact: true })).toBeEnabled()
+    await expect(page.getByRole('button', { name: 'Open SQL file', exact: true })).toBeEnabled()
     await app.evaluate(({ dialog }) => {
       ;(globalThis as any).__reloadPrompts = []
       dialog.showMessageBox = async (windowOrOptions: any, options?: any) => {
@@ -37,7 +38,7 @@ for (const failure of ['capacity', 'workspace', 'association'] as const) test(`S
     return page
   }
   const close = async () => { await app?.evaluate(({ app }) => app.exit(0)).catch(() => {}); await app?.close().catch(() => {}); app = undefined }
-  async function reload(page: Page) { await page.getByRole('button', { name: 'File', exact: true }).click(); await page.getByRole('menuitem', { name: 'Reload from disk', exact: true }).click(); await expect(page.getByRole('button', { name: 'Save SQL file', exact: true })).toBeEnabled() }
+  async function reload(page: Page) { await fileMenu(app!, page, 'Reload from disk'); await expect(page.getByRole('button', { name: 'Open SQL file', exact: true })).toBeEnabled() }
   try {
     let page = await launch()
     const originalRegistry = readFileSync(registry), before = await stored(page)
@@ -62,8 +63,8 @@ for (const failure of ['capacity', 'workspace', 'association'] as const) test(`S
     }
     await page.screenshot({ path: info.outputPath(`${failure}-reload-failed.png`) })
     if (failure === 'capacity') {
-      await page.getByRole('button', { name: 'Save SQL file', exact: true }).click()
-      await expect(page.getByRole('button', { name: 'Save SQL file', exact: true })).toBeEnabled()
+      await fileMenu(app!, page, 'Save')
+      await expect(page.getByRole('button', { name: 'Open SQL file', exact: true })).toBeEnabled()
       expect(await app!.evaluate(() => (globalThis as any).__reloadPrompts)).toContain('SQL file changed')
       expect(digest(readFileSync(path))).toBe(digest(external))
       // A smaller reviewed reload fits without deleting the other saved buffers.

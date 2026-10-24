@@ -6,12 +6,13 @@ import { objectKinds, objectKey, type CatalogObject } from '../shared/catalog'
 import { ChevronDown, ChevronRight, RefreshCw, Search } from './WorkbenchIcons'
 import { MaterialIcon } from './MaterialIcon'
 import type { GridTable } from '../shared/contracts'
-import { canSwitchDatabase, type QueryTabState } from './query-tabs'
+import { canSwitchDatabase, tabOperationBusy, type QueryTabState } from './query-tabs'
 
 type MenuTarget = { kind: 'database'; name: string } | { kind: 'table'; table: GridTable; objectId?: string }
 type ExplorerMenu = Omit<MenuAnchor, 'items'> & { target: MenuTarget }
 
-export function DatabaseExplorer({ state, onRefreshDatabases, onRefreshSchema, onSwitch, onFilter, onAppendSelect, onEdit, onBrowse, onInspect, onSchemaChange, onDiagram, onBackup, onCompare, onCompareData, onBuilder, onActivity }: {
+export function DatabaseExplorer({ state, browseDisabled, onRefreshDatabases, onRefreshSchema, onSwitch, onFilter, onAppendSelect, onEdit, onBrowse, onInspect, onSchemaChange, onDiagram, onBackup, onCompare, onCompareData, onBuilder, onActivity }: {
+  browseDisabled: boolean
   onActivity():void
   onBuilder(table?: GridTable): void
   onCompareData(table?: GridTable): void
@@ -25,7 +26,7 @@ export function DatabaseExplorer({ state, onRefreshDatabases, onRefreshSchema, o
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
   const [collapsedMatches, setCollapsedMatches] = useState<Set<string>>(() => new Set())
   const session = state.session!, catalog = state.databases, reason = canSwitchDatabase(state)
-  const busy = state.backupBusy || state.transferBusy || state.running || state.schemaLoading || state.gridBusy || state.switching || state.databasesLoading
+  const busy = tabOperationBusy(state)
   useEffect(() => setExpanded(new Set()), [session.id, session.database])
   useEffect(() => setCollapsedMatches(new Set()), [state.tableSearch, kind, session.id, session.database])
   useEffect(()=>setMenu(null),[session.id,session.database])
@@ -42,7 +43,7 @@ export function DatabaseExplorer({ state, onRefreshDatabases, onRefreshSchema, o
     return [
       {label:`Object details ${table.name}`,disabled:busy||!object,action:()=>object&&onInspect(object)},
       {label:`Append SELECT SQL for ${table.name}`,disabled:busy,title:'Append SQL to the current editor for review. This does not execute it.',action:()=>onAppendSelect(table)},
-      {label:`Browse data ${table.name}`,disabled:busy||session.transaction!=='idle'||Boolean(state.gridChanges.length),action:()=>onBrowse(table)},
+      {label:`Browse data ${table.name}`,disabled:browseDisabled||busy||session.transaction!=='idle'||Boolean(state.gridChanges.length),title:'Open the browse query and results in a new tab.',action:()=>onBrowse(table)},
       {label:`Edit data ${table.name}`,disabled:busy||session.transaction!=='idle'||Boolean(state.gridChanges.length),action:()=>onEdit(table)},
       {label:`Build query from ${table.name}`,disabled:busy,action:()=>onBuilder(table)},
       ...(object?.kind==='table'?[{label:`Compare data ${table.name}`,disabled:busy,action:()=>onCompareData(table)}, {label:`Alter table ${table.name}`,disabled:busy||Boolean(state.gridChanges.length),action:()=>onSchemaChange(object)}]:[])

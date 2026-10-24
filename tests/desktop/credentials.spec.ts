@@ -1,6 +1,6 @@
 import { profileAction } from './profile-actions'
 import { _electron as electron, test, expect, type ElectronApplication, type Page } from '@playwright/test'
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -56,10 +56,13 @@ test('credentials native changed connections keep the original saved password an
     await page.getByRole('button', { name: 'New saved profile', exact: true }).click()
     let form = page.getByRole('dialog')
     await form.getByLabel('Connection name', { exact: true }).fill('Original saved server')
+    await form.getByLabel('Host', { exact: true }).fill('127.0.0.1'); await form.getByLabel('Port', { exact: true }).fill('1')
     await form.getByLabel('Password', { exact: true }).fill('original-profile-secret')
     await form.getByLabel('Remember password', { exact: true }).check(); await save(page)
     const original = await profile(page); ids.add(original.id)
     await page.getByRole('button', { name: 'Open Original saved server in new tab', exact: true }).click()
+    await page.getByRole('dialog', { name: 'Connection failed', exact: true }).getByRole('button', { name: 'OK', exact: true }).click()
+    await page.getByRole('button', { name: 'Connect database', exact: true }).click()
     form = page.getByRole('dialog'); await expect(form.getByLabel('Use saved password', { exact: true })).toBeChecked()
     await form.getByLabel('Connection name', { exact: true }).fill('Separate saved server')
     await expect(form).toContainText('A new saved connection will be added')
@@ -95,6 +98,7 @@ test('credentials native store opt-in, restart, replacement, removal and profile
     await page.getByRole('button', { name: 'New saved profile', exact: true }).click()
     let form = page.getByRole('dialog')
     await form.getByLabel('Connection name').fill('Vault profile')
+    await form.getByLabel('Host', { exact: true }).fill('127.0.0.1'); await form.getByLabel('Port', { exact: true }).fill('1')
     await expect(form.getByLabel('Remember password', { exact: true })).not.toBeChecked()
     await form.getByLabel('Password', { exact: true }).fill('session-only-sentinel')
     await save(page)
@@ -109,11 +113,24 @@ test('credentials native store opt-in, restart, replacement, removal and profile
     await app.close(); app = undefined
     launched = await launch(directory); app = launched.app; page = launched.page
     await expect(page.getByRole('button', { name: /^Run SQL/ })).toBeDisabled()
+    await app.evaluate(({ ipcMain }) => {
+      const original = (ipcMain as any)._invokeHandlers.get('sql:connectSavedPassword')
+      ipcMain.removeHandler('sql:connectSavedPassword')
+      ipcMain.handle('sql:connectSavedPassword', (event, request) => {
+        ;(globalThis as any).savedConnectRequest = { profileId: request.profileId, hasPlaintext: 'password' in request.config }
+        return original(event, request)
+      })
+    })
     await page.getByRole('button', { name: 'Open Vault profile in new tab', exact: true }).click()
-    form = page.getByRole('dialog')
-    await expect(form.getByLabel('Password', { exact: true })).toHaveValue('')
-    await expect(form.getByLabel('Use saved password', { exact: true })).toBeChecked()
-    await form.getByRole('button', { name: 'Cancel', exact: true }).click()
+    const warning = page.getByRole('dialog', { name: 'Connection failed', exact: true })
+    await expect(warning).toContainText('Could not connect to Vault profile')
+    await expect(warning.getByRole('alert')).not.toContainText('first-vault-sentinel')
+    await expect(page.getByLabel('Password', { exact: true })).toHaveCount(0)
+    expect(await app.evaluate(() => (globalThis as any).savedConnectRequest)).toEqual({ profileId: id, hasPlaintext: false })
+    expect(await native(app, id, 'first-vault-sentinel')).toBe(true)
+    const warningImage = await app.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].webContents.capturePage()).toPNG().toString('base64'))
+    writeFileSync(testInfo.outputPath('saved-connection-warning.png'), warningImage, 'base64')
+    await warning.getByRole('button', { name: 'OK', exact: true }).click()
     form = await edit(page, 'Vault profile'); await form.getByLabel('Connection name').fill('Renamed vault profile'); await save(page)
     expect(await native(app, id, 'first-vault-sentinel')).toBe(true)
     form = await edit(page, 'Renamed vault profile')
@@ -176,9 +193,10 @@ test('credentials unavailable, failed writes/deletes and missing secrets fail wi
     await page.getByRole('button', { name: 'Keep profile', exact: true }).click()
     await fault(app, []); await native(app, id, undefined, true)
     await page.getByRole('button', { name: 'Open Unavailable vault in new tab', exact: true }).click()
-    form = page.getByRole('dialog'); await expect(form.getByLabel('Use saved password', { exact: true })).toBeChecked()
-    await form.getByRole('button', { name: 'Connect', exact: true }).click()
-    await expect(form.getByRole('alert')).toContainText('saved password is missing')
+    const warning = page.getByRole('dialog', { name: 'Connection failed', exact: true })
+    await expect(warning.getByRole('alert')).toContainText('saved password is missing')
+    await warning.getByRole('button', { name: 'Edit connection', exact: true }).click()
+    form = page.getByRole('dialog')
     await form.getByRole('button', { name: 'Remove saved password', exact: true }).click()
     await expect(form.getByLabel('Use saved password', { exact: true })).toHaveCount(0)
     noWorkspaceSecrets(directory, ['unsaved-vault-sentinel', 'failed-write-sentinel'])
@@ -188,7 +206,7 @@ test('credentials unavailable, failed writes/deletes and missing secrets fail wi
   } finally { await cleanup(app, ids, directory) }
 })
 
-for (const tunneled of [false, true]) test(`credentials postgres ${tunneled ? 'SSH encrypted key and ' : ''}saved authentication, independent sessions and explicit reconnect after recovery`, async () => {
+for (const tunneled of [false, true]) test(`credentials postgres ${tunneled ? 'SSH encrypted key and ' : ''}saved authentication, shared sessions and explicit reconnect after recovery`, async () => {
   test.skip(!(process.env.SQLCOMMANDER_TEST_DRIVERS ?? '').split(',').includes('postgres'), 'PostgreSQL Docker fixture not selected')
   const directory = mkdtempSync(join(tmpdir(), 'dbcommander-credentials-postgres-')), ids = new Set<string>()
   let app: ElectronApplication | undefined
@@ -217,10 +235,16 @@ for (const tunneled of [false, true]) test(`credentials postgres ${tunneled ? 'S
     launched = await launch(directory); app = launched.app; page = launched.page
     await expect(page.getByRole('button', { name: /^Run SQL/ })).toBeDisabled()
     await page.getByRole('button', { name: 'Open Saved PostgreSQL in new tab', exact: true }).click()
-    form = page.getByRole('dialog'); await expect(form.getByLabel('Use saved password', { exact: true })).toBeChecked()
-    await expect(form.getByLabel('Password', { exact: true })).toHaveValue('')
-    if (tunneled) { await expect(form.getByLabel('SSH key passphrase')).toHaveValue(''); await form.getByLabel('SSH key passphrase').fill('local-key-passphrase') }
-    await form.getByRole('button', { name: 'Connect', exact: true }).click(); await expect(form).toBeHidden()
+    if (tunneled) {
+      await page.getByRole('dialog', { name: 'Connection failed', exact: true }).getByRole('button', { name: 'OK', exact: true }).click()
+      await page.getByRole('button', { name: 'Connect database', exact: true }).click()
+      form = page.getByRole('dialog'); await expect(form.getByLabel('Use saved password', { exact: true })).toBeChecked()
+      await expect(form.getByLabel('Password', { exact: true })).toHaveValue('')
+      await expect(form.getByLabel('SSH key passphrase')).toHaveValue(''); await form.getByLabel('SSH key passphrase').fill('local-key-passphrase')
+      await form.getByRole('button', { name: 'Connect', exact: true }).click(); await expect(form).toBeHidden()
+    }
+    await expect(page.getByRole('button', { name: /^Run SQL/ })).toBeEnabled()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
     async function run(sql: string) {
       await page.locator('.monaco-editor').click(); await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A'); await page.keyboard.insertText(sql)
       await page.getByRole('button', { name: /^Run SQL/ }).click(); await expect(page.locator('.status-text')).toHaveText('Completed')
@@ -228,7 +252,7 @@ for (const tunneled of [false, true]) test(`credentials postgres ${tunneled ? 'S
     await run('CREATE TEMP TABLE credential_session(n INT); INSERT INTO credential_session VALUES(77)')
     await page.getByRole('button', { name: 'New query tab', exact: true }).click(); await expect(page.locator('.status-text')).toHaveText('Connected')
     await run("SELECT count(*) AS count FROM pg_tables WHERE tablename='credential_session' AND schemaname = pg_my_temp_schema()::regnamespace::text")
-    await expect(page.getByRole('cell', { name: '0', exact: true })).toBeVisible()
+    await expect(page.getByRole('cell', { name: '1', exact: true })).toBeVisible()
     await page.getByRole('tab', { name: 'Query 2.sql', exact: true }).click(); await run('SELECT n FROM credential_session')
     await expect(page.getByRole('cell', { name: '77', exact: true })).toBeVisible()
     form = await edit(page, 'Saved PostgreSQL'); await form.getByRole('button', { name: 'Remove saved password', exact: true }).click()

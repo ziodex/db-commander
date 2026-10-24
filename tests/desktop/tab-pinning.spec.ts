@@ -1,3 +1,4 @@
+import { fileMenu } from './file-menu'
 import { _electron as electron, test, expect, type ElectronApplication, type Page } from '@playwright/test'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -17,7 +18,7 @@ test('query tab pinning: group boundaries, close protection, file saves and rest
     app = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: process.env.SQLCOMMANDER_TEST_EXECUTABLE } : { args: [resolve('.')] }), env: env as Record<string, string> })
     const page = await app.firstWindow()
     await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Save SQL file', exact: true })).toBeEnabled()
+    await expect(page.getByRole('button', { name: 'Open SQL file', exact: true })).toBeEnabled()
     // Keep unsaved file buffers in recovery when quitting; never write them implicitly.
     await app.evaluate(({ dialog }) => { dialog.showMessageBox = (async () => ({ response: 1, checkboxChecked: false })) as typeof dialog.showMessageBox })
     return page
@@ -83,7 +84,7 @@ test('query tab pinning: group boundaries, close protection, file saves and rest
     await tab('Untitled.sql').click()
     const originalId = await tab('Untitled.sql').getAttribute('id')
     await app!.evaluate(({ dialog }, path) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: path }) }, file)
-    await page.getByRole('button', { name: 'Save SQL file', exact: true }).click()
+    await fileMenu(app!, page, 'Save')
     await expect(tab('pinned.sql')).toHaveAttribute('id', originalId!)
     await expect(tab('pinned.sql')).toHaveAttribute('aria-description', /Pinned/)
     await expect(page.locator('.sql-file-bar')).toContainText('Saved to file')
@@ -92,7 +93,7 @@ test('query tab pinning: group boundaries, close protection, file saves and rest
     await expect(page.locator('.sql-file-bar')).toContainText('Unsaved changes')
     await app!.evaluate(({ dialog }, path) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] }) }, file)
     await page.getByRole('button', { name: 'Open SQL file', exact: true }).click()
-    await expect(page.getByRole('button', { name: 'Save SQL file', exact: true })).toBeEnabled()
+    await expect(page.getByRole('button', { name: 'Open SQL file', exact: true })).toBeEnabled()
     await expect.poll(order).toEqual(['pinned.sql', 'Query 2.sql', 'Query 3.sql'])
     await expect(page.locator('.monaco-editor')).toContainText('unsaved_pinned_buffer')
     await page.screenshot({ path: testInfo.outputPath('pinned-tabs.png') })

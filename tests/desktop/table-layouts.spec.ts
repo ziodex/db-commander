@@ -1,3 +1,4 @@
+import { tableDataAction } from './table-data-actions'
 import { _electron as electron, test, expect, type ElectronApplication, type Page } from '@playwright/test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -60,9 +61,9 @@ for (const engine of ['sqlite', 'duckdb'] as const) test(`saved table layouts ${
     await expect(page.getByRole('button', { name: /^Run SQL/ })).toBeEnabled()
     await browse(); await expect(width()).toHaveAttribute('aria-valuenow', '330')
     await openColumns(); await setWidth(360); await save(); await done()
-    await page.getByRole('tab', { name: 'Untitled.sql', exact: true }).click()
+    await page.getByRole('tab', { name: 'saved_columns', exact: true }).first().click()
     await expect(width()).toHaveAttribute('aria-valuenow', '410')
-    await page.getByRole('button', { name: 'Edit this page', exact: true }).click()
+    await tableDataAction(page, 'Edit this page')
     await expect(page.locator('.status-text')).toHaveText('Table loaded')
     await page.getByRole('textbox', { name: 'Row 1 label', exact: true }).fill('unapplied draft')
     await openColumns(); await save(); await done()
@@ -82,7 +83,7 @@ for (const engine of ['sqlite', 'duckdb'] as const) test(`saved table layouts ${
     await expect(columns().getByLabel('Width column 2', { exact: true })).toHaveValue('210')
     await columns().getByRole('button', { name: 'Use saved layout', exact: true }).click()
     await expect(columns().getByLabel('Width column 2', { exact: true })).toHaveValue('410'); await done()
-    await page.getByRole('button', { name: 'Close data', exact: true }).click()
+    await tableDataAction(page, 'Close data')
     await run('ALTER TABLE saved_columns ADD COLUMN extra INTEGER')
     await browse(); await expect(width()).toHaveAttribute('aria-valuenow', '210')
     await openColumns()
@@ -97,7 +98,7 @@ for (const engine of ['sqlite', 'duckdb'] as const) test(`saved table layouts ${
     await page.getByRole('button', { name: 'New query tab', exact: true }).click()
     await expect(page.getByRole('button', { name: /^Run SQL/ })).toBeEnabled()
     await browse(); await expect(width()).toHaveAttribute('aria-valuenow', '210')
-    await page.getByRole('button', { name: 'Close data', exact: true }).click()
+    await tableDataAction(page, 'Close data')
     await run('SELECT label,payload FROM saved_columns')
     await expect(page.getByRole('cell', { name: 'original', exact: true })).toBeVisible()
     await expect(page.getByRole('cell', { name: 'private row contents', exact: true })).toBeVisible()

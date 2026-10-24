@@ -1,3 +1,4 @@
+import { tableDataAction } from './table-data-actions'
 import { tableAction } from './explorer-actions'
 import { _electron as electron, test, expect } from '@playwright/test'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
@@ -65,23 +66,28 @@ for (const engine of engineSchema.options) test(`browsing ${engine}: server page
     await dialog.getByRole('button', { name: 'Add filter', exact: true }).click(); await dialog.getByLabel('Filter 1 column').selectOption('id'); await dialog.getByLabel('Filter 1 condition').selectOption('gte'); await dialog.getByLabel('Filter 1 value').fill('200')
     await dialog.getByRole('button', { name: 'Add filter', exact: true }).click(); await dialog.getByLabel('Filter 2 column').selectOption('note'); await dialog.getByLabel('Filter 2 condition').selectOption('is-null')
     await dialog.getByRole('button', { name: 'Apply filters and sorting', exact: true }).click(); await loaded('Rows 1–3'); await expect(firstId()).toHaveText('200')
-    // Tab switches preserve applied browsing choices without sharing sessions.
+    // A normal tab reuses the connection. Explicitly reconnect this tab for the concurrency test.
     await page.getByRole('button', { name: 'New query tab', exact: true }).click(); await expect(page.locator('.status-text')).toHaveText('Connected'); await expect(page.getByRole('button', { name: /^Run SQL/ })).toBeEnabled()
-    await page.getByRole('tab', { name: 'Untitled.sql', exact: true }).click(); await expect(firstId()).toHaveText('200'); await expect(page.getByLabel('Rows per page')).toHaveValue('25')
-    await page.getByRole('button', { name: 'Edit this page', exact: true }).click(); await loaded('Rows 1–3')
+    await page.getByRole('button', { name: 'Disconnect', exact: true }).click()
+    await page.getByRole('button', { name: 'Connect database', exact: true }).click()
+    const reconnect = page.getByRole('dialog')
+    if (!['sqlite', 'duckdb'].includes(engine)) await reconnect.getByLabel('Password', { exact: true }).fill(['sqlserver', 'azure-sql'].includes(engine) ? 'Local-Test-Only!2026' : 'local-test-only')
+    await reconnect.getByRole('button', { name: 'Connect', exact: true }).click(); await expect(reconnect).not.toBeVisible()
+    await page.getByRole('tab', { name, exact: true }).click(); await expect(firstId()).toHaveText('200'); await expect(page.getByLabel('Rows per page')).toHaveValue('25')
+    await tableDataAction(page, 'Edit this page'); await loaded('Rows 1–3')
     await page.getByLabel('Row 1 label', { exact: true }).fill('my draft')
     await expect(page.getByRole('button', { name: /^Filters & sort/ })).toBeDisabled(); await expect(page.getByLabel('Rows per page')).toBeDisabled()
-    await page.getByRole('tab', { name: 'Query 2.sql', exact: true }).click(); await run(`UPDATE ${q(name)} SET ${q('label')}='other session' WHERE ${q('id')}=200`)
+    await page.getByRole('tab', { name: 'Query 3.sql', exact: true }).click(); await run(`UPDATE ${q(name)} SET ${q('label')}='other session' WHERE ${q('id')}=200`)
     if (engine === 'oracle') await run('COMMIT')
-    await page.getByRole('tab', { name: 'Untitled.sql', exact: true }).click(); await page.getByRole('button', { name: 'Apply edits', exact: true }).click(); await expect(page.locator('.error-banner')).toContainText('Concurrency conflict')
+    await page.getByRole('tab', { name, exact: true }).click(); await page.getByRole('button', { name: 'Apply edits', exact: true }).click(); await expect(page.locator('.error-banner')).toContainText('Concurrency conflict')
     await expect(page.getByLabel('Row 1 label', { exact: true })).toHaveValue('my draft')
-    await page.getByRole('button', { name: 'Discard edits', exact: true }).click(); await page.getByRole('button', { name: 'Reload data', exact: true }).click(); await loaded('Rows 1–3')
+    await page.getByRole('button', { name: 'Discard edits', exact: true }).click(); await tableDataAction(page, 'Reload data'); await loaded('Rows 1–3')
     await expect(page.getByLabel('Row 1 label', { exact: true })).toHaveValue('other session')
     await page.getByLabel('Row 1 label', { exact: true }).fill('rollback this')
     await page.getByRole('button', { name: 'Apply edits', exact: true }).click(); await expect(page.locator('.transaction-badge')).toHaveText('In transaction')
     await expect(page.getByRole('button', { name: /^Filters & sort/ })).toBeDisabled()
     await page.getByRole('button', { name: 'Rollback', exact: true }).click(); await expect(page.locator('.status-text')).toHaveText('Completed')
-    await page.getByRole('button', { name: 'Reload data', exact: true }).click(); await loaded('Rows 1–3')
+    await tableDataAction(page, 'Reload data'); await loaded('Rows 1–3')
     await expect(page.getByLabel('Row 1 label', { exact: true })).toHaveValue('other session')
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1024, 700))
     await expect(page.getByRole('button', { name: /^Filters & sort/ })).toBeInViewport()
@@ -91,10 +97,10 @@ for (const engine of engineSchema.options) test(`browsing ${engine}: server page
     await run(`CREATE VIEW ${q(name + '_view')} AS SELECT ${q('id')},${q('label')} FROM ${q(name)}`)
     await tableAction(page, `${name + '_view'}`, 'Browse data'); await loaded('Rows 1–200')
     await expect(page.locator('.browse-notice')).toContainText('No sortable primary key')
-    await page.getByRole('button', { name: 'Edit this page', exact: true }).click(); await expect(page.locator('.error-banner')).toContainText('base table')
+    await tableDataAction(page, 'Edit this page'); await expect(page.locator('.error-banner')).toContainText('base table')
     // Failed edit eligibility preserves the previous browse result and permits reload.
     await expect(page.getByRole('table', { name: 'Table data', exact: true })).toBeVisible()
-    await page.getByRole('button', { name: 'Reload data', exact: true }).click(); await loaded('Rows 1–200')
+    await tableDataAction(page, 'Reload data'); await loaded('Rows 1–200')
     await run(`DROP VIEW ${q(name + '_view')}`); await run(`DROP TABLE ${q(name)}`)
   } finally {
     await app.evaluate(({ app }) => app.exit()).catch(() => {}); await app.close().catch(() => {}); rmSync(directory, { recursive: true, force: true })

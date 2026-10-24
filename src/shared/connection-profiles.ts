@@ -1,8 +1,13 @@
-import { profileSchema, type ConnectionConfig, type ConnectionProfile } from './contracts'
+import { DEFAULT_PROFILE, profileSchema, type ConnectionConfig, type ConnectionProfile, type SessionInfo, type WorkspaceTab } from './contracts'
 
 export function connectionProfile(config: ConnectionConfig): ConnectionProfile {
   const { password: _password, accessToken: _accessToken, sshSecrets: _sshSecrets, ...profile } = config
   return profile
+}
+
+/** Default form values do not imply that a local database server exists. */
+export function hasConfiguredConnection(tab: Pick<WorkspaceTab, 'profile' | 'profileId'>, session?: SessionInfo | null): boolean {
+  return Boolean(session || tab.profileId || !sameConnectionProfile(tab.profile, DEFAULT_PROFILE))
 }
 
 /** Reconnecting may reuse a profile; changing settings must not overwrite it.

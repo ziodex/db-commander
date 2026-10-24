@@ -1,3 +1,4 @@
+import { openConnectionSettings } from './profile-actions'
 import { _electron as electron, test, expect, type ElectronApplication, type Page } from '@playwright/test'
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -26,7 +27,7 @@ for (const engine of ['mariadb', 'azure-sql'] as const) test(`saved server conne
   }
   async function connect() {
     const form = page.getByRole('dialog'); await form.getByRole('button', { name: 'Connect', exact: true }).click(); await expect(form).toBeHidden({ timeout: 30_000 })
-    await expect(page.getByRole('button', { name: 'Connection settings', exact: true })).toBeEnabled()
+    await expect(page.getByRole('button', { name: 'Disconnect', exact: true })).toBeEnabled()
     for (const profile of (await page.evaluate(() => window.dbCommander.loadWorkspace()))!.profiles) ids.add(profile.id)
   }
   async function run(sql: string) {
@@ -42,7 +43,7 @@ for (const engine of ['mariadb', 'azure-sql'] as const) test(`saved server conne
     await page!.getByRole('button', { name: 'New connection', exact: true }).click(); await configure('Second saved server'); await connect()
     const second = (await page!.evaluate(() => window.dbCommander.loadWorkspace()))!.profiles
     expect(second).toHaveLength(2); expect(second[0]).toEqual(first)
-    await page!.getByRole('button', { name: 'Connection settings', exact: true }).click()
+    await openConnectionSettings(page!)
     let form = page!.getByRole('dialog')
     await form.getByLabel('Connection name', { exact: true }).fill('Third saved server')
     await expect(form).toContainText('A new saved connection will be added')
@@ -52,7 +53,7 @@ for (const engine of ['mariadb', 'azure-sql'] as const) test(`saved server conne
     expect(saved.every(profile => profile.credential === 'os-store')).toBe(true)
     for (const name of ['First saved server', 'Second saved server', 'Third saved server']) await expect(page!.getByRole('button', { name: `Open ${name} in new tab`, exact: true })).toBeVisible()
     await page!.getByRole('button', { name: 'Open First saved server in new tab', exact: true }).click()
-    await expect(form.getByLabel('Password', { exact: true })).toHaveValue(''); await expect(form.getByLabel('Use saved password', { exact: true })).toBeChecked(); await connect()
+    await expect(page!.getByRole('button', { name: 'Disconnect', exact: true })).toBeEnabled({ timeout: 30_000 }); await expect(page!.getByRole('dialog')).toHaveCount(0)
     await run('SELECT 9223372036854775807 AS exact_value;')
     await expect(page!.getByRole('cell', { name: '9223372036854775807', exact: true })).toBeVisible()
     // A bad session-only attempt cannot replace the working saved credential.
@@ -77,7 +78,7 @@ for (const engine of ['mariadb', 'azure-sql'] as const) test(`saved server conne
     expect(recovered?.profiles).toEqual(saved); expect(recovered?.tabs).toEqual(beforeRestart.tabs)
     await expect(page!.getByRole('button', { name: /^Run SQL/ })).toBeDisabled(); expect(await page!.evaluate(() => window.dbCommander.history())).toEqual(history)
     await page!.getByRole('button', { name: 'Open Second saved server in new tab', exact: true }).click()
-    await expect(form.getByLabel('Password', { exact: true })).toHaveValue(''); await expect(form.getByLabel('Use saved password', { exact: true })).toBeChecked(); await connect()
+    await expect(page!.getByRole('button', { name: 'Disconnect', exact: true })).toBeEnabled({ timeout: 30_000 }); await expect(page!.getByRole('dialog')).toHaveCount(0)
     await run('SELECT 9223372036854775807 AS exact_value;'); await expect(page!.getByRole('cell', { name: '9223372036854775807', exact: true })).toBeVisible()
     expect((await page!.evaluate(() => window.dbCommander.loadWorkspace()))!.profiles).toEqual(saved)
     writeFileSync(info.outputPath(`${engine}-saved-connections.json`), JSON.stringify({ engine, server: engine === 'azure-sql' ? 'local SQL Server TDS fixture; not the Azure service' : 'native MariaDB fixture', profileCount: 3, originalIdsRetained: true, storedPasswordReconnect: true, failedPasswordDidNotReplaceSecret: true, restartedWithoutReplay: true, postRestartReconnect: true }, null, 2))

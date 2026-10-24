@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { ResultSet } from '../shared/contracts'
 import type { CellMark } from '../shared/inspection'
@@ -6,9 +6,16 @@ import { ColumnControls, useColumns, type ColumnLayout, type SavedColumnControls
 import { ColumnResizer } from './ColumnResizer'
 import { columnMeasurer, fittedColumnWidth, DEFAULT_COLUMN_WIDTH } from './column-sizing'
 import { ValueInspector, type InspectCell, type InspectionActions } from './ValueInspector'
+import { ActionMenu } from './ActionMenu'
+import { ContextMenu, type MenuAnchor } from './ContextMenu'
+import { ChevronDown, Search } from './WorkbenchIcons'
+import { copyGridSelection, selectionBounds } from './grid-selection'
+import { useGridSelection } from './use-grid-selection'
 
-export function ResultGrid({ result, label = 'Query results', rowOffset = 0, marks, actions, view, onView, savedColumns }: { result: ResultSet; label?: string; rowOffset?: number; marks?:CellMark[]; actions?:InspectionActions; view?:ColumnLayout; onView?(view:ColumnLayout):void; savedColumns?:SavedColumnControls }) {
-  const scroll = useRef<HTMLDivElement>(null), [selected,setSelected] = useState<InspectCell>(), [inspecting,setInspecting] = useState<InspectCell>()
+export function ResultGrid({ result, label = 'Query results', rowOffset = 0, marks, actions, view, onView, savedColumns, toolbarStart, toolbarEnd }: { result: ResultSet; label?: string; rowOffset?: number; marks?:CellMark[]; actions?:InspectionActions; view?:ColumnLayout; onView?(view:ColumnLayout):void; savedColumns?:SavedColumnControls; toolbarStart?:ReactNode; toolbarEnd?:ReactNode }) {
+  const scroll = useRef<HTMLDivElement>(null), [inspecting,setInspecting] = useState<InspectCell>()
+  const [copyStatus, setCopyStatus] = useState(''), [copyError, setCopyError] = useState(''), copying = useRef(false)
+  const [menu, setMenu] = useState<Omit<MenuAnchor, 'items'> | null>(null)
   const header = useRef<HTMLDivElement>(null), headerHeight = header.current?.offsetHeight ?? 46
   const [cursor, setCursor] = useState({ row: 0, column: 0 }), pendingFocus = useRef<typeof cursor | null>(null)
   const virtual = useVirtualizer({ count: result.rows.length, getScrollElement: () => scroll.current, estimateSize: () => 33, overscan: 8, scrollMargin: headerHeight, scrollPaddingStart: headerHeight })
@@ -21,6 +28,42 @@ export function ResultGrid({ result, label = 'Query results', rowOffset = 0, mar
     const next = { row: Math.max(0, Math.min(row, result.rows.length - 1)), column }
     pendingFocus.current = next; setCursor(next)
     virtual.scrollToIndex(next.row, { align: page ? 'start' : 'auto' })
+  }
+  const range = useGridSelection(scroll, controls.visible, result.rows.length, point => move(point.row, point.column))
+  const cellMarks=useMemo(()=>new Map(marks?.map(mark=>[`${mark.row}:${mark.column}`,mark])),[marks])
+  function inspectCell(row: number, column: number): InspectCell {
+    return { value: result.rows[row][column], column: columns[column], row, columnIndex: column, mark: cellMarks.get(`${row}:${column}`) }
+  }
+  const selected = range.bounds ? inspectCell(active.row, active.column) : undefined
+  const count = range.bounds ? (range.bounds.lastRow - range.bounds.firstRow + 1) * (range.bounds.lastColumn - range.bounds.firstColumn + 1) : 0
+  async function copy(headers = false) {
+    if (!range.current.current || copying.current) return
+    copying.current = true; setCopyStatus(''); setCopyError('')
+    try {
+      const text = copyGridSelection(result, controls.visible, range.current.current, headers)
+      await window.dbCommander.copyDefinition(text)
+      setCopyStatus(`${count.toLocaleString()} ${count === 1 ? 'cell' : 'cells'} copied${headers ? ' with headers' : ''}.`)
+    } catch (error) { setCopyError(error instanceof Error ? error.message : 'Could not copy. Try again.') }
+    finally { copying.current = false }
+  }
+  const copyItems = [
+    { label: 'Copy', title: 'Ctrl+C · Tab-separated values from the loaded rows', disabled: !count, action: () => void copy() },
+    { label: 'Copy with headers', title: 'Ctrl+Shift+C · Includes the selected column names', disabled: !count, action: () => void copy(true) },
+    { label: 'Select all loaded cells', title: 'Ctrl+A · Visible columns only', disabled: !result.rows.length, action: selectAll }
+  ]
+  function selectAll() {
+    if (!result.rows.length || !controls.visible.length) return
+    range.select({ row: 0, column: controls.visible[0] })
+    range.select({ row: result.rows.length - 1, column: controls.visible.at(-1)! }, true)
+  }
+  function selectionKeys(event: KeyboardEvent) {
+    if ((event.ctrlKey || event.metaKey) && !event.altKey && ['c', 'a'].includes(event.key.toLowerCase())) {
+      event.preventDefault(); event.stopPropagation()
+      if (event.key.toLowerCase() === 'c') void copy(event.shiftKey)
+      else selectAll()
+      return true
+    }
+    return false
   }
   useLayoutEffect(() => {
     const next = pendingFocus.current, viewport = scroll.current
@@ -36,7 +79,13 @@ export function ResultGrid({ result, label = 'Query results', rowOffset = 0, mar
     }
   })
   function navigate(event: KeyboardEvent, row: number, column: number) {
-    if (event.altKey || event.shiftKey) return
+    if (selectionKeys(event) || event.altKey || !result.rows.length || !controls.visible.length) return
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); range.select({ row, column }); return }
+    if (event.key === 'ContextMenu' || event.shiftKey && event.key === 'F10') {
+      event.preventDefault(); event.stopPropagation()
+      const owner = event.currentTarget as HTMLElement, bounds = owner.getBoundingClientRect()
+      setMenu({ owner, x: bounds.left, y: bounds.bottom }); return
+    }
     const position = controls.visible.indexOf(column), last = controls.visible.length - 1
     const page = Math.max(1, Math.floor(((scroll.current?.clientHeight ?? 200) - headerHeight) / 33))
     let nextRow = row, nextPosition = position
@@ -52,16 +101,49 @@ export function ResultGrid({ result, label = 'Query results', rowOffset = 0, mar
       default: return
     }
     event.preventDefault(); event.stopPropagation()
-    move(nextRow, controls.visible[Math.max(0, Math.min(nextPosition, last))], event.key === 'PageUp' || event.key === 'PageDown')
+    const next = { row: Math.max(0, Math.min(nextRow, result.rows.length - 1)), column: controls.visible[Math.max(0, Math.min(nextPosition, last))] }
+    range.select(next, event.shiftKey)
+    move(next.row, next.column, event.key === 'PageUp' || event.key === 'PageDown')
   }
   function fit(indices: number[]) {
     const measure = columnMeasurer(scroll.current)
     controls.setWidths(Object.fromEntries(indices.map(index => [index, fittedColumnWidth({ name: columns[index].name, type: columns[index].typeName ?? `Type ${columns[index].typeId}` }, result.rows.length, row => result.rows[row][index], measure)])))
   }
-  const cellMarks=useMemo(()=>new Map(marks?.map(mark=>[`${mark.row}:${mark.column}`,mark])),[marks])
+  function focusCell(row: number, column: number) {
+    setCursor({ row, column })
+    const bounds = selectionBounds(range.current.current, controls.visible, result.rows.length), position = controls.visible.indexOf(column)
+    // Menus and the inspector restore focus without collapsing an existing range.
+    if (!bounds || row < bounds.firstRow || row > bounds.lastRow || position < bounds.firstColumn || position > bounds.lastColumn) range.select({ row, column })
+  }
   if (!result.columns.length) return <div className="empty-result"><strong>{result.command || 'Statement completed'}</strong><span>{result.rowCount === null ? 'No result rows.' : `${result.rowCount} rows affected.`}</span></div>
-  return <div className="result-grid-container"><div className="column-toolbar"><ColumnControls columns={columns} layout={controls.layout} onChange={controls.set} onFit={fit} saved={savedColumns}/><button disabled={!selected} onClick={()=>setInspecting(selected)}>Inspect selected value</button><span>Arrow keys move between cells. Enter or double-click inspects a value.</span></div>
-    <div ref={scroll} className="grid-scroll" role="table" tabIndex={!result.rows.length || !activeMounted ? 0 : -1} aria-label={label} aria-description={`${result.rows.length} ${result.rows.length === 1 ? 'row' : 'rows'} loaded${rowOffset && result.rows.length ? `, rows ${rowOffset + 1} to ${rowOffset + result.rows.length}` : ''}. ${result.truncated ? 'Limited preview; more rows are available. ' : ''}Row positions are within this loaded preview. Columns follow the displayed order. Use arrow keys to move between cells, Home and End within a row, and Page Up and Page Down between rows. Control or Command with Home or End moves to the first or last cell. Tab leaves the cells; Enter inspects the value.`} aria-rowcount={result.rows.length + 1} aria-colcount={controls.visible.length + 1}
+  return <div className="result-grid-container"><div className="data-toolbar" role="group" aria-label="Result controls">
+    {toolbarStart}
+    <div className="data-toolbar-group"><ColumnControls columns={columns} layout={controls.layout} onChange={controls.set} onFit={fit} saved={savedColumns}/>
+      <div className="grid-copy-actions"><button disabled={!count} title="Copy selected cells (Ctrl+C)" onClick={() => void copy()}>Copy</button><ActionMenu label="Copy options" items={copyItems}><ChevronDown size={12}/></ActionMenu></div>
+      <button aria-label="Inspect selected value" title="Inspect selected value (Enter or double-click)" disabled={!selected} onClick={()=>setInspecting(selected)}><Search size={14}/></button>
+    </div><div className="tabs-spacer"/>
+    <span className="grid-selection-count" aria-live="polite">{count ? `${count.toLocaleString()} selected` : ''}</span>
+    {toolbarEnd}
+  </div>
+    <span className="sr-only" role="status">{copyStatus}</span>
+    {copyError && <div className="grid-copy-error" role="alert">{copyError}<button aria-label="Dismiss copy error" onClick={() => setCopyError('')}>×</button></div>}
+    <div ref={scroll} className="grid-scroll" role="table" tabIndex={!result.rows.length || !activeMounted ? 0 : -1} aria-label={label} aria-description={`${result.rows.length} ${result.rows.length === 1 ? 'row' : 'rows'} loaded${rowOffset && result.rows.length ? `, rows ${rowOffset + 1} to ${rowOffset + result.rows.length}` : ''}. ${result.truncated ? 'Limited preview; more rows are available. ' : ''}Row positions are within this loaded preview. Columns follow the displayed order. Use arrow keys to move between cells, Home and End within a row, and Page Up and Page Down between rows. Control or Command with Home or End moves to the first or last cell. Drag or Shift-click to select a range; Shift with navigation keys extends it. Control or Command+C copies selected cells; add Shift to include headers. Control or Command+A selects all loaded cells in visible columns. NULL copies as NULL; empty text stays empty. Tab leaves the cells; Enter inspects the value.`} aria-rowcount={result.rows.length + 1} aria-colcount={controls.visible.length + 1}
+      {...range.pointerEvents}
+      aria-keyshortcuts="Control+C Meta+C Control+Shift+C Meta+Shift+C Control+A Meta+A"
+      onDoubleClick={event => {
+        // Pointer capture retargets clicks to the viewport while a range is dragged.
+        const cell = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-result-row][data-result-column]')
+        if (cell && event.currentTarget.contains(cell)) setInspecting(inspectCell(Number(cell.dataset.resultRow), Number(cell.dataset.resultColumn)))
+      }}
+      onCopy={event => { event.preventDefault(); event.stopPropagation(); void copy() }}
+      onContextMenu={event => {
+        const owner = (event.target as Element).closest<HTMLElement>('[data-result-row][data-result-column]')
+        if (!owner) return
+        event.preventDefault(); event.stopPropagation()
+        const row = Number(owner.dataset.resultRow), column = Number(owner.dataset.resultColumn), position = controls.visible.indexOf(column)
+        if (!range.bounds || row < range.bounds.firstRow || row > range.bounds.lastRow || position < range.bounds.firstColumn || position > range.bounds.lastColumn) { range.select({ row, column }); move(row, column) }
+        setMenu({ owner, x: event.clientX, y: event.clientY })
+      }}
       onFocus={event => { if (event.target === event.currentTarget && result.rows.length) move(activeMounted ? active.row : rows.find(row => row.end > event.currentTarget.scrollTop + headerHeight)?.index ?? 0, active.column) }}
       onKeyDown={event => { if (event.target === event.currentTarget) navigate(event, active.row, active.column) }}>
       <div ref={header} className="grid-header" role="row" aria-rowindex={1} style={style}><span role="columnheader" aria-label="Row" aria-colindex={1} className="row-number">#</span>{controls.visible.map((index, position) => <span role="columnheader" aria-colindex={position + 2} aria-label={columns[index].name} aria-description={`Source column ${index + 1}. ${columns[index].typeName ?? `Type ${columns[index].typeId}`}.`} key={index} style={controls.cellStyle(index)}><b>{columns[index].name}</b><small>{columns[index].typeName ?? `Type ${columns[index].typeId}`}</small><ColumnResizer label={`Resize column ${index+1} ${columns[index].name}`} width={controls.size(index)} onResize={width=>controls.setWidths({[index]:width})} onFit={()=>fit([index])} onReset={()=>controls.resetWidth(index)}/></span>)}</div>
@@ -69,8 +151,9 @@ export function ResultGrid({ result, label = 'Query results', rowOffset = 0, mar
         {rows.map(row => <div className="grid-row" role="row" aria-rowindex={row.index + 2} key={row.key} style={{ ...style, position: 'absolute', top: row.start - headerHeight, height: row.size }}>
           <span role="cell" aria-colindex={1} className="row-number">{rowOffset + row.index + 1}</span>
           {controls.visible.map((index, position) => {
-            const cell = result.rows[row.index][index], target:InspectCell={value:cell,column:columns[index],row:row.index,columnIndex:index,mark:cellMarks.get(`${row.index}:${index}`)}
-            return <span role="cell" aria-colindex={position + 2} aria-label={cell === null ? 'SQL NULL' : cell === '' ? 'Empty text' : undefined} aria-description={`Row ${rowOffset + row.index + 1}, ${columns[index].name}, source column ${index + 1}.${cell !== null && cell.length > 500 ? ' Display truncated; press Enter to inspect the loaded value.' : ''}`} data-result-row={row.index} data-result-column={index} tabIndex={row.index === active.row && index === active.column ? 0 : -1} key={index} style={controls.cellStyle(index)} title={cell?.slice(0,4096)} className={cell===null?'null-cell':''} onFocus={()=>{setSelected(target);setCursor({ row: row.index, column: index })}} onDoubleClick={()=>setInspecting(target)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();e.stopPropagation();setInspecting(target)}else navigate(e,row.index,index)}}>{cell===null?'NULL':cell.length>500?cell.slice(0,500)+'…':cell}</span>
+            const cell = result.rows[row.index][index], target = inspectCell(row.index, index)
+            const inRange = Boolean(range.bounds && row.index >= range.bounds.firstRow && row.index <= range.bounds.lastRow && position >= range.bounds.firstColumn && position <= range.bounds.lastColumn)
+            return <span role="cell" aria-colindex={position + 2} aria-label={cell === null ? 'SQL NULL' : cell === '' ? 'Empty text' : undefined} aria-description={`${inRange ? 'Selected. ' : ''}Row ${rowOffset + row.index + 1}, ${columns[index].name}, source column ${index + 1}.${cell !== null && cell.length > 500 ? ' Display truncated; press Enter to inspect the loaded value.' : ''}`} data-result-row={row.index} data-result-column={index} data-selected={inRange || undefined} tabIndex={row.index === active.row && index === active.column ? 0 : -1} key={index} style={controls.cellStyle(index)} title={cell?.slice(0,4096)} className={cell===null?'null-cell':''} onFocus={()=>focusCell(row.index,index)} onDoubleClick={()=>setInspecting(target)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();e.stopPropagation();setInspecting(target)}else navigate(e,row.index,index)}}>{cell===null?'NULL':cell.length>500?cell.slice(0,500)+'…':cell}</span>
           })}
         </div>)}
       </div>
@@ -78,5 +161,6 @@ export function ResultGrid({ result, label = 'Query results', rowOffset = 0, mar
       {result.columns.length>100&&<p className="grid-note">Showing the first 100 columns. CSV includes all fetched columns.</p>}
     </div>
     {inspecting&&<ValueInspector cell={inspecting} actions={actions} onClose={()=>setInspecting(undefined)}/>}
+    {menu && <ContextMenu label="Selected cells" anchor={{ ...menu, items: copyItems }} onClose={() => setMenu(null)}/>}
   </div>
 }

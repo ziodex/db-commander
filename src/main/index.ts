@@ -24,6 +24,8 @@ import { UpdateChecker } from './update-checker'
 import { DesktopSettings } from './desktop-settings'
 import { SystemTray } from './system-tray'
 import { applicationProfile } from './application-profile'
+import { applicationMenu, executeApplicationMenu, installMenuKeys, updateTitleBar, windowsTitleBar } from './application-menu'
+import { menuPathSchema, titleBarAppearanceSchema } from '../shared/application-menu'
 import { join, basename } from 'node:path'
 import { mkdirSync, realpathSync } from 'node:fs'
 import { rendererOrigin } from './renderer-origin'
@@ -219,6 +221,14 @@ function registerIpc(): void {
   const handle = <K extends keyof DesktopApi>(method: K, action: (payload: unknown) => Promise<Awaited<ReturnType<DesktopApi[K]>>>) => {
     router.register(method); handlers.set(method, async (event, payload) => { assertSender(event); return action(payload) })
   }
+  handle('applicationMenu', async value => { z.undefined().parse(value); return applicationMenu() })
+  handle('preferences', async () => desktopSettings.preferences ?? null)
+  handle('savePreferences', async value => {
+    await desktopSettings.setPreferences(editorSettingsSchema.parse(value))
+    for (const target of BrowserWindow.getAllWindows()) if (!target.isDestroyed() && !target.webContents.isDestroyed()) target.webContents.send('sql:preferences-changed', desktopSettings.preferences)
+  })
+  handle('executeApplicationMenu', async value => executeApplicationMenu(window!, menuPathSchema.parse(value)))
+  handle('updateTitleBar', async value => updateTitleBar(window!, titleBarAppearanceSchema.parse(value)))
   handle('updateStatus', async value => { z.undefined().parse(value); return updates.status })
   handle('checkForUpdates', async value => { z.undefined().parse(value); return updates.check(true) })
   handle('dismissUpdate', async value => updates.dismiss(z.string().max(96).optional().parse(value)))
@@ -385,8 +395,8 @@ function registerIpc(): void {
       const session: SessionInfo = await rpc('switchDatabase', request)
       const config = sessionCredentials.get(request.sessionId)
       if (config) sessionCredentials.set(session.id, { ...config, database: session.database })
-      sessionCredentials.delete(request.sessionId)
-      sessions.delete(request.sessionId); sessions.set(session.id, session)
+      if (!request.retainSource && session.id !== request.sessionId) { sessionCredentials.delete(request.sessionId); sessions.delete(request.sessionId) }
+      sessions.set(session.id, session)
       return session
     } finally { running.delete(request.sessionId) }
   })
@@ -508,8 +518,11 @@ async function createWindow(): Promise<void> {
   window = new BrowserWindow({ width: 1440, height: 940, minWidth: 1024, minHeight: 700, title: `Db Commander — ${record.name}`, backgroundColor: '#121314',
     icon: app.isPackaged ? join(process.resourcesPath, 'icon.png') : join(app.getAppPath(), 'build/icons/1024x1024.png'),
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default', ...(process.platform === 'darwin' ? { trafficLightPosition: { x: 18, y: 18 } } : {}),
+    ...(process.platform === 'win32' ? windowsTitleBar : {}),
     webPreferences: { preload: join(__dirname, '../preload/index.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true } })
   const createdWindow = window, contentsId = createdWindow.webContents.id
+  installMenuKeys(window)
+  if (process.platform === 'win32') window.setMenuBarVisibility(false)
   tray.attach(window, record.name)
   router.attach(contentsId, handlers)
   window.on('page-title-updated', event => event.preventDefault())
@@ -624,7 +637,8 @@ const startup = app.whenReady().then(async () => {
       { label: 'Open SQL file…', accelerator: 'CmdOrCtrl+O', click: (_item, target) => menuWindow(target)?.webContents.send('sql:file-command', 'open') },
       { label: 'Recent SQL files…', click: (_item, target) => menuWindow(target)?.webContents.send('sql:file-command', 'recent') },
       { label: 'Save', accelerator: 'CmdOrCtrl+S', click: (_item, target) => menuWindow(target)?.webContents.send('sql:file-command', 'save') },
-      { label: 'Save As…', accelerator: 'CmdOrCtrl+Shift+S', click: (_item, target) => menuWindow(target)?.webContents.send('sql:file-command', 'save-as') }
+      { label: 'Save As…', accelerator: 'CmdOrCtrl+Shift+S', click: (_item, target) => menuWindow(target)?.webContents.send('sql:file-command', 'save-as') },
+      { label: 'Reload from disk', click: (_item, target) => menuWindow(target)?.webContents.send('sql:file-command', 'reload') }
     ] },
     { role: 'editMenu' }, { label: 'View', submenu: [
       ...layoutCommands.map(command => ({ id: command.id, label: command.label, accelerator: command.accelerator,

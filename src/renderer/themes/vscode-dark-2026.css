@@ -45,7 +45,6 @@ details[open] > summary > .material-folder .folder-open { display: block; }
   & .activity-bar button.active { background: var(--vscode-activityBar-activeBackground); color: var(--vscode-activityBar-foreground); }
   & .activity-bar button.active::before { background: var(--vscode-activityBar-activeBorder); width: 1px; border-radius: 0; }
   & .sidebar { background: var(--vscode-sideBar-background); color: var(--vscode-sideBar-foreground); }
-  & .connection-item.connected { background: var(--vscode-list-inactiveSelectionBackground); color: var(--vscode-list-inactiveSelectionForeground); }
   & .count { background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
   & .database-node.current > button:first-child { color: var(--vscode-sideBar-foreground); }
 
@@ -74,7 +73,6 @@ details[open] > summary > .material-folder .folder-open { display: block; }
   & :is(.grid-header, .grid-row) > .row-number { background: var(--vscode-panel-background); }
   & .grid-row > .pinned-cell { background: var(--vscode-editor-background); }
   & .statusbar { background: var(--vscode-statusBar-background); color: var(--vscode-statusBar-foreground); border-color: var(--vscode-statusBar-border); }
-  & .statusbar .status-connected { color: var(--vscode-statusBar-foreground); }
 
   & :is(.connection-dialog, .confirmation-dialog, .command-palette) { background: var(--vscode-editorWidget-background); border-color: var(--vscode-widget-border); border-radius: 8px; }
   & .explorer-context-menu { background: var(--vscode-menu-background); color: var(--vscode-menu-foreground); border-color: var(--vscode-menu-border); border-radius: 5px; }

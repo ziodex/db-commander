@@ -62,8 +62,8 @@ test('workspace windows isolate sessions, saves, history and recovery while othe
     await expect(second.evaluate(id => window.dbCommander.cloneSession(id), owned.id)).rejects.toThrow()
     await expect(second.evaluate(id => window.dbCommander.schema(id), owned.id)).rejects.toThrow()
     await primary.evaluate(async id => { await window.dbCommander.schema(id); await window.dbCommander.disconnect(id) }, owned.id)
-    let settings = await tool(second, 'Editor settings'); await settings.getByLabel('Appearance', { exact: true }).selectOption('light'); await settings.getByRole('button', { name: 'Apply settings' }).click()
-    await expect(second.locator('html')).toHaveAttribute('data-theme', 'light'); await expect(primary.locator('html')).toHaveAttribute('data-theme', 'dark')
+    let settings = await tool(second, 'Preferences'); await settings.getByLabel('Appearance', { exact: true }).selectOption('light'); await settings.getByRole('button', { name: 'Apply settings' }).click()
+    await expect(second.locator('html')).toHaveAttribute('data-theme', 'light'); await expect(primary.locator('html')).toHaveAttribute('data-theme', 'light')
     await expect.poll(async () => (await workspace(second))?.editorSettings?.appearance).toBe('light')
     await second.screenshot({ path: testInfo.outputPath('workspace-window-light.png') })
     const secondWindow = await app.browserWindow(second)
@@ -104,9 +104,9 @@ test('workspace editor appearance and shortcuts apply live, reject conflicts and
     const source = 'select n from keys;'
     await enter(page, source)
     await expect.poll(async () => (await workspace(page))?.tabs[0].sql).toBe(source)
-    let form = await tool(page, 'Editor settings')
+    let form = await tool(page, 'Preferences')
     await form.getByLabel('Appearance', { exact: true }).selectOption('light')
-    await form.getByLabel('Run selection or script', { exact: true }).selectOption('F9')
+    await form.getByRole('tab', { name: 'Shortcuts', exact: true }).click(); await form.getByLabel('Run selection or script', { exact: true }).selectOption('F9')
     await form.getByLabel('Run current statement / batch', { exact: true }).selectOption('F9')
     await form.getByRole('button', { name: 'Apply settings' }).click(); await expect(form.getByRole('alert')).toContainText('different shortcut')
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
@@ -127,7 +127,7 @@ test('workspace editor appearance and shortcuts apply live, reject conflicts and
     await page.keyboard.press('F8'); await expect(page.getByRole('cell', { name: '7', exact: true })).toBeVisible()
     await enter(page, 'select n + 1 as n from keys;'); await page.keyboard.press('F9')
     await expect(page.getByRole('cell', { name: '8', exact: true })).toBeVisible()
-    form = await tool(page, 'Editor settings'); await form.getByLabel('Appearance', { exact: true }).selectOption('system'); await form.getByRole('button', { name: 'Apply settings' }).click()
+    form = await tool(page, 'Preferences'); await form.getByLabel('Appearance', { exact: true }).selectOption('system'); await form.getByRole('button', { name: 'Apply settings' }).click()
     // Playwright owns Chromium's media override; exercise the same change event
     // used for OS appearance changes without changing the developer's desktop.
     await page.emulateMedia({ colorScheme: 'dark' }); await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
@@ -137,7 +137,7 @@ test('workspace editor appearance and shortcuts apply live, reject conflicts and
     await expect.poll(async () => (await workspace(page))?.editorSettings?.shortcuts?.run).toBe('F9')
     // Normal quit must flush the last appearance change even before debounce.
     await app.close(); app = undefined; launched = await launch(directory); app = launched.app; page = launched.page
-    form = await tool(page, 'Editor settings'); await expect(form.getByLabel('Appearance', { exact: true })).toHaveValue('system'); await expect(form.getByLabel('Run selection or script', { exact: true })).toHaveValue('F9')
+    form = await tool(page, 'Preferences'); await expect(form.getByLabel('Appearance', { exact: true })).toHaveValue('system'); await expect(form.getByLabel('Run selection or script', { exact: true })).toHaveValue('F9')
     await form.getByRole('button', { name: 'Reset defaults' }).click(); await form.getByRole('button', { name: 'Apply settings' }).click()
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
   } finally { await close(app); rmSync(directory, { recursive: true, force: true }) }

@@ -1,3 +1,4 @@
+import { fileMenu } from './file-menu'
 import { _electron as electron, test, expect, type ElectronApplication, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
@@ -119,9 +120,9 @@ for (const { wholeProfile, large } of saveScenarios) test(`workspace disk full $
     await page.clock.install(); await page.clock.pauseAt(new Date(Date.now() + 1000))
     const rescue = join(volume.root, 'rescued.sql')
     await app.evaluate(({ dialog }, filePath) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath }) }, rescue)
-    await page.getByRole('button', { name: 'Save SQL file', exact: true }).click()
+    await fileMenu(app!, page, 'Save')
     await expect.poll(() => { try { return readFileSync(rescue, 'utf8') } catch { return '' } }).toBe(failed.pending)
-    await expect(page.getByRole('button', { name: 'Save SQL file', exact: true })).toBeEnabled()
+    await expect(page.getByRole('button', { name: 'Open SQL file', exact: true })).toBeEnabled()
     await expectStored(page, failed.committed)
     if (wholeProfile) {
       await expect(page.locator('.error-banner')).toContainText('The SQL file was written, but its file association could not be saved')

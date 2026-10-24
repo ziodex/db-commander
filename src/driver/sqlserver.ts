@@ -75,6 +75,7 @@ export class SqlServerDriver implements DatabaseDriver {
   }
   async editGrid(request: GridOperation, context?: ImportContext): Promise<GridResponse> {
     const session = this.session(request.sessionId)
+    if (request.action === 'release') this.results.forget(request.sessionId, request.viewId)
     if (session.busy) throw new Error('Wait for the running query before editing data.')
     session.editor ??= new TableEditor(this.engine, (sql, values) => sqlServerBound(session.client, sql, values))
     const options = await sqlServerBound(session.client, 'DBCC USEROPTIONS')
@@ -93,7 +94,7 @@ export class SqlServerDriver implements DatabaseDriver {
     if (!batches.length) throw new Error('There is no SQL statement to execute.')
     session.editor?.invalidate()
     const operation: Operation = { id: request.queryId ?? randomUUID(), cancelled: false }
-    session.busy = operation; this.results.begin(request.sessionId, operation.id, request.fullExport)
+    session.busy = operation; this.results.begin(request.sessionId, operation.id, request.fullExport, request.viewId)
     operation.done = this.execute(session, operation, request, batches, completed)
     return operation.id
   }

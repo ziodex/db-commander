@@ -44,7 +44,7 @@ test('SQLite file dialog, local SQL, transactions, read-only mode, Stop and cras
     await expect(form.getByLabel('Database file', { exact: true })).toHaveValue(path)
     await form.getByRole('button', { name: 'Connect', exact: true }).click()
     await expect(form).not.toBeVisible()
-    await expect(page.getByText('Local SQLite', { exact: true }).last()).toBeVisible()
+    await expect(page.locator('.statusbar .dialect-label')).toHaveText('SQLite')
   }
   try {
     let page = await launch()

@@ -3,6 +3,7 @@ import type * as Monaco from 'monaco-editor'
 import { X } from './WorkbenchIcons'
 import type { WorkspaceTab } from '../shared/contracts'
 import { engineNames } from '../shared/database-engines'
+import { hasConfiguredConnection } from '../shared/connection-profiles'
 import type { EditorSettings } from '../shared/editor-settings'
 import type { EditorViews } from '../shared/editor-views'
 import { emptyTabState, type QueryTabState } from './query-tabs'
@@ -32,6 +33,7 @@ export function QueryEditorViews(props: Props) {
 function EditorView(props: Props & { tab: WorkspaceTab; index: number; weight: number }) {
   const editor = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
   const { tab, states, activeId, views, index } = props, state = states[tab.id] ?? emptyTabState(), session = state.session
+  const configured = hasConfiguredConnection(tab, session)
   const busy = state.running || state.connecting || state.closing || state.schemaLoading || state.backupBusy || state.transferBusy || state.gridBusy || state.switching || state.databasesLoading
   const transaction = session?.transaction === 'transaction' ? 'In transaction' : session?.transaction === 'failed' ? 'Transaction failed' : session?.transaction === 'unknown' ? 'State unknown' : session?.autocommit === false ? 'Manual commit mode' : ''
   return <section id={`query-view-${tab.id}`} className={`query-editor-view ${tab.id === activeId ? 'active' : ''}`} aria-label={`Query view ${index + 1}`} style={{ flex: `${props.weight} 1 0` }}>
@@ -42,8 +44,8 @@ function EditorView(props: Props & { tab: WorkspaceTab; index: number; weight: n
       </select>
       <button type="button" disabled={props.blocked} className="query-view-focus" aria-pressed={tab.id === activeId} onClick={() => { props.onActivate(tab.id); editor.current?.focus() }} title="Focus this editor; toolbar and results follow this view">{tab.id === activeId ? 'Active' : 'Focus'}</button>
       <button type="button" aria-label={`Hide query view ${index + 1}`} title="Hide this view; keep the query tab and session open" disabled={props.blocked} onClick={() => props.onHide(tab.id)}><X size={12}/></button>
-      <small title={`${session?.name ?? tab.profile.name} · ${session?.database || 'No database selected'}`}>
-        {engineNames[session?.engine ?? tab.profile.engine]} · {session ? session.database || session.name : 'Disconnected'}{state.running ? ' · Running' : transaction ? ` · ${transaction}` : ''}{state.error ? ' · Error' : ''}
+      <small title={configured ? `${session?.name ?? tab.profile.name} · ${session?.database || 'No database selected'}` : 'No connection'}>
+        {configured ? `${engineNames[session?.engine ?? tab.profile.engine]} · ${session ? session.database || session.name : 'Disconnected'}` : 'No connection'}{state.running ? ' · Running' : transaction ? ` · ${transaction}` : ''}{state.error ? ' · Error' : ''}
       </small>
     </div>}
     <div className="query-view-editor"><SqlEditor theme={props.theme} settings={props.settings} tabId={tab.id} tabIds={props.tabs.map(tab => tab.id)} value={tab.sql}
