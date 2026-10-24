@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { readFile, writeFile, lstat, readdir } from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import { join, normalize, posix } from 'node:path'
+import { basename, dirname, join, normalize, posix } from 'node:path'
 import { artifactNames, platforms, safeArtifact, applicationResourcesFor, runtimeNotices, dependencyNotices, vendorNotices, nativeDependencyNotices } from './config.cjs'
 import semver from 'semver'
 import { runtimeLayout, validateRuntimeReport, runtimeLibraries, runtimeBinaries } from './runtime.mjs'
@@ -294,7 +294,7 @@ export async function verifyReleaseInventory(directory, manifest) {
 
 // Called for each actually installed candidate (including AppImage/RPM), using
 // Electron's resourcesPath rather than guessing a platform's extraction layout.
-export async function verifyInstalledInventory(resources, directory, manifest) {
+export async function verifyInstalledInventory(resources, directory, manifest, { appImageSandboxHelper } = {}) {
   await verifyReleaseInventory(directory, manifest)
   const [bom, notices] = await Promise.all(manifest.inventory.files.map(async file => JSON.parse((await regularBytes(safeArtifact(directory, file.name))).toString('utf8'))))
   const path = join(resources, 'app.asar')
@@ -324,15 +324,17 @@ export async function verifyInstalledInventory(resources, directory, manifest) {
     if (String((await lstat(file)).size) !== component.properties.find(p => p.name === 'dbcommander:bytes').value || await hashFile(file) !== component.hashes[0].content) throw new Error('Installed unpacked payload does not match the release inventory.')
   }
   const root = runtimeLayout(resources, manifest.platform).root
+  if (appImageSandboxHelper) {
+    if (manifest.platform !== 'linux' || basename(appImageSandboxHelper) !== 'chrome-sandbox' || !bom.components.some(c => c['bom-ref'] === 'runtime-file:chrome-sandbox')) throw new Error('Only the inventoried Linux AppImage sandbox helper may be relocated.')
+    const adjacent = await lstat(join(root, 'chrome-sandbox')).then(() => true, error => { if (error.code === 'ENOENT') return false; throw error })
+    if (adjacent) throw new Error('A relocated AppImage sandbox helper must not leave an adjacent copy.')
+  }
   for (const component of bom.components.filter(c => c['bom-ref'].startsWith('runtime-file:'))) {
-    let path = root
-    const parts = component.name.split('/')
-    // Reject redirected parent directories as well as symlink leaf files.
-    for (const [index, part] of parts.entries()) {
-      path = join(path, part)
-      const info = await lstat(path)
-      if (info.isSymbolicLink() || (index < parts.length - 1 ? !info.isDirectory() : !info.isFile())) throw new Error('Installed runtime payload must have regular files and directories.')
-    }
+    // The disposable AppImage fixture relocates only its SUID helper to avoid
+    // Chromium's whitespace parsing. Bind those actual bytes to the same SBOM.
+    const path = appImageSandboxHelper && component.name === 'chrome-sandbox'
+      ? await physicalPath(dirname(appImageSandboxHelper), basename(appImageSandboxHelper))
+      : await physicalPath(root, component.name)
     const info = await lstat(path), bytes = component.properties.find(p => p.name === 'dbcommander:bytes').value
     if (String(info.size) !== bytes || await hashFile(path) !== component.hashes[0].content) throw new Error('Installed runtime payload does not match the release inventory.')
   }

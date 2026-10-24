@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { X } from 'lucide-react'
+import { X } from './WorkbenchIcons'
 import type { SchemaTable, SessionInfo } from '../shared/contracts'
 import type { ExportFormat, ImportPreview, TransferJob, TransferRequest } from '../shared/transfer'
 import { quoteIdentifier } from '../shared/sql/common'

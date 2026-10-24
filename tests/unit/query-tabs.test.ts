@@ -45,6 +45,17 @@ it('keeps one export cache per session and frees only the replaced or closed ses
   cache.begin('b', 'qb2'); expect(cache.get('qb')).toBeUndefined(); expect(cache.get('qa')).toBe(a)
   cache.forget('a'); expect(cache.get('qa')).toBeUndefined(); expect(cache.get('qb2')).toEqual([])
 })
+it('retains exports from other tabs on one session and releases only the closed view', () => {
+  const cache = new SessionResultCache()
+  cache.begin('shared', 'qa', false, 'a'); const a = cache.get('qa')!
+  cache.begin('shared', 'qb', false, 'b')
+  expect(cache.get('qa')).toBe(a)
+  cache.begin('shared', 'qb2', false, 'b')
+  expect(cache.get('qb')).toBeUndefined(); expect(cache.get('qa')).toBe(a)
+  cache.forget('shared', 'b')
+  expect(cache.get('qb2')).toBeUndefined(); expect(cache.get('qa')).toBe(a)
+  cache.forget('shared'); expect(cache.get('qa')).toBeUndefined()
+})
 it('keeps failure ranges with the owning execution and clears them after cancellation or a reset', () => {
   const execution = { document: 'SELECT missing', sql: 'SELECT missing', start: 0, end: 14, prefixLength: 0 }
   const initial = { ...emptyTabState(), session: session('a'), queryId: 'new', execution }

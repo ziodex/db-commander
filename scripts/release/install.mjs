@@ -1,9 +1,14 @@
-import { mkdir, rm, access, readdir } from 'node:fs/promises'
-import { join } from 'node:path'
+import { mkdir, rm, access, readdir, lstat, realpath, rename } from 'node:fs/promises'
+import { dirname, join, sep } from 'node:path'
 import { root, run } from './common.mjs'
 
 export function requireDisposableHost(format, env = process.env) {
-  if (['exe', 'deb', 'rpm'].includes(format) && !(env.CI === 'true' && env.SQLCOMMANDER_DISPOSABLE_INSTALL_TEST === '1')) throw new Error('System installer tests require CI=true and SQLCOMMANDER_DISPOSABLE_INSTALL_TEST=1 on a disposable worker.')
+  if (['exe', 'deb', 'rpm', 'AppImage'].includes(format) && !(env.CI === 'true' && env.SQLCOMMANDER_DISPOSABLE_INSTALL_TEST === '1')) throw new Error('System installer tests require CI=true and SQLCOMMANDER_DISPOSABLE_INSTALL_TEST=1 on a disposable worker.')
+}
+export function appImageSandboxPath(installation) {
+  const sandbox = join(dirname(installation), 'chrome-sandbox')
+  if (/\s/.test(sandbox)) throw new Error('The disposable AppImage fixture root must have no whitespace for Chromium sandbox helper parsing.')
+  return sandbox
 }
 export async function assertNoInstallation(format) {
   requireDisposableHost(format)
@@ -46,6 +51,17 @@ export async function installArtifact(file, format, directory) {
   else if (format === 'AppImage') {
     await rm(directory, { recursive: true, force: true }); await mkdir(directory, { recursive: true })
     await run(file, ['--appimage-extract'], { cwd: directory, capture: true })
+    // Extraction loses root ownership. Install this fixture's bundled helper
+    // outside the deliberately spaced application path: Chromium parses its
+    // SUID wrapper path as command text. Keep sandboxing and host policy intact.
+    const source = join(directory, 'squashfs-root', 'chrome-sandbox'), sandbox = appImageSandboxPath(directory)
+    if (!(await lstat(source)).isFile() || !(await realpath(source)).startsWith(await realpath(directory) + sep)) throw new Error('The owned AppImage sandbox helper is missing or escapes its fixture.')
+    await rm(sandbox, { force: true })
+    // Chromium prefers an adjacent helper over CHROME_DEVEL_SANDBOX, so move
+    // the extracted fixture copy instead of leaving a second helper beside it.
+    await rename(source, sandbox)
+    await run('sudo', ['-n', 'chown', 'root:root', sandbox])
+    await run('sudo', ['-n', 'chmod', '4755', sandbox])
     return join(directory, 'squashfs-root', 'AppRun')
   } else throw new Error(`Unsupported installer format: ${format}`)
   await access('/opt/Db Commander/dbcommander')
@@ -67,6 +83,7 @@ export async function uninstallArtifact(format, directory) {
     // DMG/ZIP and AppImage are copied/portable applications, with no package
     // uninstaller. Remove only the owned application, never the user data.
     await rm(directory, { recursive: true, force: true })
+    if (format === 'AppImage') await rm(appImageSandboxPath(directory), { force: true })
   }
 }
 

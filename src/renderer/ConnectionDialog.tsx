@@ -1,5 +1,5 @@
 import { useEffect, useEffectEvent, useState } from 'react'
-import { ChevronRight, Database, FolderOpen, X } from 'lucide-react'
+import { ChevronRight, Database, FolderOpen, X } from './WorkbenchIcons'
 import { ModalDialog } from './ModalDialog'
 import { ConnectionOptions } from './ConnectionOptions'
 import { defaultPorts } from '../shared/database-engines'

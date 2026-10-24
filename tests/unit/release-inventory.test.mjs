@@ -350,6 +350,33 @@ it('skips native symlink aliases when collecting and rejects redirected installe
   await rm(join(layout.root, 'ffmpeg.dll')); await symlink(join(directory, 'outside-runtime.dll'), join(layout.root, 'ffmpeg.dll'))
   await expect(verifyInstalledInventory(resources, directory, manifest)).rejects.toThrow('regular files and directories')
 })
+it('verifies the relocated AppImage helper against its original inventory without skipping any runtime bytes', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'dbcommander-helper-unit-')); directories.push(directory)
+  const manifest = { schema: 1, version: '1.0.0', platform: 'linux', arch: 'x64', commit: 'a'.repeat(40), buildId: '42', mode: 'unsigned', files: [] }
+  const { resources, runtime } = await seedInventory(directory, manifest), layout = runtimeLayout(resources, 'linux')
+  const source = join(layout.root, 'chrome-sandbox'), helper = join(directory, 'chrome-sandbox'), options = { appImageSandboxHelper: helper }
+  const bytes = Buffer.from('7f454c4668656c706572', 'hex')
+  await writeFile(source, bytes)
+  for (const file of manifest.inventory.files) await rm(join(directory, file.name))
+  manifest.inventory = await writeReleaseInventory(directory, manifest, resources, runtime)
+  await expect(verifyInstalledInventory(resources, directory, manifest, options)).rejects.toThrow('adjacent copy')
+  await rename(source, helper)
+  await expect(verifyInstalledInventory(resources, directory, manifest)).rejects.toThrow('ENOENT')
+  await expect(verifyInstalledInventory(resources, directory, manifest, options)).resolves.toBeUndefined()
+  await writeFile(helper, Buffer.alloc(bytes.length, 1))
+  await expect(verifyInstalledInventory(resources, directory, manifest, options)).rejects.toThrow('Installed runtime payload')
+  await writeFile(helper, bytes)
+  const executable = join(layout.root, layout.executable), original = await readFile(executable)
+  await writeFile(executable, Buffer.alloc(original.length, 1))
+  await expect(verifyInstalledInventory(resources, directory, manifest, options)).rejects.toThrow('Installed runtime payload')
+  await writeFile(executable, original)
+  await rm(helper)
+  await expect(verifyInstalledInventory(resources, directory, manifest, options)).rejects.toThrow('ENOENT')
+  if (process.platform !== 'win32') {
+    await writeFile(source, bytes); await symlink(source, helper); await rm(source)
+    await expect(verifyInstalledInventory(resources, directory, manifest, options)).rejects.toThrow('regular files and directories')
+  }
+})
 it('keeps legacy unsigned inventory readable without allowing schema downgrade or signed qualification', async () => {
   const { directory, manifest } = await fixture(), bom = await readSidecar(directory, manifest, 0)
   manifest.inventory.schema = 1

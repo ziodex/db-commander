@@ -2,6 +2,22 @@ import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import type { ConnectionConfig } from '../src/shared/contracts'
 
+export function dropOracleMonitorUser(drop:()=>void,pause=(ms:number)=>{Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,ms)},now=Date.now) {
+  const deadline=now()+10000
+  for(;;) {
+    try {drop();return}
+    catch(error) {
+      const failure=error as {message?:string;stdout?:Buffer|string;stderr?:Buffer|string}
+      const output=[failure.message,failure.stdout,failure.stderr].join('\n')
+      // App/host exit can precede Oracle releasing the disconnected principal.
+      // Retry only that refusal; permission/SQL errors and persistent sessions
+      // still fail cleanup, without killing unrelated database connections.
+      if(!/ORA-01940\b/.test(output)||now()>=deadline)throw error
+      pause(100)
+    }
+  }
+}
+
 /** Disposable monitoring principal, provisioned inside the runner's existing container. No image changes. */
 export function activityMonitor(config:ConnectionConfig,control=false):{config:ConnectionConfig;enableControl():void;enableRollback():void;cleanup():void} {
   const engine=config.engine==='azure-sql'?'sqlserver':config.engine
@@ -13,7 +29,12 @@ export function activityMonitor(config:ConnectionConfig,control=false):{config:C
   const user='inspect_'+randomUUID().replaceAll('-','').slice(0,12),password='Local-Monitor-Only2026'
   const admin=(sql:string)=>{
     const args=engine==='oracle'?['sqlplus','-s','/','as','sysdba']:engine==='sqlserver'?['/opt/mssql-tools18/bin/sqlcmd','-S','localhost','-U','sa','-P','Local-SA-Only!2026','-C','-b','-Q',sql]:[engine==='mysql'?'mysql':'mariadb','-uroot','-plocal-root-test-only','-e',sql]
-    execFileSync('docker',['exec','-i',container,...args],{input:engine==='oracle'?`WHENEVER SQLERROR EXIT SQL.SQLCODE\nALTER SESSION SET CONTAINER=FREEPDB1;\n${sql}\nEXIT;\n`:undefined,stdio:['pipe','pipe','pipe'],timeout:30000})
+    try {execFileSync('docker',['exec','-i',container,...args],{input:engine==='oracle'?`WHENEVER SQLERROR EXIT SQL.SQLCODE\nALTER SESSION SET CONTAINER=FREEPDB1;\n${sql}\nEXIT;\n`:undefined,stdio:['pipe','pipe','pipe'],timeout:30000})}
+    catch(error) {
+      if(engine!=='oracle')throw error
+      const failure=error as {stdout?:Buffer|string;stderr?:Buffer|string}
+      throw new Error(`Oracle monitoring fixture SQL failed: ${[failure.stdout,failure.stderr].join('\n').trim().slice(0,4096)}`,{cause:error})
+    }
   }
   if(engine==='oracle')admin(`CREATE USER ${user} IDENTIFIED BY "${password}";\nGRANT CREATE SESSION TO ${user};\nGRANT SELECT ON SYS.V_$SESSION TO ${user};\nGRANT SELECT ON SYS.V_$LOCK TO ${user};\nGRANT SELECT ON SYS.V_$SQL TO ${user};`)
   else if(engine==='sqlserver')admin(`USE master; CREATE LOGIN ${user} WITH PASSWORD='${password}',CHECK_POLICY=OFF; GRANT VIEW SERVER STATE TO ${user}; GRANT VIEW SERVER PERFORMANCE STATE TO ${user}; USE dbcommander; CREATE USER ${user} FOR LOGIN ${user};`)
@@ -22,7 +43,7 @@ export function activityMonitor(config:ConnectionConfig,control=false):{config:C
   const enableRollback=()=>{if(engine==='oracle')admin(`GRANT SELECT ON SYS.V_$TRANSACTION TO ${user};\nGRANT SELECT ON SYS.V_$FAST_START_TRANSACTIONS TO ${user};`)}
   if(control)enableControl()
   return {enableControl,enableRollback,config:{...config,user:engine==='oracle'?user.toUpperCase():user,password},cleanup(){
-    if(engine==='oracle')admin(`DROP USER ${user} CASCADE;`)
+    if(engine==='oracle')dropOracleMonitorUser(()=>admin(`DROP USER ${user} CASCADE;`))
     else if(engine==='sqlserver')admin(`USE dbcommander; DROP USER ${user}; USE master; DROP LOGIN ${user};`)
     else admin(`DROP USER '${user}'@'%';`)
   }}

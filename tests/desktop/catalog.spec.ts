@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { tableAction, tableNode } from './explorer-actions'
 import { _electron as electron, test, expect } from '@playwright/test'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
@@ -21,7 +22,7 @@ for (const engine of engineSchema.options) test(`catalog ${engine}: object group
     await expect(page.getByRole('button', { name: 'Refresh schema', exact: true })).toBeEnabled({ timeout: 60000 })
   }
   try {
-    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(page)
     await page.getByRole('button', { name: 'Connect database', exact: true }).click()
     const form = page.getByRole('dialog'); await form.getByLabel('Database engine').selectOption(engine)
     if (['sqlite', 'duckdb'].includes(engine)) {

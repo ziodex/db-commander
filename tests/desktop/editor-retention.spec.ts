@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { _electron as electron, test, expect, type CDPSession, type Page, type TestInfo } from '@playwright/test'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -10,7 +11,7 @@ async function launch() {
   const app = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: resolve(process.env.SQLCOMMANDER_TEST_EXECUTABLE) } : { args: [resolve('.')] }), env: env as Record<string, string> })
   try {
     const page = await app.firstWindow()
-    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(page)
     await expect(page.locator('.monaco-editor')).toBeVisible()
     const cdp = await app.context().newCDPSession(page); await cdp.send('Performance.enable')
     return { app, page, cdp, close: async () => {
@@ -34,12 +35,15 @@ async function retainSamples(testInfo: TestInfo, name: string, samples: unknown[
   console.log(`${name}: ${JSON.stringify(samples)}`)
   await testInfo.attach(name, { path, contentType: 'application/json' })
 }
-async function retainedViewStates(cdp: CDPSession, file: string) {
+async function heapSnapshot(cdp: CDPSession, file: string) {
   const chunks: string[] = [], listener = ({ chunk }: { chunk: string }) => chunks.push(chunk)
   cdp.on('HeapProfiler.addHeapSnapshotChunk', listener)
   try { await cdp.send('HeapProfiler.takeHeapSnapshot') }
   finally { cdp.off('HeapProfiler.addHeapSnapshotChunk', listener) }
   writeFileSync(file, chunks.join('')); chunks.length = 0
+}
+async function retainedViewStates(cdp: CDPSession, file: string) {
+  await heapSnapshot(cdp, file)
   const heap = JSON.parse(readFileSync(file, 'utf8'))
   const nf = heap.snapshot.meta.node_fields, ef = heap.snapshot.meta.edge_fields
   const edgeCount = nf.indexOf('edge_count'), edgeType = ef.indexOf('type'), edgeName = ef.indexOf('name_or_index')
@@ -74,8 +78,12 @@ async function readyForSnapshot(page: Page) {
   // editors with the same lazy suggestion controls, not two creation stages.
   await expect.poll(() => editor.evaluate(element => element.clientWidth > 100 && element.clientHeight > 100)).toBe(true)
   await editor.locator('textarea').focus(); await page.keyboard.press('Control+Space')
-  await expect(editor.locator('.suggest-widget')).toHaveCount(1)
+  const suggestions = editor.locator('.suggest-widget')
+  await expect(suggestions).toHaveClass(/\bvisible\b/)
+  // Monaco hides this message after loading but retains its text in the DOM.
+  await expect(suggestions.getByText('Loading...', { exact: true })).not.toBeVisible()
   await page.keyboard.press('Escape')
+  await expect(suggestions).not.toHaveClass(/\bvisible\b/)
 }
 
 test('closed scratch tabs release view states while open tabs retain selection, scroll and undo', async ({}, testInfo) => {
@@ -91,11 +99,16 @@ test('closed scratch tabs release view states while open tabs retain selection, 
     const scrolledLine = await firstLine(); expect(scrolledLine).not.toContain('SELECT 0 ')
     for (let i = 0; i < 4; i++) await scratch(page)
     await readyForSnapshot(page)
-    samples.push({ ...await sample(cdp, 'warmup'), views: await retainedViewStates(cdp, testInfo.outputPath('warmup.heapsnapshot')) })
+    // Snapshot collection also settles Blink's native listener collection.
+    // Sample afterward so the DOM counters and retained view states describe
+    // the same post-collection state, not native listeners awaiting collection.
+    const warmupViews = await retainedViewStates(cdp, testInfo.outputPath('warmup.heapsnapshot'))
+    samples.push({ ...await sample(cdp, 'warmup'), views: warmupViews })
     expect(samples[0].views).toBeGreaterThan(0)
     for (let i = 0; i < 40; i++) await scratch(page)
     await readyForSnapshot(page)
-    samples.push({ ...await sample(cdp, 'closed_40'), views: await retainedViewStates(cdp, testInfo.outputPath('closed-40.heapsnapshot')) })
+    const closedViews = await retainedViewStates(cdp, testInfo.outputPath('closed-40.heapsnapshot'))
+    samples.push({ ...await sample(cdp, 'closed_40'), views: closedViews })
     await expect.poll(firstLine).toBe(scrolledLine)
     await page.locator('.monaco-editor textarea').focus(); await expect.poll(selected).toBe('selected_marker')
     await page.keyboard.press('ArrowRight')
@@ -122,7 +135,16 @@ test('native input DOM retention plateaus without clearing the open SQL buffer u
     await readyForSnapshot(page)
     for (let i = 1; i <= 1500; i++) {
       await page.keyboard.press(`${modifier}+A`); await page.keyboard.insertText(`SELECT '${String(i).padStart(4, '0')}' AS n;`); await page.keyboard.press('Escape')
-      if ([100, 1100, 1500].includes(i)) samples.push(await sample(cdp, `edit_${i}`))
+      if ([100, 1100, 1500].includes(i)) {
+        // Compare the same settled completion UI. Merely creating its shell
+        // can leave asynchronous list/action listeners pending at a sample.
+        await readyForSnapshot(page)
+        const beforeSnapshot = await sample(cdp, `edit_${i}`)
+        // Use the same full native collection boundary as the closed-tab test.
+        // Retain the heap and earlier counters to diagnose any real retention.
+        await heapSnapshot(cdp, testInfo.outputPath(`input-${i}.heapsnapshot`))
+        samples.push({ ...await sample(cdp, `edit_${i}`), beforeSnapshot })
+      }
     }
     // Blink retains native textarea undo commands as well as Monaco's model
     // undo. Measure after that native history is warm, not against an empty one.

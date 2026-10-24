@@ -53,6 +53,15 @@ it('closes the candidate and keeps the original if retiring the original is refu
   expect([...sessions.keys()]).toEqual([old.id])
   expect(registry.getSession(old.id).database).toBe('postgres')
 })
+it('retains a shared source connection when one tab explicitly switches databases', async () => {
+  const { registry, sessions, disconnect } = fake(), old = await registry.connect(config)
+  const replacement = await registry.switchDatabase({ sessionId: old.id, database: 'target', retainSource: true })
+  expect(disconnect).not.toHaveBeenCalled()
+  expect(registry.getSession(old.id).database).toBe('postgres')
+  expect(registry.getSession(replacement.id).database).toBe('target')
+  await registry.disconnect(replacement.id)
+  expect([...sessions.keys()]).toEqual([old.id])
+})
 it('holds an exclusive session lock while the replacement connects', async () => {
   const { registry, connect } = fake(), old = await registry.connect(config)
   let reject!: (error: Error) => void

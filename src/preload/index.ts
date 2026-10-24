@@ -3,6 +3,7 @@ import type { DatabaseEvent, DesktopApi } from '../shared/contracts'
 import type { SqlFileCommand } from '../shared/sql-files'
 import { isLayoutCommand } from '../shared/layout-commands'
 import { isUpdateStatus } from '../shared/updates'
+import type { EditorSettings } from '../shared/editor-settings'
 
 function updateStatus(value: unknown) {
   if (!isUpdateStatus(value)) throw new Error('Invalid update status.')
@@ -10,6 +11,23 @@ function updateStatus(value: unknown) {
 }
 
 const api: DesktopApi = {
+  preferences: () => ipcRenderer.invoke('sql:preferences'),
+  savePreferences: settings => ipcRenderer.invoke('sql:savePreferences', settings),
+  onPreferencesChanged: listener => {
+    const callback = (_event: Electron.IpcRendererEvent, settings: EditorSettings) => listener(settings)
+    ipcRenderer.on('sql:preferences-changed', callback)
+    return () => ipcRenderer.removeListener('sql:preferences-changed', callback)
+  },
+  applicationMenu: () => ipcRenderer.invoke('sql:applicationMenu'),
+  executeApplicationMenu: path => ipcRenderer.invoke('sql:executeApplicationMenu', path),
+  updateTitleBar: appearance => ipcRenderer.invoke('sql:updateTitleBar', appearance),
+  onApplicationMenuKey: listener => {
+    const callback = (_event: Electron.IpcRendererEvent, index: unknown) => {
+      if (index === null || (typeof index === 'number' && Number.isInteger(index) && index >= 0 && index < 100)) listener(index)
+    }
+    ipcRenderer.on('sql:application-menu-key', callback)
+    return () => ipcRenderer.removeListener('sql:application-menu-key', callback)
+  },
   updateStatus: async () => updateStatus(await ipcRenderer.invoke('sql:updateStatus')),
   checkForUpdates: async () => updateStatus(await ipcRenderer.invoke('sql:checkForUpdates')),
   dismissUpdate: version => ipcRenderer.invoke('sql:dismissUpdate', version),
@@ -124,7 +142,7 @@ const api: DesktopApi = {
   forgetSqlFile: id => ipcRenderer.invoke('sql:forgetSqlFile', id),
   clearRecentSqlFiles: () => ipcRenderer.invoke('sql:clearRecentSqlFiles'),
   onFileCommand: listener => {
-    const callback = (_event: Electron.IpcRendererEvent, command: unknown) => { if (typeof command === 'string' && ['open', 'save', 'save-as', 'recent'].includes(command)) listener(command as SqlFileCommand) }
+    const callback = (_event: Electron.IpcRendererEvent, command: unknown) => { if (typeof command === 'string' && ['open', 'save', 'save-as', 'recent', 'reload'].includes(command)) listener(command as SqlFileCommand) }
     ipcRenderer.on('sql:file-command', callback)
     return () => ipcRenderer.removeListener('sql:file-command', callback)
   },

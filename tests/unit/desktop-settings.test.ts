@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DesktopSettings } from '../../src/main/desktop-settings'
+import { DEFAULT_EDITOR_SETTINGS } from '../../src/shared/editor-settings'
 
 it('defaults to ordinary minimization and persists the application option independently', async () => {
   const root = await mkdtemp(join(tmpdir(), 'dbcommander-desktop-settings-'))
@@ -20,7 +21,7 @@ it('defaults to ordinary minimization and persists the application option indepe
 it('keeps malformed, oversized and non-regular settings until repaired', async () => {
   const root = await mkdtemp(join(tmpdir(), 'dbcommander-desktop-settings-damaged-')), path = join(root, 'desktop-settings.json')
   try {
-    for (const contents of ['{broken', '{"minimizeToTray":"yes"}', '{"minimizeToTray":true,"extra":1}', ' '.repeat(4097)]) {
+    for (const contents of ['{broken', '{"minimizeToTray":"yes"}', '{"minimizeToTray":true,"extra":1}', ' '.repeat(65537)]) {
       await writeFile(path, contents)
       const settings = new DesktopSettings(root)
       await expect(settings.load()).rejects.toThrow('saved settings have been kept')
@@ -34,6 +35,21 @@ it('keeps malformed, oversized and non-regular settings until repaired', async (
     await rm(path); await mkdir(path)
     const settings = new DesktopSettings(root)
     await expect(settings.load()).rejects.toThrow('saved settings have been kept')
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+it('retains application preferences and tray changes across concurrent saves and restart', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'dbcommander-preferences-'))
+  try {
+    const settings = new DesktopSettings(root); await settings.load()
+    expect(settings.preferences).toBeUndefined()
+    const preferences = { ...DEFAULT_EDITOR_SETTINGS, appearance: 'light' as const, confirmTabClose: false, confirmDatabaseSwitch: false }
+    await Promise.all([settings.setPreferences(preferences), settings.setMinimizeToTray(true)])
+    const reopened = new DesktopSettings(root); await reopened.load()
+    expect(reopened.preferences).toEqual(preferences)
+    expect(reopened.minimizeToTray).toBe(true)
+    expect(() => reopened.setPreferences({ ...preferences, fontSize: 99 })).toThrow()
+    expect(reopened.preferences).toEqual(preferences)
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 

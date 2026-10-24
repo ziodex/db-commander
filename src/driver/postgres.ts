@@ -83,6 +83,7 @@ export class PostgresDriver implements DatabaseDriver {
   }
   async editGrid(request: GridOperation, context?: ImportContext): Promise<GridResponse> {
     const session = this.session(request.sessionId)
+    if (request.action === 'release') this.results.forget(request.sessionId, request.viewId)
     if (session.busy) throw new Error('Wait for the running query before editing data.')
     session.editor ??= new TableEditor('postgres', async (text, values = []) => {
       const result = await session.client.query({ text, values, rowMode: 'array', types: rawTypes })
@@ -103,7 +104,7 @@ export class PostgresDriver implements DatabaseDriver {
     session.editor?.invalidate()
     const operation: Operation = { id: request.queryId ?? randomUUID(), cancelled: false }
     session.busy = operation
-    this.results.begin(request.sessionId, operation.id, request.fullExport)
+    this.results.begin(request.sessionId, operation.id, request.fullExport, request.viewId)
     operation.done = this.execute(session, operation, request, statements, completed)
     return operation.id
   }

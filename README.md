@@ -1,8 +1,8 @@
 # Db Commander
 
-An open-source desktop SQL workbench for macOS, Windows and Linux, built with Electron, React, TypeScript and Monaco Editor. Work with independent query sessions, browse and edit data, inspect schemas, compare databases, and import or export data.
+An open-source desktop SQL workbench for macOS, Windows and Linux, built with Electron, React, TypeScript and Monaco Editor. Work with query tabs that share connections, browse and edit data, inspect schemas, compare databases, and import or export data.
 
-**Status: developer preview.** The package version is currently `0.1.0`. Signed public distribution and beta qualification are still in progress; see the [release checklist](docs/PLAN.md#beta-release-checklist). Installation of updates is manual.
+**Status: developer preview.** The package version is currently `0.2.0`. Signed public distribution and beta qualification are still in progress; see the [release checklist](docs/PLAN.md#beta-release-checklist). Installation of updates is manual.
 
 | Database | Support |
 | --- | --- |

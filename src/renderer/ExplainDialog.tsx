@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { X } from 'lucide-react'
+import { X } from './WorkbenchIcons'
 import { engineNames, type SessionInfo } from '../shared/contracts'
 import { postgresPlan, separatePlanConnection, type ExplainRequest, type ExplainResult } from '../shared/explain'
 import { parameterNames, type QueryParameter } from '../shared/parameters'

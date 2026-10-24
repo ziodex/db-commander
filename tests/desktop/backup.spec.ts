@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { openBackup } from './explorer-actions'
 import { _electron as electron, test, expect, type ElectronApplication, type Page } from '@playwright/test'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs'
@@ -13,7 +14,7 @@ for (const engine of ['sqlite', 'duckdb'] as const) test(`backup ${engine}: revi
   let app: ElectronApplication | undefined
   async function launch() {
     app = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: resolve(process.env.SQLCOMMANDER_TEST_EXECUTABLE) } : { args: [resolve('.')] }), env: env as Record<string, string> })
-    const page = await app.firstWindow(); await expect(page.getByText('Saved locally', { exact: true })).toBeVisible(); return page
+    const page = await app.firstWindow(); await waitForWorkspaceReady(page); return page
   }
   async function run(page: Page, sql: string) {
     await page.locator('.monaco-editor').first().click(); await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A'); await page.keyboard.insertText(sql)
@@ -71,7 +72,7 @@ test('backup recovery: interrupted restore is unknown after restart, never repla
   let app: ElectronApplication | undefined
   try {
     app = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: resolve(process.env.SQLCOMMANDER_TEST_EXECUTABLE) } : { args: [resolve('.')] }), env: env as Record<string, string> })
-    const page = await app.firstWindow(); await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    const page = await app.firstWindow(); await waitForWorkspaceReady(page)
     await openBackup(page)
     await page.locator('.backup-job-list button').click(); await expect(page.locator('.backup-status')).toHaveText('unknown'); await expect(page.getByRole('dialog')).toContainText('No operation was replayed')
     expect(existsSync(join(directory, 'must-not-exist'))).toBe(false)
@@ -91,7 +92,7 @@ for (const engine of ['postgres', 'mysql', 'mariadb', 'sqlserver', 'oracle'] as 
   let app: ElectronApplication | undefined
   try {
     app = await electron.launch({ args: [resolve('.')], env: env as Record<string, string> })
-    const page = await app.firstWindow(); await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    const page = await app.firstWindow(); await waitForWorkspaceReady(page)
     await page.getByRole('button', { name: 'Connect database', exact: true }).click()
     const connection = page.getByRole('dialog'); await connection.getByLabel('Database engine').selectOption(engine)
     await connection.getByLabel('Host', { exact: true }).fill('localhost'); await connection.getByLabel('Port', { exact: true }).fill(process.env[`SQLCOMMANDER_${prefix}_PORT`]!)
@@ -104,7 +105,7 @@ for (const engine of ['postgres', 'mysql', 'mariadb', 'sqlserver', 'oracle'] as 
     const form = page.getByRole('dialog', { name: 'Database backup and restore', exact: true })
     await expect(form).toContainText(engineNames[engine as DatabaseEngine])
     await form.getByLabel(engine === 'oracle' ? 'Dump filename' : engine === 'sqlserver' ? 'Backup file on database server' : 'Backup file', { exact: true }).fill(artifact)
-    if (engine === 'oracle') await form.getByLabel('Source schema').fill('SQLCOMMANDER')
+    if (engine === 'oracle') await form.getByLabel('Source schema').fill('DBCOMMANDER')
     if (['postgres', 'mysql', 'mariadb'].includes(engine)) await form.getByLabel('Native tools directory (optional)').fill(process.env[`SQLCOMMANDER_${prefix}_TOOLS`]!)
     await form.getByRole('button', { name: 'Review job' }).click(); await form.getByRole('checkbox').check(); await form.getByRole('button', { name: 'Start backup' }).click()
     await expect(form.locator('.backup-status')).toHaveText('completed', { timeout: 90000 })

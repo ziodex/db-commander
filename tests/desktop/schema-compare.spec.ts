@@ -1,3 +1,5 @@
+import { waitForWorkspaceReady } from './workspace-ready'
+import { openConnectionSettings } from './profile-actions'
 import { _electron as electron, test, expect } from '@playwright/test'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -13,8 +15,8 @@ for(const engine of engineSchema.options) test(`schema comparison ${engine}: con
   const directory=mkdtempSync(join(tmpdir(),'dbcommander-compare-ui-')),env:Record<string,string|undefined>={...process.env,SQLCOMMANDER_USER_DATA:directory};delete env.ELECTRON_RUN_AS_NODE
   const app=await electron.launch({...process.env.SQLCOMMANDER_TEST_EXECUTABLE?{executablePath:process.env.SQLCOMMANDER_TEST_EXECUTABLE}:{args:[resolve('.')]},env:env as Record<string,string>}),page=await app.firstWindow()
   const q=(s:string)=>quoteIdentifier(s,engine),prefix='cmp_ui_'+Date.now(),name=prefix+'_table',extra=prefix+'_extra',embedded=['sqlite','duckdb'].includes(engine),separateSchema=['postgres','sqlserver','azure-sql'].includes(engine)
-  const sourceSchema=engine==='postgres'?'public':['sqlserver','azure-sql'].includes(engine)?'dbo':engine==='oracle'?'SQLCOMMANDER':['mysql','mariadb'].includes(engine)?'dbcommander':'main'
-  const targetSchema=separateSchema?prefix:engine==='oracle'?'SQLCOMMANDER_COMPARE':['mysql','mariadb'].includes(engine)?'comparison_target':'main'
+  const sourceSchema=engine==='postgres'?'public':['sqlserver','azure-sql'].includes(engine)?'dbo':engine==='oracle'?'DBCOMMANDER':['mysql','mariadb'].includes(engine)?'dbcommander':'main'
+  const targetSchema=separateSchema?prefix:engine==='oracle'?'DBCOMMANDER_COMPARE':['mysql','mariadb'].includes(engine)?'comparison_target':'main'
   const full=(schema:string,n:string)=>`${q(schema)}.${q(n)}`
   async function run(sql:string){await expect(page.getByRole('button',{name:/^Run SQL/})).toBeEnabled();await page.locator('.monaco-editor').click();await page.keyboard.press(process.platform==='darwin'?'Meta+A':'Control+A');await page.keyboard.insertText(sql);await page.keyboard.press('Escape');await page.getByRole('button',{name:/^Run SQL/}).click();await expect(page.locator('.status-text')).toHaveText('Completed');await expect(page.getByRole('button',{name:/^Run SQL/})).toBeEnabled()}
   async function configure(target=false){
@@ -25,12 +27,12 @@ for(const engine of engineSchema.options) test(`schema comparison ${engine}: con
   }
   const dialog=page.getByRole('dialog',{name:'Compare schemas',exact:true})
   try{
-    await expect(page.getByText('Saved locally',{exact:true})).toBeVisible();await page.getByRole('button',{name:'Connect database',exact:true}).click();await configure()
+    await waitForWorkspaceReady(page);await page.getByRole('button',{name:'Connect database',exact:true}).click();await configure()
     await run(`CREATE TABLE ${full(sourceSchema,name)} (${q('id')} INTEGER,${q('added column')} INTEGER)`)
     await run(engine==='oracle'?'SELECT 42 FROM dual':'SELECT 42')
     const originalBuffer=await page.locator('.monaco-editor').innerText()
     await page.getByRole('button',{name:'New query tab',exact:true}).click();await expect(page.getByRole('button',{name:/^Run SQL/})).toBeEnabled()
-    if(!separateSchema){await page.getByRole('button',{name:'Connection settings',exact:true}).click();await configure(true)}
+    if(!separateSchema){await openConnectionSettings(page);await configure(true)}
     else await run(`CREATE SCHEMA ${q(targetSchema)}`)
     await run(`CREATE TABLE ${full(targetSchema,name)} (${q('id')} INTEGER)`);await run(`CREATE TABLE ${full(targetSchema,extra)} (${q('id')} INTEGER)`)
     await page.getByLabel('Filter database objects').fill(prefix)

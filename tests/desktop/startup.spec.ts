@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { _electron as electron, test, expect, type ElectronApplication } from '@playwright/test'
 import { cp, mkdtemp, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { dirname, join, relative, resolve } from 'node:path'
@@ -25,7 +26,7 @@ test('packaged startup survives an unavailable DuckDB native library through an 
     const launch = () => electron.launch({ executablePath: join(alias, relative(source, executable)), env: env as Record<string, string> })
     app = await launch()
     const original = await app.firstWindow()
-    await expect(original.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(original)
     await original.locator('.monaco-editor').click()
     await original.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A')
     const recoveredSql = 'SELECT 987654321 AS recovered_buffer;'
@@ -86,7 +87,7 @@ for (const fault of ['throw', 'stall'] as const) test(`database host startup rec
   try {
     app = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: resolve(process.env.SQLCOMMANDER_TEST_EXECUTABLE) } : { args: [resolve('.')] }), env: env as Record<string, string> })
     const original = await app.firstWindow()
-    await expect(original.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(original)
     const sql = 'SELECT 123456789 AS never_replayed_after_startup_failure;'
     await original.locator('.monaco-editor').click()
     await original.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A')

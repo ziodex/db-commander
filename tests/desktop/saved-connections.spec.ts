@@ -1,4 +1,5 @@
-import { profileAction } from './profile-actions'
+import { waitForWorkspaceReady } from './workspace-ready'
+import { openConnectionSettings, profileAction } from './profile-actions'
 import { _electron as electron, test, expect, type ElectronApplication, type Page } from '@playwright/test'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -11,7 +12,7 @@ import { DEFAULT_PROFILE, MAX_PROFILES, type ConnectionProfile } from '../../src
 async function launch(directory: string) {
   const env: Record<string, string | undefined> = { ...process.env, SQLCOMMANDER_USER_DATA: directory }; delete env.ELECTRON_RUN_AS_NODE
   const app = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: resolve(process.env.SQLCOMMANDER_TEST_EXECUTABLE) } : { args: [resolve('.')] }), env: env as Record<string, string> })
-  try { const page = await app.firstWindow(); await expect(page.getByText('Saved locally', { exact: true })).toBeVisible(); return { app, page } }
+  try { const page = await app.firstWindow(); await waitForWorkspaceReady(page); return { app, page } }
   catch (error) { await close(app); throw error }
 }
 async function close(app?: ElectronApplication) { await app?.evaluate(({ app }) => app.exit(0)).catch(() => {}); await app?.close().catch(() => {}) }
@@ -27,7 +28,7 @@ async function configure(page: Page, engine: 'sqlite' | 'duckdb', name: string, 
 }
 async function connected(page: Page) {
   const form = page.getByRole('dialog'); await form.getByRole('button', { name: 'Connect', exact: true }).click(); await expect(form).toBeHidden()
-  await expect(page.getByRole('button', { name: 'Connection settings', exact: true })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Disconnect', exact: true })).toBeEnabled()
 }
 
 for (const engine of ['sqlite', 'duckdb'] as const) test(`saved connections ${engine}: new and changed connections retain earlier profiles through restart`, async ({}, info) => {
@@ -47,9 +48,11 @@ for (const engine of ['sqlite', 'duckdb'] as const) test(`saved connections ${en
     expect(afterNew.profiles.find(profile => profile.id === first.id)).toEqual(first)
     await expect(page.getByRole('button', { name: 'Open First connection in new tab', exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Open Second connection in new tab', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Open First connection in new tab', exact: true }).locator('.online-dot')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Open Second connection in new tab', exact: true }).locator('.online-dot')).toBeVisible()
     // Changing settings while attached to a saved profile must also preserve
     // that profile. Updating an existing entry has its explicit Edit action.
-    await page.getByRole('button', { name: 'Connection settings', exact: true }).click()
+    await openConnectionSettings(page)
     await configure(page, engine, 'Third connection', join(directory, `third.${engine}`)); await connected(page)
     const afterChange = (await page.evaluate(() => window.dbCommander.loadWorkspace()))!
     expect(afterChange.profiles).toHaveLength(3)
@@ -68,10 +71,13 @@ for (const engine of ['sqlite', 'duckdb'] as const) test(`saved connections ${en
     await page.getByRole('button', { name: 'Favorites only', exact: true }).click(); await expect(page.locator('.profile-open')).toHaveCount(3)
     await page.getByRole('button', { name: 'Open First connection in new tab', exact: true }).click()
     await expect(page.locator('.status-text')).toHaveText('Connected')
+    await expect(page.locator('.profile-list .online-dot')).toHaveCount(2)
     await run(page, 'SELECT value FROM retained;'); await expect(page.getByRole('cell', { name: '9223372036854775807', exact: true })).toBeVisible()
     // Reconnecting unchanged settings reuses its profile instead of making
     // duplicate entries. Password-only reconnects follow this same path.
     await page.getByRole('button', { name: 'Disconnect', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Open First connection in new tab', exact: true }).locator('.online-dot')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Open Third connection in new tab', exact: true }).locator('.online-dot')).toBeVisible()
     await page.getByRole('button', { name: 'Connect database', exact: true }).click(); await connected(page)
     const final = (await page.evaluate(() => window.dbCommander.loadWorkspace()))!, history = await page.evaluate(() => window.dbCommander.history())
     expect(final.profiles).toHaveLength(3); expect(final.tabs.find(tab => tab.id === final.activeTabId)?.profileId).toBe(first.id)
@@ -81,6 +87,7 @@ for (const engine of ['sqlite', 'duckdb'] as const) test(`saved connections ${en
     const recovered = await page.evaluate(() => window.dbCommander.loadWorkspace())
     expect(recovered?.profiles).toEqual(final.profiles); expect(recovered?.tabs).toEqual(final.tabs)
     await expect(page.locator('.profile-open')).toHaveCount(3)
+    await expect(page.locator('.profile-list .online-dot')).toHaveCount(0)
     for (const name of ['First connection', 'Renamed second', 'Third connection']) await expect(page.getByRole('button', { name: `Open ${name} in new tab`, exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: /^Run SQL/ })).toBeDisabled()
     expect(await page.evaluate(() => window.dbCommander.history())).toEqual(history)
@@ -106,7 +113,7 @@ test('saved connections capacity: all profiles remain reachable and an over-limi
     await last.focus(); await expect(last).toBeFocused()
     expect(await last.evaluate(element => { const list = element.closest('.profile-list')!.getBoundingClientRect(), row = element.getBoundingClientRect(); return row.top >= list.top && row.bottom <= list.bottom })).toBe(true)
     await page.keyboard.press('Enter'); await expect(page.locator('.status-text')).toHaveText('Connected')
-    await page.getByRole('button', { name: 'Connection settings', exact: true }).click()
+    await openConnectionSettings(page)
     const form = page.getByRole('dialog'); await form.getByLabel('Connection name', { exact: true }).fill('Over limit connection')
     await form.getByRole('button', { name: 'Connect', exact: true }).click()
     await expect(form.getByRole('alert')).toContainText('100 profiles')
@@ -115,7 +122,7 @@ test('saved connections capacity: all profiles remain reachable and an over-limi
     await form.getByRole('button', { name: 'Cancel', exact: true }).click()
     await run(page, 'SELECT value FROM retained;'); await expect(page.getByRole('cell', { name: 'source remains connected', exact: true })).toBeVisible()
     // An explicitly session-only connection is still available at capacity.
-    await page.getByRole('button', { name: 'Connection settings', exact: true }).click()
+    await openConnectionSettings(page)
     await form.getByLabel('Connection name', { exact: true }).fill('Session only'); await form.getByLabel('Save connection profile', { exact: true }).uncheck(); await connected(page)
     expect((await page.evaluate(() => window.dbCommander.loadWorkspace()))?.profiles).toEqual(profiles)
     await run(page, 'SELECT value FROM retained;'); await expect(page.getByRole('cell', { name: 'source remains connected', exact: true })).toBeVisible()

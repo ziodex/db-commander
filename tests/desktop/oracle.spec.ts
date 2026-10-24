@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { _electron as electron, test, expect } from '@playwright/test'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -14,7 +15,7 @@ test('Oracle desktop service connection, SQL, PL/SQL, transactions, cancellation
   })
   try {
     const page = await application.firstWindow()
-    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(page)
     await page.getByRole('button', { name: 'Connect database', exact: true }).click()
     const form = page.getByRole('dialog')
     await form.getByLabel('Database engine').selectOption('oracle')
@@ -30,7 +31,9 @@ test('Oracle desktop service connection, SQL, PL/SQL, transactions, cancellation
     await expect(page.getByText('TLS verified', { exact: true })).toBeVisible()
     await expect(page.locator('.dialect-label')).toHaveText('Oracle Database')
     await expect(page.locator('.transaction-badge')).toHaveText('Manual commit mode')
-    const customers = page.locator('.schema-list').getByRole('button', { name: 'CUSTOMERS SQLCOMMANDER', exact: true })
+    const customers = page.locator('.schema-list').getByRole('button', { name: 'CUSTOMERS DBCOMMANDER', exact: true })
+    // Connection badges can render before Monaco applies the provider's SQL.
+    await expect(page.locator('.monaco-editor')).toContainText("SYS_CONTEXT('USERENV', 'SERVICE_NAME')")
     const welcome = await page.locator('.monaco-editor').innerText()
     await customers.click(); expect(await page.locator('.monaco-editor').innerText()).toBe(welcome)
     await page.locator('.monaco-editor').click(); await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A'); await page.keyboard.press('Backspace')

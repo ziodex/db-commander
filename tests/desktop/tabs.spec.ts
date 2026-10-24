@@ -1,3 +1,5 @@
+import { waitForWorkspaceReady } from './workspace-ready'
+import { openSeparateQueryTab } from './separate-query-tab'
 import { profileAction } from './profile-actions'
 import { _electron as electron, test, expect, type ElectronApplication, type Page } from '@playwright/test'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
@@ -11,7 +13,7 @@ for (const engine of ['duckdb', 'postgres'] as const) test(`${engine} saved prof
   let app: ElectronApplication | undefined
   async function launch() {
     app = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: process.env.SQLCOMMANDER_TEST_EXECUTABLE } : { args: [resolve('.')] }), env: env as Record<string, string> })
-    const page = await app.firstWindow(); await expect(page.getByText('Saved locally', { exact: true })).toBeVisible(); return page
+    const page = await app.firstWindow(); await waitForWorkspaceReady(page); return page
   }
   async function enter(page: Page, sql: string) {
     await page.locator('.monaco-editor').click(); await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A'); await page.keyboard.insertText(sql)
@@ -36,10 +38,12 @@ for (const engine of ['duckdb', 'postgres'] as const) test(`${engine} saved prof
     await form.getByRole('button', { name: 'Connect', exact: true }).click(); await expect(form).not.toBeVisible()
     await expect(page.getByRole('button', { name: 'Open Team database in new tab', exact: true })).toBeVisible()
     await run(page, 'CREATE TEMP TABLE local_to_tab(n INT); INSERT INTO local_to_tab VALUES(1)')
+    await openSeparateQueryTab(page, engine === 'postgres' ? 'local-test-only' : undefined)
+    await page.getByRole('tab', { name: 'Untitled.sql', exact: true }).click()
     await page.getByRole('button', { name: 'Begin', exact: true }).click(); await expect(page.locator('.transaction-badge')).toHaveText('In transaction')
     await run(page, 'UPDATE local_to_tab SET n=2; SELECT n FROM local_to_tab')
     await page.getByRole('button', { name: 'Result 2', exact: true }).click()
-    await page.getByRole('button', { name: 'New query tab', exact: true }).click()
+    await page.getByRole('tab', { name: 'Query 2.sql', exact: true }).click()
     await expect(page.getByRole('tab', { name: 'Query 2.sql', exact: true })).toHaveAttribute('aria-selected', 'true')
     await expect(page.locator('.status-text')).toHaveText('Connected'); await expect(page.locator('.transaction-badge')).toHaveText('Autocommit')
     // Window close must see the transaction in the inactive first tab.
@@ -165,6 +169,10 @@ for (const engine of ['duckdb', 'postgres'] as const) test(`${engine} saved prof
     expect(readFileSync(join(directory, 'workspace.sqlite')).includes(Buffer.from('local-test-only'))).toBe(false)
     await page.getByRole('button', { name: 'Open Saved for later in new tab', exact: true }).click()
     if (engine === 'postgres') {
+      const warning = page.getByRole('dialog', { name: 'Connection failed', exact: true })
+      await expect(warning).toBeVisible()
+      await warning.getByRole('button', { name: 'OK', exact: true }).click()
+      await page.getByRole('button', { name: 'Connect database', exact: true }).click()
       await expect(page.getByRole('dialog').getByLabel('Password', { exact: true })).toHaveValue('')
       await page.getByRole('dialog').getByLabel('Password', { exact: true }).fill('local-test-only')
       await page.getByRole('dialog').getByRole('button', { name: 'Connect', exact: true }).click()

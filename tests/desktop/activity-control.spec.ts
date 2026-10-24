@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { _electron as electron,test,expect,type Page } from '@playwright/test'
 import { mkdtempSync,readFileSync,rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -29,7 +30,7 @@ for(const engine of engineSchema.options)test(`session controls ${engine}: revie
   },{sessionId:waiter,sql:`UPDATE ${table} SET ${q('value')}=12 WHERE ${q('id')}=1`})}
   async function confirm(action:'cancellation'|'termination',id:string){const button=review.getByRole('button',{name:`Apply reviewed ${action}`,exact:true});await expect(button).toBeDisabled();await review.getByLabel('I understand the transaction and connection impact.').check();await review.getByLabel('Session action confirmation').fill(`${action==='cancellation'?'CANCEL':'TERMINATE'} ${id}`);await expect(button).toBeEnabled();await button.click()}
   try {
-    await expect(page.getByText('Saved locally',{exact:true})).toBeVisible({timeout:30000});await page.getByRole('button',{name:'Connect database',exact:true}).click()
+    await waitForWorkspaceReady(page);await page.getByRole('button',{name:'Connect database',exact:true}).click()
     const form=page.getByRole('dialog');await form.getByLabel('Database engine').selectOption(engine)
     if(embedded){await form.getByLabel('Open mode').selectOption('create');await form.getByLabel('Database file').fill(join(directory,'data.db'))}
     else{await form.getByLabel('Port',{exact:true}).fill(String(config.port));await form.getByLabel(engine==='oracle'?'Service name':'Database',{exact:true}).fill(config.database);await form.getByLabel('User',{exact:true}).fill(fixture.config.user);await form.getByLabel('Password',{exact:true}).fill(fixture.config.password);if(engine!=='oracle'){await form.getByText('Custom CA certificate',{exact:true}).click();await form.getByLabel('CA certificate PEM').fill(config.ca!)}}
@@ -39,7 +40,7 @@ for(const engine of engineSchema.options)test(`session controls ${engine}: revie
     nativeHolder=(await page.evaluate(sessionId=>window.dbCommander.inspectActivity({sessionId,includeSql:false}),holder)).currentSessionId
     if(!embedded){
       waiter=(await page.evaluate(c=>window.dbCommander.connect(c),actorConfig)).id;nativeWaiter=(await page.evaluate(sessionId=>window.dbCommander.inspectActivity({sessionId,includeSql:false}),waiter)).currentSessionId
-      const schema=engine==='postgres'?'public':tds?'dbo':engine==='oracle'?'SQLCOMMANDER':'dbcommander';table=`${q(schema)}.${q('control_ui_'+Date.now())}`
+      const schema=engine==='postgres'?'public':tds?'dbo':engine==='oracle'?'DBCOMMANDER':'dbcommander';table=`${q(schema)}.${q('control_ui_'+Date.now())}`
       await execute(page,holder,`CREATE TABLE ${table} (${q('id')} INTEGER PRIMARY KEY,${q('value')} INTEGER)`);await execute(page,holder,`INSERT INTO ${table} VALUES(1,10)`);if(engine==='oracle')await execute(page,holder,'COMMIT')
       await execute(page,holder,begin);await execute(page,holder,`UPDATE ${table} SET ${q('value')}=11 WHERE ${q('id')}=1`);await startWait()
     }

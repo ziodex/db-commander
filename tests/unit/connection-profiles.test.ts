@@ -1,6 +1,14 @@
 import { expect, it } from 'vitest'
-import { connectionProfile, sameConnectionProfile } from '../../src/shared/connection-profiles'
+import { connectionProfile, hasConfiguredConnection, sameConnectionProfile } from '../../src/shared/connection-profiles'
 import { DEFAULT_PROFILE, engineSchema, profileSchema, type ConnectionProfile } from '../../src/shared/contracts'
+
+it('distinguishes an unconfigured tab from saved, live and customized connection settings', () => {
+  const blank = { profile: { ...DEFAULT_PROFILE } }
+  expect(hasConfiguredConnection(blank)).toBe(false)
+  expect(hasConfiguredConnection({ ...blank, profileId: 'saved-profile' })).toBe(true)
+  expect(hasConfiguredConnection(blank, { ...DEFAULT_PROFILE, id: 'live', tls: true, transaction: 'idle', version: '' })).toBe(true)
+  expect(hasConfiguredConnection({ profile: { ...DEFAULT_PROFILE, host: 'actual-server' } })).toBe(true)
+})
 
 it('reuses equivalent recovered/form settings regardless of property order, whitespace and omitted defaults', () => {
   const original = { ...DEFAULT_PROFILE, folder: 'Reporting', name: 'Saved server' }

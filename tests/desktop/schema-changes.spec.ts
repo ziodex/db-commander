@@ -1,6 +1,8 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { databaseAction } from './workspace-actions'
 import { tableAction, tableNode } from './explorer-actions'
 import { verifyMigrationExport } from './migration-export'
+import { openSeparateQueryTab } from './separate-query-tab'
 import { _electron as electron, test, expect } from '@playwright/test'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -53,7 +55,7 @@ for (const engine of engineSchema.options) test(`schema changes ${engine}: revie
     await review(); await approve(); await apply()
   }
   try {
-    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(page)
     await page.getByRole('button', { name: 'Connect database', exact: true }).click()
     const form = page.getByRole('dialog'); await form.getByLabel('Database engine').selectOption(engine)
     if (['sqlite', 'duckdb'].includes(engine)) {
@@ -110,7 +112,7 @@ for (const engine of engineSchema.options) test(`schema changes ${engine}: revie
     await expect(details.getByRole('table', { name: 'Columns', exact: true })).toContainText('new_value')
     await details.getByRole('button', { name: 'Close object details', exact: true }).click()
     if (engine === 'postgres') {
-      await page.getByRole('button', { name: 'New query tab', exact: true }).click()
+      await openSeparateQueryTab(page, 'local-test-only')
       await run(`BEGIN; LOCK TABLE public.${q(name)} IN SHARE MODE`)
       await page.getByRole('tab', { name: 'Untitled.sql', exact: true }).click()
       await tableAction(page, `${name}`, 'Alter table')

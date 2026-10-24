@@ -1,3 +1,5 @@
+import { waitForWorkspaceReady } from './workspace-ready'
+import { openSeparateQueryTab } from './separate-query-tab'
 import { _electron as electron, test, expect, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -8,7 +10,7 @@ async function launch(directory: string) {
   const env: Record<string, string | undefined> = { ...process.env, SQLCOMMANDER_USER_DATA: directory }; delete env.ELECTRON_RUN_AS_NODE
   const app = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: process.env.SQLCOMMANDER_TEST_EXECUTABLE } : { args: [resolve('.')] }), env: env as Record<string, string> })
   const page = await app.firstWindow()
-  await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+  await waitForWorkspaceReady(page)
   await expect(page.locator('.monaco-editor').first()).toBeVisible()
   return { app, page }
 }
@@ -27,7 +29,7 @@ async function run(page: Page, sql: string, editor?: Locator) {
   // during discovery and otherwise gets dropped on faster desktop workers.
   await expect(page.getByRole('button', { name: /^Run SQL/ })).toBeEnabled()
   await enter(page, sql, editor); await page.keyboard.press(`${modifier}+Enter`)
-  await expect(page.locator('.status-text')).toHaveText('Completed')
+  await expect.poll(async () => ({ status: await page.locator('.status-text').innerText(), errors: await page.locator('.error-banner').allTextContents() })).toEqual({ status: 'Completed', errors: [] })
   await expect(page.getByRole('button', { name: /^Run SQL/ })).toBeEnabled(); if (await page.locator('.result-tabs button').count()) await page.locator('.result-tabs button').last().click()
 }
 
@@ -107,10 +109,12 @@ test('split editor views route selected and current SQL to independent duckdb se
     const connection = page.getByRole('dialog')
     await connection.getByLabel('Database engine').selectOption('duckdb'); await connection.getByLabel('Open mode').selectOption('memory')
     await connection.getByRole('button', { name: 'Connect', exact: true }).click(); await expect(connection).not.toBeVisible()
+    await openSeparateQueryTab(page)
+    await run(page, 'create temp table split_session(n integer); insert into split_session values(22); select n from split_session;')
+    await page.getByRole('tab', { name: 'Untitled.sql', exact: true }).click()
     await run(page, 'create temp table split_session(n integer); begin; insert into split_session values(11); select n from split_session;')
     await expect(page.locator('.transaction-badge')).toHaveText('In transaction')
-    await page.getByRole('button', { name: 'New query tab', exact: true }).click(); await expect(page.locator('.status-text')).toHaveText('Connected')
-    await run(page, 'create temp table split_session(n integer); insert into split_session values(22); select n from split_session;')
+    await page.getByRole('tab', { name: 'Query 2.sql', exact: true }).click()
     await expect.poll(async () => (await workspace(page))?.tabs.length).toBe(2)
     const [first, second] = (await workspace(page))!.tabs
     await viewCommand(page, 'Split editor side by side')

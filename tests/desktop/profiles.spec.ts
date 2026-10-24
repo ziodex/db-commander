@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { profileAction } from './profile-actions'
 import { _electron as electron, test, expect, type ElectronApplication, type Page } from '@playwright/test'
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
@@ -12,7 +13,7 @@ for (const engine of engineSchema.options) test(`connections ${engine}: SSH, fol
   delete env.ELECTRON_RUN_AS_NODE
   let app: ElectronApplication | undefined, page: Page
   const embedded = ['sqlite','duckdb'].includes(engine), name = 'Protected reporting', key = process.platform === 'darwin' ? 'Meta' : 'Control'
-  async function launch() { app = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: process.env.SQLCOMMANDER_TEST_EXECUTABLE } : { args: [resolve('.')] }), env }); page = await app.firstWindow(); await expect(page.getByText('Saved locally', { exact: true })).toBeVisible() }
+  async function launch() { app = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: process.env.SQLCOMMANDER_TEST_EXECUTABLE } : { args: [resolve('.')] }), env }); page = await app.firstWindow(); await waitForWorkspaceReady(page) }
   async function enter(sql: string) { await page.locator('.monaco-editor').click(); await page.keyboard.press(`${key}+A`); await page.keyboard.insertText(sql); await page.keyboard.press('Escape') }
   async function unlock() {
     await page.getByRole('button', { name: 'Unlock connection', exact: true }).click()
@@ -54,7 +55,7 @@ for (const engine of engineSchema.options) test(`connections ${engine}: SSH, fol
     expect(await page!.evaluate(() => window.dbCommander.history())).toHaveLength(0)
     await unlock(); await page!.getByRole('button', { name: /^Run SQL/ }).click(); await expect(page!.getByRole('cell', { name: '42', exact: true })).toBeVisible()
     await page!.getByRole('button', { name: 'New query tab', exact: true }).click(); await expect(page!.locator('.status-text')).toHaveText('Connected')
-    await expect(page!.getByLabel('Connection safeguards')).toContainText('Protected · Locked')
+    await expect(page!.getByLabel('Connection safeguards')).toContainText('Unlocked')
     await page!.getByRole('tab', { name: 'Untitled.sql', exact: true }).click(); await expect(page!.getByLabel('Connection safeguards')).toContainText('Unlocked')
     await expect(page!.getByRole('button', { name: 'Begin', exact: true })).toBeEnabled(); await page!.getByRole('button', { name: 'Begin', exact: true }).click(); await expect(page!.locator('.transaction-badge')).toHaveText('In transaction')
     await page!.getByRole('button', { name: 'Lock connection', exact: true }).click(); await page!.getByRole('button', { name: 'Rollback', exact: true }).click(); await expect(page!.locator('.transaction-badge')).toHaveText(engine === 'oracle' ? 'Manual commit mode' : 'Autocommit')

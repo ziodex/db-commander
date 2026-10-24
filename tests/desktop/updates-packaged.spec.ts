@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { _electron as electron, test, expect, type ElectronApplication } from '@playwright/test'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { join, resolve } from 'node:path'
@@ -13,7 +14,7 @@ test('packaged updates: Help checks metadata, opens the release page and persist
     app = await electron.launch({ executablePath: resolve(process.env.SQLCOMMANDER_TEST_EXECUTABLE!), env: env as Record<string, string> })
     expect(await app.evaluate(({ app }) => app.isPackaged)).toBe(true)
     const page = await app.firstWindow(), banner = page.getByLabel('Application updates')
-    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(page)
     // Let the real startup request finish before replacing the network boundary.
     await expect.poll(() => page.evaluate(() => window.dbCommander.updateStatus()), { timeout: 15_000 }).toMatchObject({ checking: false })
     await app.evaluate(({ net, shell }) => {

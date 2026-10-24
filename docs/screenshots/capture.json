@@ -1,9 +1,9 @@
 {
-  "appVersion": "0.1.0",
-  "appSourceCommit": "cf0a0bbc7f7aeb83319c65c3ed6c4a823b5b27d7",
-  "capturedAt": "2026-10-21T13:45:10.060Z",
-  "platform": "darwin",
-  "arch": "arm64",
+  "appVersion": "0.2.0",
+  "appSourceCommit": "a947969f75ee7a80430f35938f7968bdc898e79d",
+  "capturedAt": "2026-10-24T08:43:27.302Z",
+  "platform": "win32",
+  "arch": "x64",
   "viewport": {
     "width": 1440,
     "height": 960

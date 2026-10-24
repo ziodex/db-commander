@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { X } from 'lucide-react'
+import { X } from './WorkbenchIcons'
 import type { CatalogObject, ObjectDetail } from '../shared/catalog'
 export interface ObjectView { tabId: string; sessionId: string; object: CatalogObject; loading: boolean; detail?: ObjectDetail; error?: string }
 export function ObjectInspector({ view, onClose, onRefresh, onOpen }: { view: ObjectView; onClose(): void; onRefresh(): void; onOpen(sql: string, title: string): void }) {

@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { _electron as electron, test, expect } from '@playwright/test'
 import { DuckDBInstance } from '@duckdb/node-api'
 import { DatabaseSync } from 'node:sqlite'
@@ -26,7 +27,7 @@ for (const engine of ['sqlite', 'duckdb'] as const) test(`large catalog ${engine
     const refresh = page.getByRole('button', { name: 'Refresh schema', exact: true }), filter = page.getByLabel('Filter database objects')
     const sqlText = () => page.evaluate(async () => { const workspace = await window.dbCommander.loadWorkspace(); return workspace!.tabs.find(tab => tab.id === workspace!.activeTabId)!.sql })
     try {
-      await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+      await waitForWorkspaceReady(page)
       await page.getByRole('button', { name: 'Connect database', exact: true }).click()
       const form = page.getByRole('dialog'); await form.getByLabel('Database engine').selectOption(engine)
       await form.getByLabel('Open mode').selectOption('read-write'); await form.getByLabel('Database file').fill(path)

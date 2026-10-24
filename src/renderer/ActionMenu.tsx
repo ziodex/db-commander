@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import { ChevronDown } from 'lucide-react'
+import { ChevronDown } from './WorkbenchIcons'
 import { ContextMenu, type MenuAnchor, type MenuItem } from './ContextMenu'
 
 export function ActionMenu({ label, items, children }: { label: string; items: MenuItem[]; children?: ReactNode }) {

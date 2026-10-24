@@ -6,7 +6,7 @@ import { parseArgs } from 'node:util'
 import semver from 'semver'
 import { randomUUID } from 'node:crypto'
 import { readManifest, nativeTarget, root, isMain, run } from './release/common.mjs'
-import { assertNoInstallation, installArtifact, uninstallArtifact, assertWindowsInstallerRefusesRunningApp } from './release/install.mjs'
+import { assertNoInstallation, installArtifact, uninstallArtifact, assertWindowsInstallerRefusesRunningApp, appImageSandboxPath } from './release/install.mjs'
 import { openInstalled, seedInstalled, verifyInstalled, noPlaintextPassword, removeCredential, closeInstalled } from '../tests/installers/workspace.mjs'
 import { verifyInstalledInventory } from './release/inventory.mjs'
 import { assertDesktopReady } from './desktop-readiness.mjs'
@@ -31,6 +31,7 @@ export async function testInstallers({ baseline, candidate, format, report } = {
     if (!oldFile || !newFile) throw new Error(`Missing ${extension} installer pair.`)
     await assertNoInstallation(extension)
     const directory = await mkdtemp(join(tmpdir(), 'dbcommander-install-')), installation = join(directory, 'Application with spaces'), started = Date.now()
+    const inventoryOptions = extension === 'AppImage' ? { appImageSandboxHelper: appImageSandboxPath(installation) } : undefined
     // System installers are tested against the real default data location on
     // disposable workers, so a bad uninstaller cannot pass by deleting a
     // different profile directory than the one under test.
@@ -53,10 +54,10 @@ export async function testInstallers({ baseline, candidate, format, report } = {
       executable = await installArtifact(join(candidate, newFile.name), extension, installation)
       assert.deepEqual(await readFile(join(userData, 'workspace.sqlite')), beforeUpgrade, 'Installing an upgrade must not change application data.')
       opened = await openInstalled(executable, userData, current.version, target.arch); app = opened.app
-      await verifyInstalledInventory(await app.evaluate(() => process.resourcesPath), candidate, current)
+      await verifyInstalledInventory(await app.evaluate(() => process.resourcesPath), candidate, current, inventoryOptions)
       expected = await verifyInstalled(opened, userData, expected)
       await closeInstalled(app); app = undefined
-      if (extension === 'exe') await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', join(root, 'tests/installers/windows-uninstall-lock.ps1'), '-Installation', installation], { timeout: 60_000 })
+      if (extension === 'exe') await run('pwsh', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', join(root, 'tests/installers/windows-uninstall-lock.ps1'), '-Installation', installation], { timeout: 60_000 })
       else await uninstallArtifact(extension, installation)
       installed = false
       await access(join(userData, 'workspace.sqlite')); await noPlaintextPassword(userData)
@@ -64,7 +65,7 @@ export async function testInstallers({ baseline, candidate, format, report } = {
       // database files and the OS credential remain usable, not merely present.
       executable = await installArtifact(join(candidate, newFile.name), extension, installation); installed = true
       opened = await openInstalled(executable, userData, current.version, target.arch); app = opened.app
-      await verifyInstalledInventory(await app.evaluate(() => process.resourcesPath), candidate, current)
+      await verifyInstalledInventory(await app.evaluate(() => process.resourcesPath), candidate, current, inventoryOptions)
       await verifyInstalled(opened, userData, expected)
       await removeCredential(app, expected.profileId)
       await closeInstalled(app); app = undefined

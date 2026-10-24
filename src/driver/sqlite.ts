@@ -90,6 +90,7 @@ export class SqliteDriver implements DatabaseDriver {
   }
   async editGrid(request: GridOperation, context?: ImportContext): Promise<GridResponse> {
     const session = this.session(request.sessionId)
+    if (request.action === 'release') this.results.forget(request.sessionId, request.viewId)
     if (session.busy || session.inspection) throw new Error('Wait for the query to finish before editing data.')
     context?.signal.throwIfAborted()
     const cancel = () => { void this.rpc(session, 'cancelImport').catch(() => {}) }
@@ -118,7 +119,7 @@ export class SqliteDriver implements DatabaseDriver {
     if (inspected.hasParameters && !request.bound) throw new Error('SQLite parameter binding is not available yet. Supply literal SQL values explicitly; unbound parameters are not executed as NULL.')
     let resolve!: () => void
     const operation: Operation = { id: request.queryId ?? randomUUID(), fullExport: request.fullExport, started: performance.now(), completed, done: new Promise<void>(done => { resolve = done }), resolve: () => resolve() }
-    session.busy = operation; this.results.begin(request.sessionId, operation.id, request.fullExport)
+    session.busy = operation; this.results.begin(request.sessionId, operation.id, request.fullExport, request.viewId)
     void this.rpc(session, 'execute', { ...request, queryId: operation.id }).catch(() => { session.child.kill('SIGKILL') })
     return operation.id
   }

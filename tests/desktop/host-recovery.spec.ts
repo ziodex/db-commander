@@ -1,3 +1,4 @@
+import { waitForWorkspaceReady } from './workspace-ready'
 import { _electron as electron, test, expect, type ElectronApplication, type Page } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
 import { DatabaseSync } from 'node:sqlite'
@@ -6,6 +7,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { tableAction } from './explorer-actions'
+import { processIsAlive as alive } from '../process-liveness'
 
 const modifier = process.platform === 'darwin' ? 'Meta' : 'Control'
 async function launch(directory: string) {
@@ -13,7 +15,7 @@ async function launch(directory: string) {
   const app = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: resolve(process.env.SQLCOMMANDER_TEST_EXECUTABLE) } : { args: [resolve('.')] }), env: env as Record<string, string> })
   try {
     const page = await app.firstWindow()
-    await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    await waitForWorkspaceReady(page)
     await expect(page.locator('.monaco-editor')).toBeVisible()
     return { app, page }
   } catch (error) { await close(app); throw error }
@@ -59,7 +61,6 @@ function descendants(parent: number): number[] {
   while (owned.size !== previous) { previous = owned.size; for (const item of records) if (owned.has(item.parent)) owned.add(item.pid) }
   return [...owned].filter(pid => pid !== parent)
 }
-function alive(pid: number) { try { process.kill(pid, 0); return true } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false; throw error } }
 
 test('host recovery keeps the replacement workspace when the prior window closes late', async ({}, info) => {
   const directory = mkdtempSync(join(tmpdir(), 'dbcommander-late-window-'))
@@ -131,7 +132,7 @@ for (const engine of ['sqlite', 'duckdb'] as const) test(`application crash ${en
     // Kill only the actual Electron main PID, not its process group or the
     // Windows Playwright command shell. Observe children before test cleanup.
     process.kill(processes.main, 'SIGKILL')
-    await expect.poll(() => owned.filter(alive), { timeout: 10_000, message: 'A main-process crash must not leave a native database owner running.' }).toEqual([])
+    await expect.poll(() => owned.filter(pid => alive(pid)), { timeout: 10_000, message: 'A main-process crash must not leave a native database owner running.' }).toEqual([])
     databaseProcessesExited = true
     await app.close().catch(() => {}); app = undefined
     launched = await launch(directory); app = launched.app

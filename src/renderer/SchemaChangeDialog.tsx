@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { X } from 'lucide-react'
+import { X } from './WorkbenchIcons'
 import { MigrationExportDialog } from './MigrationExportDialog'
 import { objectKey, type CatalogObject } from '../shared/catalog'
 import type { SchemaSnapshot, SessionInfo } from '../shared/contracts'
