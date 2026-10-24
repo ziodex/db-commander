@@ -1,4 +1,5 @@
 import { tableAction, tableNode } from './explorer-actions'
+import { openSeparateQueryTab } from './separate-query-tab'
 import { _electron as electron, test, expect } from '@playwright/test'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -43,10 +44,13 @@ for (const engine of engineSchema.options) test(`${engine} staged grid edits, tr
     await run(`CREATE TABLE ${q(name)} (${q('id')} INTEGER PRIMARY KEY,${q('name')} ${textType}(60),${q('note')} ${textType}(60)); INSERT INTO ${q(name)} VALUES(1,'Original',NULL); INSERT INTO ${q(name)} VALUES(2,'Delete me',NULL)`)
     if (engine === 'oracle') await run('COMMIT')
     await expect(tableNode(page, `${name}`)).toBeVisible()
+    // Conflict detection needs a genuinely separate writer, opened before drafts.
+    await openSeparateQueryTab(page, ['sqlite', 'duckdb'].includes(engine) ? undefined : ['sqlserver', 'azure-sql'].includes(engine) ? 'Local-Test-Only!2026' : 'local-test-only')
+    await page.getByRole('tab', { name: 'Untitled.sql', exact: true }).click()
     await edit(); await page.getByLabel('Row 1 name', { exact: true }).fill('Rolled back')
     await page.getByRole('button', { name: /^Run SQL/ }).click(); await expect(page.locator('.error-banner')).toContainText('staged table edits')
     await page.getByRole('button', { name: 'Close Untitled.sql', exact: true }).click(); await expect(page.locator('.error-banner')).toContainText('staged table edits')
-    await page.getByRole('button', { name: 'New query tab', exact: true }).click(); await expect(page.locator('.status-text')).toHaveText('Connected')
+    await page.getByRole('tab', { name: 'Query 2.sql', exact: true }).click(); await expect(page.locator('.status-text')).toHaveText('Connected')
     await page.getByRole('tab', { name: 'Untitled.sql', exact: true }).click()
     await expect(page.getByLabel('Row 1 name', { exact: true })).toHaveValue('Rolled back')
     await page.getByRole('button', { name: 'Apply edits', exact: true }).click(); await expect(page.locator('.transaction-badge')).toHaveText('In transaction')

@@ -252,7 +252,7 @@ for (const tunneled of [false, true]) test(`credentials postgres ${tunneled ? 'S
     await run('CREATE TEMP TABLE credential_session(n INT); INSERT INTO credential_session VALUES(77)')
     await page.getByRole('button', { name: 'New query tab', exact: true }).click(); await expect(page.locator('.status-text')).toHaveText('Connected')
     await run("SELECT count(*) AS count FROM pg_tables WHERE tablename='credential_session' AND schemaname = pg_my_temp_schema()::regnamespace::text")
-    await expect(page.getByRole('cell', { name: '1', exact: true })).toBeVisible()
+    await expect(page.locator('[data-result-row="0"][data-result-column="0"]')).toHaveText('1')
     await page.getByRole('tab', { name: 'Query 2.sql', exact: true }).click(); await run('SELECT n FROM credential_session')
     await expect(page.getByRole('cell', { name: '77', exact: true })).toBeVisible()
     form = await edit(page, 'Saved PostgreSQL'); await form.getByRole('button', { name: 'Remove saved password', exact: true }).click()

@@ -11,7 +11,11 @@ async function launch(directory: string) {
   const app = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: process.env.SQLCOMMANDER_TEST_EXECUTABLE } : { args: [resolve('.')] }), env: env as Record<string, string> })
   try {
     const page = await app.firstWindow()
+    // macOS constrains a newly created window to the runner's small display.
+    // Set the test's initial size explicitly before asserting resize deltas.
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 940))
     await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    await expect.poll(() => page.evaluate(() => innerWidth)).toBeGreaterThan(1024)
     return { app, page }
   } catch (error) { await forceClose(app); throw error }
 }

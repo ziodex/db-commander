@@ -102,7 +102,7 @@ test('editor settings cancel, validate, format, undo and persist across tabs and
   } finally { await forceClose(app); rmSync(directory, { recursive: true, force: true }) }
 })
 
-test('editor settings preserve duckdb results, sessions and independent transactions', async () => {
+test('editor settings preserve duckdb results and the transaction shared by query tabs', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'dbcommander-editor-settings-state-'))
   let app: ElectronApplication | undefined
   try {
@@ -117,7 +117,7 @@ test('editor settings preserve duckdb results, sessions and independent transact
     const first = await workspace(page), firstText = await text(page)
     await page.getByRole('button', { name: 'New query tab', exact: true }).click()
     await expect(page.locator('.status-text')).toHaveText('Connected')
-    await run(page, 'select 88 as isolated_session;')
+    await run(page, 'select 88 as shared_session;')
     const history = await page.evaluate(() => window.dbCommander.history()), profiles = (await workspace(page))?.profiles
     const form = await openSettings(page)
     const file = join(directory, 'incoming-settings.json')
@@ -127,7 +127,7 @@ test('editor settings preserve duckdb results, sessions and independent transact
     await expect(form.getByLabel(/Font size/)).toHaveValue('20')
     await form.getByRole('button', { name: 'Apply settings', exact: true }).click()
     await expect(page.getByRole('cell', { name: '88', exact: true })).toBeVisible()
-    await expect(page.locator('.transaction-badge')).toHaveText('Autocommit')
+    await expect(page.locator('.transaction-badge')).toHaveText('In transaction')
     await expect.poll(async () => (await workspace(page))?.editorSettings?.fontSize).toBe(20)
     expect(await page.evaluate(() => window.dbCommander.history())).toEqual(history)
     expect((await workspace(page))?.profiles).toEqual(profiles)
@@ -141,6 +141,7 @@ test('editor settings preserve duckdb results, sessions and independent transact
     await expect(page.getByRole('cell', { name: '0', exact: true })).toBeVisible()
     await page.getByRole('tab', { name: 'Query 2.sql', exact: true }).click()
     await expect(page.getByRole('cell', { name: '88', exact: true })).toBeVisible()
+    await expect(page.locator('.transaction-badge')).toHaveText('Autocommit')
   } finally { await forceClose(app); rmSync(directory, { recursive: true, force: true }) }
 })
 

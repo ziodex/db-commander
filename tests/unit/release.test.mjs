@@ -65,6 +65,15 @@ describe('release safety and evidence', () => {
     expect(config.publish).toBeNull(); expect(config.nsis.deleteAppDataOnUninstall).toBe(false)
     expect(JSON.stringify(config)).not.toContain('secret')
   })
+  it('generates an AppImage launcher that preserves Chromium sandboxing', async () => {
+    const builderRequire = createRequire(createRequire(import.meta.url).resolve('electron-builder'))
+    const AppImageTarget = builderRequire('app-builder-lib/out/targets/appimage/AppImageTarget.js').default
+    const config = builderConfig({})
+    const target = new AppImageTarget('appImage', { config, platformSpecificBuildOptions: config.linux, appInfo: { buildVersion: '0.2.0' } }, {
+      computeDesktopEntry: (_options, command) => command
+    }, 'unused-output')
+    expect(await target.desktopEntry.value).toBe('AppRun %U')
+  })
   it('fails closed for missing or unresolved signing secrets and wrong identity/endpoint', () => {
     expect(() => signingSettings({}, 'darwin')).toThrow('CSC_LINK')
     const mac = Object.fromEntries(['CSC_LINK', 'CSC_KEY_PASSWORD', 'APPLE_API_KEY', 'APPLE_API_KEY_ID', 'APPLE_API_ISSUER', 'SQLCOMMANDER_APPLE_IDENTITY', 'SQLCOMMANDER_APPLE_TEAM_ID'].map(key => [key, 'configured']))

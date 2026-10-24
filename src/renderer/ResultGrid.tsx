@@ -19,7 +19,8 @@ export function ResultGrid({ result, label = 'Query results', rowOffset = 0, mar
   const header = useRef<HTMLDivElement>(null), headerHeight = header.current?.offsetHeight ?? 46
   const [cursor, setCursor] = useState({ row: 0, column: 0 }), pendingFocus = useRef<typeof cursor | null>(null)
   const virtual = useVirtualizer({ count: result.rows.length, getScrollElement: () => scroll.current, estimateSize: () => 33, overscan: 8, scrollMargin: headerHeight, scrollPaddingStart: headerHeight })
-  const rowNumberWidth = Math.max(48, 25 + String(rowOffset + result.rows.length).length * 7)
+  // Include both cell padding and the widest supported 12px monospace digits.
+  const rowNumberWidth = Math.max(48, 26 + String(rowOffset + result.rows.length).length * 8)
   const columns = result.columns.slice(0, 100), controls = useColumns(columns,DEFAULT_COLUMN_WIDTH,rowNumberWidth,view,onView), {style} = controls
   const active = { row: Math.max(0, Math.min(cursor.row, result.rows.length - 1)), column: controls.visible.includes(cursor.column) ? cursor.column : controls.visible[0] }
   const rows = virtual.getVirtualItems(), activeMounted = rows.some(row => row.index === active.row)

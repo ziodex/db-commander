@@ -98,6 +98,7 @@ test('screen reader distinguishes result values, headers and virtual preview pos
 test('screen reader exposes editable cell state, protected keys and virtual row indices', async ({}, info) => {
   const { app, page, directory, cdp } = await launch()
   try {
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1024, 700))
     await connect(page)
     await run(page, "CREATE TABLE accessible_data(id INTEGER PRIMARY KEY, note TEXT DEFAULT 'fallback', computed TEXT GENERATED ALWAYS AS (coalesce(note,'missing')) STORED); WITH RECURSIVE n(i) AS (VALUES(1) UNION ALL SELECT i+1 FROM n WHERE i<100) INSERT INTO accessible_data(id,note) SELECT i, CASE WHEN i=1 THEN NULL ELSE '' END FROM n;")
     await tableAction(page, 'accessible_data', 'Edit data'); await expect(page.locator('.status-text')).toHaveText('Table loaded')

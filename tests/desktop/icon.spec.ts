@@ -10,8 +10,8 @@ test('application icon: runtime image and packaged Finder identity use the Db Co
   const ownedProcess = app.process()
   try {
     const page = await app.firstWindow(); await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
-    await expect(page.locator('.brand')).toContainText('Db Commander')
     await expect(page.locator('.brand-mark svg')).toBeVisible()
+    await expect(page).toHaveTitle(/Db Commander/)
     await page.screenshot({ path: info.outputPath('db-commander.png') })
     const report = await app.evaluate(({ app, nativeImage }) => {
       const path = process.getBuiltinModule('node:path')

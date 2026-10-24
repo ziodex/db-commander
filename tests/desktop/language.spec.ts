@@ -82,10 +82,10 @@ for (const engine of engineSchema.options) test(`${engine} schema autocomplete a
     if (['sqlite', 'duckdb'].includes(engine)) {
       await page.getByRole('button', { name: 'New query tab', exact: true }).click()
       await expect(page.locator('.status-text')).toHaveText('Connected'); await expect(page.getByRole('button', { name: /^Run SQL/ })).toBeEnabled()
-      await expect(page.locator('.schema-list')).not.toContainText(name)
+      await expect(page.locator('.schema-list')).toContainText(name)
       await enter(source)
       for (let i = 0; i < source.length - 'select c.'.length; i++) await page.keyboard.press('ArrowLeft')
-      await page.keyboard.press('Control+Space'); await expect(widget.getByText('Display Name', { exact: true })).not.toBeVisible()
+      await page.keyboard.press('Control+Space'); await expect(widget.getByText('Display Name', { exact: true })).toBeVisible()
     }
   } finally { await app.close(); rmSync(directory, { recursive: true, force: true }) }
 })

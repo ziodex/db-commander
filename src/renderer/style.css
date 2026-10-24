@@ -9,7 +9,7 @@
   --muted: var(--vscode-descriptionForeground);
   --border: var(--vscode-sideBar-border);
   --border-strong: var(--vscode-widget-border);
-  --control-border: var(--vscode-input-border);
+  --control-border: #687782;
   --focus: var(--vscode-focusBorder);
   --accent: var(--vscode-textLink-foreground);
   --accent-background: var(--vscode-button-background);
@@ -143,7 +143,7 @@ kbd { font: 12px -apple-system, BlinkMacSystemFont, sans-serif; color: var(--mut
 .result-tabs { display: flex; gap: 5px; padding: 5px 12px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .result-tabs button { padding: 4px 8px; font-size: 12px; }
 .result-tabs .selected { background: var(--surface-hover); }
-.grid-scroll { overflow: auto; flex: 1; min-height: 0; }
+.grid-scroll { overflow: auto; flex: 1; min-height: 0; scroll-padding-top: 52px; }
 .grid-header, .grid-row { display: grid; width: 100%; }
 .grid-header { height: 52px; position: sticky; top: 0; background: var(--surface-raised); z-index: 4; border-bottom: 1px solid var(--border); }
 .grid-header > span { position: relative; padding: 7px 12px; border-right: 1px solid var(--border); overflow: hidden; }

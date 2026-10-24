@@ -21,7 +21,8 @@ function tokenColor(scope: string): string {
 
 export const vscodeDarkEditorTheme: editor.IStandaloneThemeData = {
   base: 'vs-dark', inherit: false,
-  colors: theme.colors,
+  // Keep syntax colors readable inside focused and inactive selections.
+  colors: { ...theme.colors, 'editor.selectionBackground': '#172c3a', 'editor.inactiveSelectionBackground': '#232a30' },
   // Monaco's SQL tokenizer uses Monarch names rather than TextMate scopes.
   // Resolve their corresponding scopes from the original 2026 Dark rules.
   rules: [
