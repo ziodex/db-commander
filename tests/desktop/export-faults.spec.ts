@@ -1,7 +1,7 @@
 import { waitForWorkspaceReady } from './workspace-ready'
+import { diskFullFixture } from './disk-full-fixture'
 import { _electron as electron, test, expect, type ElectronApplication, type Page } from '@playwright/test'
-import { closeSync, existsSync, fstatSync, ftruncateSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync, writeSync } from 'node:fs'
-import { execFileSync } from 'node:child_process'
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -55,19 +55,11 @@ for (const engine of ['sqlite', 'duckdb'] as const) test(`export safety ${engine
 test('export disk full: real ENOSPC leaves no partial preview or full export and permits retry', async ({}, info) => {
   test.skip(process.platform !== 'darwin', 'The bounded HFS+ disk-image fixture requires macOS; injected publication faults run in the portable unit suite.')
   test.setTimeout(120000)
-  const { app, page, directory } = await launch(), mount = join(directory, 'volume'), image = join(directory, 'destination.dmg')
-  let mounted = false
+  const { app, page, directory } = await launch()
+  let volume: ReturnType<typeof diskFullFixture> | undefined
   try {
-    execFileSync('hdiutil', ['create', '-size', '32m', '-fs', 'HFS+', '-volname', 'DbCommanderExportFault', '-type', 'UDIF', '-nospotlight', image], { stdio: 'pipe' })
-    execFileSync('hdiutil', ['attach', '-nobrowse', '-mountpoint', mount, image], { stdio: 'pipe' }); mounted = true
-    writeFileSync(join(mount, '.metadata_never_index'), '')
-    const filler = join(mount, 'filler'), descriptor = openSync(filler, 'wx', 0o600), block = Buffer.alloc(1024 * 1024)
-    let full = false
-    try {
-      // The private volume is at most 32 MiB; never fill the host filesystem.
-      for (let index = 0; index < 40; index++) writeSync(descriptor, block)
-    } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOSPC') throw error; full = true }
-    finally { ftruncateSync(descriptor, Math.max(0, fstatSync(descriptor).size - 128 * 1024)); closeSync(descriptor) }
+    volume = diskFullFixture()
+    const { mount } = volume, full = volume.fill(128 * 1024).reachedENOSPC
     expect(full).toBe(true)
     await connect(page, 'duckdb')
     await page.evaluate(() => {
@@ -92,7 +84,7 @@ test('export disk full: real ENOSPC leaves no partial preview or full export and
     expect((await page.evaluate(() => window.dbCommander.transferJobs())).find(job => job.id === transfer.id)?.phase).toContain('ENOSPC')
     expect(existsSync(output)).toBe(false)
     expect(readdirSync(mount).some(name => name.startsWith('.dbcommander-backup-'))).toBe(false)
-    rmSync(filler)
+    volume.release()
     await page.getByRole('button', { name: 'Dismiss error', exact: true }).click()
     await page.getByRole('button', { name: 'Export CSV', exact: true }).click(); await expect(page.locator('.status-text')).toHaveText('Fetched rows exported')
     const csv = readFileSync(preview, 'utf8').split('\r\n')
@@ -111,7 +103,7 @@ test('export disk full: real ENOSPC leaves no partial preview or full export and
     await run(page, 'SELECT 42 AS still_usable;'); await expect(page.getByRole('cell', { name: '42', exact: true })).toBeVisible()
   } finally {
     await close(app)
-    if (mounted) execFileSync('hdiutil', ['detach', mount], { stdio: 'pipe' })
+    volume?.dispose()
     rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
   }
 })

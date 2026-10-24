@@ -95,11 +95,16 @@ test('closed scratch tabs release view states while open tabs retain selection, 
     const scrolledLine = await firstLine(); expect(scrolledLine).not.toContain('SELECT 0 ')
     for (let i = 0; i < 4; i++) await scratch(page)
     await readyForSnapshot(page)
-    samples.push({ ...await sample(cdp, 'warmup'), views: await retainedViewStates(cdp, testInfo.outputPath('warmup.heapsnapshot')) })
+    // Snapshot collection also settles Blink's native listener collection.
+    // Sample afterward so the DOM counters and retained view states describe
+    // the same post-collection state, not native listeners awaiting collection.
+    const warmupViews = await retainedViewStates(cdp, testInfo.outputPath('warmup.heapsnapshot'))
+    samples.push({ ...await sample(cdp, 'warmup'), views: warmupViews })
     expect(samples[0].views).toBeGreaterThan(0)
     for (let i = 0; i < 40; i++) await scratch(page)
     await readyForSnapshot(page)
-    samples.push({ ...await sample(cdp, 'closed_40'), views: await retainedViewStates(cdp, testInfo.outputPath('closed-40.heapsnapshot')) })
+    const closedViews = await retainedViewStates(cdp, testInfo.outputPath('closed-40.heapsnapshot'))
+    samples.push({ ...await sample(cdp, 'closed_40'), views: closedViews })
     await expect.poll(firstLine).toBe(scrolledLine)
     await page.locator('.monaco-editor textarea').focus(); await expect.poll(selected).toBe('selected_marker')
     await page.keyboard.press('ArrowRight')

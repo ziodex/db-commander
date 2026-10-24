@@ -57,7 +57,7 @@ export async function testInstallers({ baseline, candidate, format, report } = {
       await verifyInstalledInventory(await app.evaluate(() => process.resourcesPath), candidate, current, inventoryOptions)
       expected = await verifyInstalled(opened, userData, expected)
       await closeInstalled(app); app = undefined
-      if (extension === 'exe') await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', join(root, 'tests/installers/windows-uninstall-lock.ps1'), '-Installation', installation], { timeout: 60_000 })
+      if (extension === 'exe') await run('pwsh', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', join(root, 'tests/installers/windows-uninstall-lock.ps1'), '-Installation', installation], { timeout: 60_000 })
       else await uninstallArtifact(extension, installation)
       installed = false
       await access(join(userData, 'workspace.sqlite')); await noPlaintextPassword(userData)

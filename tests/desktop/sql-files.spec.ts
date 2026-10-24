@@ -86,7 +86,11 @@ test('SQL files open in associated tabs, focus duplicates, Save and Save As via 
   await enter(h.page, 'SELECT saved_again;'); await shortcut(h.app, 's')
   await expect.poll(() => readFileSync(copy, 'utf8')).toBe('SELECT saved_again;')
   expect(await h.app.evaluate(() => (globalThis as any).filePrompts)).toEqual([])
+  // File bytes can be published before the save releases the workspace lock.
+  // Wait until tab actions are accepted before selecting the scratch buffer.
+  await expect(h.page.getByRole('button', { name: 'Open SQL file', exact: true })).toBeEnabled()
   await h.page.getByRole('tab', { name: 'Untitled.sql', exact: true }).click()
+  await expect(h.page.getByRole('tab', { name: 'Untitled.sql', exact: true })).toHaveAttribute('aria-selected', 'true')
   await expect(h.page.locator('.monaco-editor')).toContainText('original_scratch')
   await shortcut(h.app, 'o'); await expect(h.page.getByRole('tab', { name: 'opened.sql', exact: true })).toBeVisible()
   await menu(h.app, h.page, 'Recent SQL files…'); await expect(h.page.getByRole('dialog', { name: 'Recent SQL files' })).toContainText('copy.sql')
