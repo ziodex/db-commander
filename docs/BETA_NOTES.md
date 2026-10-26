@@ -1,6 +1,6 @@
 # Initial beta scope and known limitations
 
-These notes describe the scope frozen on 20 October 2026. **No beta release has been declared.** Package metadata is developer-preview version 0.2.0; a release candidate has not been selected. The [beta checklist](PLAN.md#beta-release-checklist) tracks qualification; these notes are not a second checklist.
+These notes describe the scope frozen on 20 October 2026. **No beta release has been declared.** Package metadata is developer-preview version 0.2.0; a release candidate has not been selected. The [product roadmap and delivery checklist](PLAN.md) now guide development. The [archived beta checklist](PLAN_BETA_ARCHIVE.md#beta-release-checklist) preserves the original freeze; these notes describe that preview baseline and are not a second backlog.
 
 ## Included workflows
 

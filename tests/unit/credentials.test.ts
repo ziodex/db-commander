@@ -35,14 +35,14 @@ it('binds saved passwords to profile identity, endpoint, database, authenticatio
   const tampered = { ...profile, config: { ...profile.config, host: 'new-host' } }
   await expect(vault.resolve(tampered, tampered.config)).rejects.toThrow('does not match')
 })
-it('keeps references across ordinary saves but removes credentials on profile deletion or identity changes', async () => {
+it('prepares references without touching credentials before workspace persistence', async () => {
   const { vault, profile, workspace, entries } = fixture(); await vault.save(profile, 'secret')
   const incoming = { ...workspace, profiles: [{ id: profile.id, config: { ...profile.config, name: 'Renamed' } }] }
   expect((await vault.prepareWorkspace(workspace, incoming)).profiles[0].credential).toBe('os-store')
   const moved = await vault.prepareWorkspace(workspace, { ...incoming, profiles: [{ id: profile.id, config: { ...profile.config, host: 'new-host' } }] })
-  expect(moved.profiles[0].credential).toBeUndefined(); expect(entries.size).toBe(0)
+  expect(moved.profiles[0].credential).toBeUndefined(); expect(entries.size).toBe(1)
   await vault.save(profile, 'secret'); await vault.prepareWorkspace(workspace, { ...workspace, profiles: [] })
-  expect(entries.size).toBe(0)
+  expect(entries.size).toBe(1)
   expect((await vault.prepareWorkspace(null, workspace)).profiles[0].credential).toBeUndefined()
 })
 it('keeps existing passwords and references when new saved connections are added independently', async () => {
@@ -66,10 +66,10 @@ it('fails closed on unavailable stores without exposing backend errors or discar
   const status = await vault.status(profile)
   expect(status.available).toBe(false); expect(status.saved).toBe(true); expect(JSON.stringify(status)).not.toContain('sensitive-value')
   await expect(vault.save(profile, 'secret')).rejects.toThrow('not saved')
-  await expect(vault.prepareWorkspace(workspace, { ...workspace, profiles: [] })).rejects.toThrow('profile has been retained')
+  expect(vault.prepareWorkspace(workspace, { ...workspace, profiles: [] }).profiles).toEqual([])
   await expect(vault.resolve(profile, profile.config)).rejects.toThrow('unavailable or locked')
   expect(workspace.profiles[0].credential).toBe('os-store')
-  await expect(vault.prepareWorkspace({ ...workspace, profiles: [] }, { ...workspace, profiles: [] })).resolves.toBeDefined()
+  expect(vault.prepareWorkspace({ ...workspace, profiles: [] }, { ...workspace, profiles: [] })).toBeDefined()
 })
 it('rejects malformed vault records without echoing their contents', async () => {
   const { vault, entries, profile } = fixture()

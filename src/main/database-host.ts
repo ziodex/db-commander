@@ -110,6 +110,12 @@ function initialize(): void {
       const workspace = store.load(); return workspace ? { ...workspace, recoveryNotice: store.recoveryNotice } : null;
     },
     saveWorkspace: payload => store.save(workspaceSchema.parse(payload)),
+    saveWorkspaceCredentials: payload => {
+      const input = z.object({ workspace: workspaceSchema, removals: z.array(idSchema).max(100) }).strict().parse(payload)
+      store.saveWithCredentialRemovals(input.workspace, input.removals)
+    },
+    credentialRemovals: () => store.pendingCredentialRemovals(),
+    completeCredentialRemoval: payload => store.completeCredentialRemoval(idSchema.parse(payload)),
     history: () => store.history(),
     clearHistory: payload => store.clearHistory(z.boolean().optional().parse(payload)),
     searchHistory: payload => store.searchHistory(historySearchSchema.parse(payload)),

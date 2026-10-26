@@ -68,8 +68,12 @@ for (const engine of engineSchema.options) test(`execution ${engine}: current SQ
     await enter(`SELECT 999${from}\n   `)
     for (let i = 0; i < 3; i++) await page.keyboard.press('Shift+ArrowLeft')
     await page.locator('.view-line').last().click({ button: 'right', position: { x: 9, y: 10 } })
-    await page.getByRole('menuitem', { name: 'Run selected SQL', exact: true }).click({ delay: 150 })
-    await expect(page.getByRole('menuitem', { name: 'Run selected SQL', exact: true })).not.toBeVisible()
+    // Exercise keyboard activation too, without relying on Monaco's deferred
+    // mouse-up listener becoming ready within a fixed click delay on busy CI.
+    const blankSelection = page.getByRole('menuitem', { name: 'Run selected SQL', exact: true })
+    await expect(blankSelection).toBeEnabled(); await blankSelection.focus(); await page.keyboard.press('Home'); await expect(blankSelection).toBeFocused()
+    await page.keyboard.press('Enter'); await expect(blankSelection).not.toBeVisible()
+    expect(await history()).toBe(beforeBlank)
     // Current mode supports the bound-parameter prompt without including adjacent SQL.
     await enter(first + separator + `SELECT :answer${from}`); await menu(currentLabel)
     const parameters = page.getByRole('dialog', { name: 'Query parameters' })

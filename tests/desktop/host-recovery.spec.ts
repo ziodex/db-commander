@@ -22,7 +22,10 @@ async function launch(directory: string) {
 }
 async function close(app?: ElectronApplication) { await app?.evaluate(({ app }) => app.exit(0)).catch(() => {}); await app?.close().catch(() => {}) }
 async function enter(page: Page, sql: string) {
-  await page.locator('.monaco-editor').click(); await page.keyboard.press(`${modifier}+A`); await page.keyboard.insertText(sql); await page.keyboard.press('Escape')
+  const input = page.locator('.monaco-editor textarea.inputarea')
+  await expect(input).toBeEditable()
+  await page.locator('.monaco-editor').click(); await expect(input).toBeFocused()
+  await page.keyboard.press(`${modifier}+A`); await page.keyboard.insertText(sql); await page.keyboard.press('Escape')
 }
 const workspace = (page: Page) => page.evaluate(() => window.dbCommander.loadWorkspace())
 async function connect(app: ElectronApplication, page: Page, engine: 'sqlite' | 'duckdb', file: string, mode: 'create' | 'read-write') {
@@ -91,9 +94,13 @@ test('host recovery keeps the replacement workspace when the prior window closes
     const page = await replacement
     record('replacement created')
     await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
+    // Saved locally describes workspace recovery, which can finish before
+    // Monaco mounts in the replacement window on a cold Windows renderer.
+    await expect(page.locator('.monaco-editor .view-lines')).toContainText(saved)
     await app.evaluate(() => (globalThis as any).__releaseOldWindow())
     record('prior close delivered')
     expect((await workspace(page))?.tabs[0].sql).toBe(saved)
+    await page.bringToFront()
     await enter(page, saved + ' -- still writable')
     await expect.poll(async () => (await workspace(page))?.tabs[0].sql).toBe(saved + ' -- still writable')
     expect(await page.evaluate(() => window.dbCommander.history())).toEqual([])

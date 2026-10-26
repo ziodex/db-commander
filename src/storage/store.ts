@@ -88,6 +88,29 @@ export class WorkspaceStore {
     const workspace = workspaceSchema.parse(value)
     this.db.prepare('INSERT INTO workspace VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET value=excluded.value').run(JSON.stringify({ ...workspace, tabs: orderPinnedTabs(workspace.tabs) }))
   }
+  saveWithCredentialRemovals(value: Workspace, removals: string[]): void {
+    if (!removals.length) { this.save(value); return }
+    this.db.exec('BEGIN IMMEDIATE')
+    try {
+      this.save(value)
+      // IDs only: no passwords or connection configuration enter this journal.
+      // Create lazily so opening an older workspace on a full disk stays readable.
+      this.db.exec('CREATE TABLE IF NOT EXISTS credential_removals (id TEXT PRIMARY KEY)')
+      const insert = this.db.prepare('INSERT OR IGNORE INTO credential_removals VALUES (?)')
+      for (const id of removals) insert.run(id)
+      this.db.exec('COMMIT')
+    } catch (error) {
+      try { this.db.exec('ROLLBACK') } catch { /* SQLite may already have rolled back a failed write. */ }
+      throw error
+    }
+  }
+  pendingCredentialRemovals(): string[] {
+    if (!this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='credential_removals'").get()) return []
+    return this.db.prepare('SELECT id FROM credential_removals ORDER BY id').all().map(row => String(row.id))
+  }
+  completeCredentialRemoval(id: string): void {
+    this.db.prepare('DELETE FROM credential_removals WHERE id=?').run(id)
+  }
   addHistory(entry: HistoryEntry): void {
     if(!this.historySettings().enabled)return
     this.db.prepare(`INSERT INTO history(id,connection,sql,status,startedAt,durationMs,engine,database,parameters) VALUES(?,?,?,?,?,?,?,?,?)

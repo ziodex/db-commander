@@ -25,6 +25,9 @@ type HostContract = { [K in Forwarded]: DesktopMethod<K> } & {
   unlockSession: Method<{ sessionId: string; confirmation: string }, Awaited<ReturnType<DesktopApi['unlockSession']>>>
   loadWorkspace: Method<undefined, Workspace | null>
   loadWorkspaceRecovery: DesktopMethod<'loadWorkspace'>
+  saveWorkspaceCredentials: Method<{ workspace: Workspace; removals: string[] }, void>
+  credentialRemovals: Method<undefined, string[]>
+  completeCredentialRemoval: Method<string, void>
   favoriteHistory: Method<{ id: string; favorite: boolean }, void>
   reviewedMigration: Method<SaveMigration, MigrationPreview>
   exportCsv: Method<{ queryId: string; index: number; path: string }, void>

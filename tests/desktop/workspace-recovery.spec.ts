@@ -38,7 +38,9 @@ test('workspace recovery flushes edits made while the final close save is pendin
       utilityProcess.fork = (...args) => {
         const child = fork(...args), send = child.postMessage.bind(child)
         child.postMessage = message => {
-          if (control.hold && message.method === 'saveWorkspace') control.pending.push({ sql: message.payload.tabs[0].sql, send: () => send(message) })
+          const workspace = message.method === 'saveWorkspaceCredentials' ? message.payload.workspace
+            : message.method === 'saveWorkspace' ? message.payload : undefined
+          if (control.hold && workspace) control.pending.push({ sql: workspace.tabs[0].sql, send: () => send(message) })
           else send(message)
         }
         return child

@@ -42,16 +42,21 @@ async function heapSnapshot(cdp: CDPSession, file: string) {
   finally { cdp.off('HeapProfiler.addHeapSnapshotChunk', listener) }
   writeFileSync(file, chunks.join('')); chunks.length = 0
 }
-async function retainedViewStates(cdp: CDPSession, file: string) {
+async function retainedEditorState(cdp: CDPSession, file: string) {
   await heapSnapshot(cdp, file)
   const heap = JSON.parse(readFileSync(file, 'utf8'))
   const nf = heap.snapshot.meta.node_fields, ef = heap.snapshot.meta.edge_fields
+  const nodeType = nf.indexOf('type'), nodeName = nf.indexOf('name')
+  const nodeTypes = heap.snapshot.meta.node_types[nodeType]
   const edgeCount = nf.indexOf('edge_count'), edgeType = ef.indexOf('type'), edgeName = ef.indexOf('name_or_index')
   const edgeTypes = heap.snapshot.meta.edge_types[edgeType]
-  let count = 0, edge = 0
+  let views = 0, jsEventListeners = 0, edge = 0
   // Match Monaco's public ICodeEditorViewState shape, independently of bundler
   // variable names. Raw heap size alone hides this small per-closed-tab leak.
   for (let node = 0; node < heap.nodes.length; node += nf.length) {
+    // Count listeners in the retained heap itself. A later live DOM counter
+    // can include fresh native listeners allocated after this collection.
+    if (nodeTypes[heap.nodes[node + nodeType]] === 'native' && heap.strings[heap.nodes[node + nodeName]] === 'EventListener') jsEventListeners++
     let fields = 0
     for (let i = 0; i < heap.nodes[node + edgeCount]; i++, edge += ef.length) {
       if (edgeTypes[heap.edges[edge + edgeType]] !== 'property') continue
@@ -60,9 +65,12 @@ async function retainedViewStates(cdp: CDPSession, file: string) {
       if (name === 'viewState') fields |= 2
       if (name === 'contributionsState') fields |= 4
     }
-    if (fields === 7) count++
+    if (fields === 7) views++
   }
-  return count
+  // Fail visibly if Chromium changes its heap representation, rather than
+  // silently treating an unrecognized listener type as zero retention.
+  expect(jsEventListeners).toBeGreaterThan(0)
+  return { views, jsEventListeners }
 }
 async function scratch(page: Page) {
   await page.getByRole('button', { name: 'New query tab', exact: true }).click()
@@ -99,16 +107,17 @@ test('closed scratch tabs release view states while open tabs retain selection, 
     const scrolledLine = await firstLine(); expect(scrolledLine).not.toContain('SELECT 0 ')
     for (let i = 0; i < 4; i++) await scratch(page)
     await readyForSnapshot(page)
-    // Snapshot collection also settles Blink's native listener collection.
-    // Sample afterward so the DOM counters and retained view states describe
-    // the same post-collection state, not native listeners awaiting collection.
-    const warmupViews = await retainedViewStates(cdp, testInfo.outputPath('warmup.heapsnapshot'))
-    samples.push({ ...await sample(cdp, 'warmup'), views: warmupViews })
+    // Compare retained listeners and view states at one collection boundary.
+    // Keep the later live DOM counters alongside them for diagnostics.
+    const warmup = await retainedEditorState(cdp, testInfo.outputPath('warmup.heapsnapshot'))
+    const warmupCounters = await sample(cdp, 'warmup')
+    samples.push({ ...warmupCounters, ...warmup, afterSnapshot: warmupCounters })
     expect(samples[0].views).toBeGreaterThan(0)
     for (let i = 0; i < 40; i++) await scratch(page)
     await readyForSnapshot(page)
-    const closedViews = await retainedViewStates(cdp, testInfo.outputPath('closed-40.heapsnapshot'))
-    samples.push({ ...await sample(cdp, 'closed_40'), views: closedViews })
+    const closed = await retainedEditorState(cdp, testInfo.outputPath('closed-40.heapsnapshot'))
+    const closedCounters = await sample(cdp, 'closed_40')
+    samples.push({ ...closedCounters, ...closed, afterSnapshot: closedCounters })
     await expect.poll(firstLine).toBe(scrolledLine)
     await page.locator('.monaco-editor textarea').focus(); await expect.poll(selected).toBe('selected_marker')
     await page.keyboard.press('ArrowRight')
@@ -142,8 +151,9 @@ test('native input DOM retention plateaus without clearing the open SQL buffer u
         const beforeSnapshot = await sample(cdp, `edit_${i}`)
         // Use the same full native collection boundary as the closed-tab test.
         // Retain the heap and earlier counters to diagnose any real retention.
-        await heapSnapshot(cdp, testInfo.outputPath(`input-${i}.heapsnapshot`))
-        samples.push({ ...await sample(cdp, `edit_${i}`), beforeSnapshot })
+        const retained = await retainedEditorState(cdp, testInfo.outputPath(`input-${i}.heapsnapshot`))
+        const afterSnapshot = await sample(cdp, `edit_${i}`)
+        samples.push({ ...afterSnapshot, ...retained, beforeSnapshot, afterSnapshot })
       }
     }
     // Blink retains native textarea undo commands as well as Monaco's model
@@ -165,5 +175,25 @@ test('native input DOM retention plateaus without clearing the open SQL buffer u
   } finally {
     try { await retainSamples(testInfo, 'input-retention.json', samples) }
     finally { await close() }
+  }
+})
+
+test('native input DOM retention sampling detects listeners on retained detached nodes', async ({}, testInfo) => {
+  const { page, cdp, close } = await launch()
+  try {
+    await readyForSnapshot(page)
+    const before = await retainedEditorState(cdp, testInfo.outputPath('listener-probe-before.heapsnapshot'))
+    await page.evaluate(() => {
+      const node = document.createElement('button')
+      for (let i = 0; i < 11; i++) node.addEventListener('retention-probe', () => i)
+      ;(window as any).__retainedListenerProbe = node
+    })
+    const retained = await retainedEditorState(cdp, testInfo.outputPath('listener-probe-retained.heapsnapshot'))
+    // The sampling fix must still detect growth beyond the existing <10
+    // listener budget, including nodes that are no longer in the document.
+    expect(retained.jsEventListeners - before.jsEventListeners).toBeGreaterThanOrEqual(11)
+  } finally {
+    await page.evaluate(() => { delete (window as any).__retainedListenerProbe }).catch(() => {})
+    await close()
   }
 })

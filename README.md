@@ -2,7 +2,7 @@
 
 An open-source desktop SQL workbench for macOS, Windows and Linux, built with Electron, React, TypeScript and Monaco Editor. Work with query tabs that share connections, browse and edit data, inspect schemas, compare databases, and import or export data.
 
-**Status: developer preview.** The package version is currently `0.2.0`. Signed public distribution and beta qualification are still in progress; see the [release checklist](docs/PLAN.md#beta-release-checklist). Installation of updates is manual.
+**Status: developer preview.** The package version is currently `0.2.0`. Signed public distribution and beta qualification are still in progress; see the [product roadmap and release checklist](docs/PLAN.md). Installation of updates is manual.
 
 | Database | Support |
 | --- | --- |
@@ -151,7 +151,7 @@ For isolated development data, set `SQLCOMMANDER_USER_DATA` to a separate absolu
 - [Architecture](docs/architecture/README.md): process boundaries and ownership rules.
 - [GitHub Actions](docs/GITHUB_ACTIONS.md): fork setup, native jobs and artifacts.
 - [Driver testing](docs/DRIVER_TESTING.md): real-engine tests and dated verification evidence.
-- [Beta notes](docs/BETA_NOTES.md) and [release checklist](docs/PLAN.md): scope and remaining qualification.
+- [Product roadmap](docs/PLAN.md) and [beta notes](docs/BETA_NOTES.md): planned workflows, preview scope and release qualification.
 - [Support](SUPPORT.md) and [security reporting](SECURITY.md).
 
 Licensed under [Apache-2.0](LICENSE). Dependencies retain their own licenses; see [third-party notices](THIRD_PARTY_NOTICES.md).

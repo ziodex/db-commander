@@ -19,7 +19,13 @@ test('tab-close confirmation can be disabled without bypassing connection and tr
     await preferences.getByRole('tab', { name: 'Tabs', exact: true }).click()
   }
   async function run(sql: string) {
-    await page.locator('.monaco-editor').click(); await page.keyboard.press(`${key}+A`); await page.keyboard.insertText(sql); await page.keyboard.press('Escape')
+    const editor = page.locator('.monaco-editor'), input = editor.locator('textarea.inputarea')
+    // Removing a tab precedes the close operation's workspace save. The
+    // surviving editor remains read-only until that operation has finished.
+    await expect(input).toBeEditable()
+    await editor.click(); await expect(input).toBeFocused()
+    await page.keyboard.press(`${key}+A`); await page.keyboard.insertText(sql); await page.keyboard.press('Escape')
+    await expect(editor.locator('.view-lines')).toContainText(sql)
     await page.getByRole('button', { name: /^Run SQL/ }).click()
     await expect(page.locator('.status-text')).toHaveText('Completed')
     await expect(page.getByRole('button', { name: /^Run SQL/ })).toBeEnabled()

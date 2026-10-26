@@ -36,6 +36,7 @@ import { WindowIpc } from './window-ipc'
 import { MAX_OPEN_WINDOWS, workspaceWindowIdSchema, workspaceWindowNameSchema, type WorkspaceWindow } from '../shared/workspace-windows'
 import { z } from 'zod'
 import { PasswordVault } from '../credentials/vault'
+import { CredentialWorkspace } from '../credentials/workspace'
 import { passwordEligible } from '../shared/credentials'
 import { layoutCommands, layoutCommandForInput } from '../shared/layout-commands'
 import { backupCapabilities, backupRequestSchema, type BackupJob } from '../shared/backup'
@@ -217,6 +218,12 @@ const host = new DatabaseHostClient(
   }
 )
 const rpc = host.call.bind(host)
+const credentialWorkspace = new CredentialWorkspace(vault, {
+  load: () => rpc('loadWorkspace'),
+  save: (workspace, removals) => rpc('saveWorkspaceCredentials', { workspace, removals }),
+  pendingRemovals: () => rpc('credentialRemovals'),
+  completeRemoval: id => rpc('completeCredentialRemoval', id)
+})
 function registerIpc(): void {
   const handle = <K extends keyof DesktopApi>(method: K, action: (payload: unknown) => Promise<Awaited<ReturnType<DesktopApi[K]>>>) => {
     router.register(method); handlers.set(method, async (event, payload) => { assertSender(event); return action(payload) })
@@ -372,6 +379,8 @@ function registerIpc(): void {
     const parsed = z.object({ profileId: idSchema, password: z.string().min(1).max(4096) }).strict().safeParse(value)
     if (!parsed.success) throw new Error('Invalid saved password request.')
     return credentialOperation(async () => {
+      // Never replace an entry while an earlier deletion of its ID is pending.
+      await credentialWorkspace.cleanup()
       const { workspace, profile } = await savedProfile(parsed.data.profileId)
       if (!passwordEligible(profile.config)) throw new Error('This profile does not support saved passwords. Access tokens remain session-only.')
       // Persist the reference before writing the vault so interruption cannot
@@ -381,11 +390,7 @@ function registerIpc(): void {
       await vault.save(profile, parsed.data.password)
     })
   })
-  handle('removeProfilePassword', async value => credentialOperation(async () => {
-    const { workspace, profile } = await savedProfile(idSchema.parse(value))
-    await vault.remove(profile); delete profile.credential
-    await rpc('saveWorkspace', workspace)
-  }))
+  handle('removeProfilePassword', async value => credentialOperation(() => credentialWorkspace.removePassword(idSchema.parse(value))))
   handle('disconnect', async value => { const id = idSchema.parse(value); await rpc('disconnect', id); sessions.delete(id); sessionCredentials.delete(id) })
   handle('switchDatabase', async value => {
     const request = switchDatabaseSchema.parse(value)
@@ -412,7 +417,12 @@ function registerIpc(): void {
   })
   handle('run', async value => { const parsed = runSchema.parse(value); const request = { ...parsed, queryId: parsed.queryId ?? randomUUID() }; if (running.has(request.sessionId)) throw new Error('This tab already has a running query.'); running.set(request.sessionId, request.queryId); try { return await rpc('run', request) } catch (error) { running.delete(request.sessionId); throw error } })
   for (const method of ['cancel', 'tables', 'schema', 'databases'] as const) handle(method, async value => rpc(method, idSchema.parse(value)))
-  handle('loadWorkspace', async () => { const workspace = await rpc('loadWorkspaceRecovery'); return workspace ? { ...workspace, recoveryNotice: [recoveryNotice, workspace.recoveryNotice].filter(Boolean).join(' ') || undefined } : null })
+  handle('loadWorkspace', async () => credentialOperation(async () => {
+    let credentialNotice = ''
+    try { await credentialWorkspace.cleanup() } catch (error) { credentialNotice = (error as Error).message }
+    const workspace = await rpc('loadWorkspaceRecovery')
+    return workspace ? { ...workspace, recoveryNotice: [recoveryNotice, workspace.recoveryNotice, credentialNotice].filter(Boolean).join(' ') || undefined } : null
+  }))
   handle('history',async()=>rpc('history'))
   handle('clearHistory',async value=>rpc('clearHistory',z.boolean().optional().parse(value)))
   handle('searchHistory',async value=>rpc('searchHistory',historySearchSchema.parse(value)))
@@ -452,7 +462,7 @@ function registerIpc(): void {
   }))
   handle('saveWorkspace', async value => {
     const workspace = workspaceSchema.parse(value)
-    return credentialOperation(async () => rpc('saveWorkspace', await vault.prepareWorkspace(await rpc('loadWorkspace'), workspace)))
+    return credentialOperation(() => credentialWorkspace.save(workspace))
   })
   handle('exportCsv', async value => {
     const input = z.object({ queryId: idSchema, index: z.number().int().min(0).max(199) }).strict().parse(value)

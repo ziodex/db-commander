@@ -23,3 +23,8 @@ export function sameConnectionProfile(left: ConnectionProfile, right: Connection
   const a = normalize(left), b = normalize(right)
   return a.success && b.success && JSON.stringify(a.data) === JSON.stringify(b.data)
 }
+
+/** Display organization does not change the endpoint or its session safeguards. */
+export function sameConnectionSettings(left: ConnectionProfile, right: ConnectionProfile): boolean {
+  return sameConnectionProfile({ ...left, name: right.name, folder: right.folder, favorite: right.favorite }, right)
+}

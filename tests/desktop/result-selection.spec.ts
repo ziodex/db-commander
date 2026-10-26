@@ -161,6 +161,11 @@ test('compact browse controls and active saved connection follow tab changes', a
     })
     for (const [width, height, zoom] of [[1440, 940, 1], [1024, 700, 1], [1440, 940, 2]]) {
       await app.evaluate(({ BrowserWindow }, { width, height, zoom }) => { const window = BrowserWindow.getAllWindows()[0]; window.setSize(width, height); window.webContents.setZoomFactor(zoom) }, { width, height, zoom })
+      // At 200% zoom the workspace scrolls to preserve both pane minima.
+      // Bring the whole wrapped toolbar into view, then require every action
+      // to fit together; scrolling individual buttons would hide overflow.
+      await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+      await page.locator('.data-toolbar').scrollIntoViewIfNeeded()
       await expect(page.getByRole('button', { name: 'Table actions', exact: true })).toBeInViewport()
       await expect(page.getByRole('button', { name: 'Copy', exact: true })).toBeInViewport()
       await expect(page.getByRole('button', { name: 'Filters & sort', exact: true })).toBeInViewport()

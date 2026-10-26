@@ -33,7 +33,8 @@ import { matchingTableLayout, saveTableLayout, tableColumns, tableColumnViewKey,
 import type { ExplainRequest } from '../shared/explain'
 import { ObjectInspector, type ObjectView } from './ObjectInspector'
 import { ConnectionDialog } from './ConnectionDialog'
-import { ProfileList, type ProfileConnectionState } from './ProfileList'
+import { ProfileList } from './ProfileList'
+import { profileConnectionStates } from './profile-connections'
 import { SessionSafetyBar } from './SessionSafetyBar'
 import { SchemaChangeDialog } from './SchemaChangeDialog'
 import type { SchemaChange, ApplySchemaChange } from '../shared/schema-changes'
@@ -53,7 +54,7 @@ import { formatEditor } from './language-service'
 import { changesSchema } from '../language/completion'
 import { DEFAULT_LAYOUT, applyLayoutCommand, clampSize, panelBounds, layoutCommands, type LayoutCommand, type WorkspaceLayout } from '../shared/layout'
 import { passwordEligible, type PasswordChoice } from '../shared/credentials'
-import { connectionProfile, hasConfiguredConnection, sameConnectionProfile } from '../shared/connection-profiles'
+import { connectionProfile, hasConfiguredConnection, sameConnectionProfile, sameConnectionSettings } from '../shared/connection-profiles'
 import { Splitter } from './Splitter'
 import { useElementSize } from './use-element-size'
 import { DatabaseExplorer } from './DatabaseExplorer'
@@ -394,7 +395,7 @@ export function App() {
       const start = offset + raw.length - raw.trimStart().length
       source = { document: sql, sql: query, start, end: start + query.length, prefixLength: 0 }
     }
-    if (current.session.safety?.protected && current.session.safety.unlockedUntil <= Date.now() && !/^\s*(COMMIT|ROLLBACK)\s*;?\s*$/i.test(query)) { report(new Error('This protected connection is locked. Unlock this tab before executing SQL.')); return }
+    if (current.session.safety?.protected && current.session.safety.unlockedUntil <= Date.now() && !/^\s*(COMMIT|ROLLBACK)\s*;?\s*$/i.test(query)) { report(new Error('This protected connection is locked. Unlock the connection and its shared tabs before executing SQL.')); return }
     const names=parameterNames(query,current.session.engine,current.session.mysqlSqlMode?.noBackslashEscapes,current.session.mysqlSqlMode?.ansiQuotes)
     if(names.length>100){report(new Error('A query may use up to 100 distinct named parameters.'));return}
     if(!parameters&&names.length){setParameterRun({tabId,sessionId:current.session.id,sql:query,names,source});return}
@@ -472,7 +473,7 @@ export function App() {
     if (!ready || workspaceRef.current.tabs.length >= MAX_TABS) { report(new Error(`Up to ${MAX_TABS} query tabs can be open.`)); return }
     if (workspaceRef.current.tabs.reduce((size, tab) => size + tab.sql.length, definition?.sql.length ?? 1000) > 5_000_000) { report(new Error('Save and shorten a SQL buffer before opening another tab. Workspace SQL is limited to 5 MB.')); return }
     const current = workspaceRef.current.tabs.find(tab => tab.id === workspaceRef.current.activeTabId)!
-    const existing = savedProfile ? workspaceRef.current.tabs.find(tab => tab.profileId === savedProfile.id && sameConnectionProfile(tab.profile, savedProfile.config) && (statesRef.current[tab.id]?.session || statesRef.current[tab.id]?.connecting)) : current
+    const existing = savedProfile ? workspaceRef.current.tabs.find(tab => tab.profileId === savedProfile.id && sameConnectionSettings(tab.profile, savedProfile.config) && (statesRef.current[tab.id]?.session || statesRef.current[tab.id]?.connecting)) : current
     const original = existing ? statesRef.current[existing.id] : undefined
     if (original?.closing || original?.connecting || original?.switching) { report(new Error('Wait for this connection operation to finish before opening another tab.')); return }
     const id = crypto.randomUUID(), source = existing && original?.session ? existing.profile : savedProfile?.config ?? current.profile
@@ -509,10 +510,12 @@ export function App() {
     if (!id) return
     setProfileBusy(true); setDialogError('')
     try {
-      await api.removeProfilePassword(id)
       changeWorkspace(previous => ({ ...previous, profiles: previous.profiles.filter(profile => profile.id !== id), tabs: previous.tabs.map(tab => tab.profileId === id ? { ...tab, profileId: undefined } : tab) }))
       await persist(); setDeleteProfileId(null)
-    } catch (error) { setDialogError(message(error)) } finally { setProfileBusy(false) }
+    } catch (error) {
+      if (message(error).includes('Workspace changes are saved')) { setDeleteProfileId(null); report(error) }
+      else setDialogError(message(error))
+    } finally { setProfileBusy(false) }
   }
   async function disconnect() {
     await disconnectTabs([tabId])
@@ -806,17 +809,7 @@ export function App() {
     { label: 'Workspace windows', action: () => setWindowsOpen(true), disabled: !ready },
     { label: 'Preferences', action: () => setEditorSettingsOpen(true), disabled: !ready }
   ]
-  const profileConnections = new Map<string, ProfileConnectionState>()
-  for (const tab of workspace.tabs) {
-    if (!tab.profileId) continue
-    const state = states[tab.id]
-    if (!state) continue
-    const connection = profileConnections.get(tab.profileId) ?? { connected: false, busy: false }
-    connection.connected ||= Boolean(state.session)
-    connection.busy ||= state.connecting || state.closing
-    connection.disconnectReason ??= canCloseTab(state)
-    profileConnections.set(tab.profileId, connection)
-  }
+  const profileConnections = profileConnectionStates(workspace.profiles, workspace.tabs, states, tabId)
 
   return <div className="app-shell">
     <TitleBar api={api} appearance={theme}><ActionMenu label="Workspace" items={workspaceTools}/><div className="panel-controls" role="group" aria-label="Panel layout"><button id="toggle-sidebar" aria-label="Toggle sidebar" aria-pressed={layout.sidebarVisible} title={`${layout.sidebarVisible ? 'Hide' : 'Show'} sidebar (Cmd/Ctrl+B)`} disabled={!ready} onClick={() => layoutCommand('toggle-sidebar')}><PanelLeft size={16} /></button><button id="toggle-results" aria-label="Toggle results" aria-pressed={layout.resultsVisible} title={`${layout.resultsVisible ? 'Hide' : 'Show'} results (Cmd/Ctrl+J)`} disabled={!ready} onClick={() => layoutCommand('toggle-results')}><PanelBottom size={16} /></button></div><button className="command-button" aria-label="Commands" title="Search commands (Cmd/Ctrl+K)" onClick={() => setPalette(true)}><Search size={13} />Commands<kbd>{shortcutKey} K</kbd></button></TitleBar>

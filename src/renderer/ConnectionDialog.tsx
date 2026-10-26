@@ -1,5 +1,5 @@
-import { useEffect, useEffectEvent, useState } from 'react'
-import { ChevronRight, Database, FolderOpen, X } from './WorkbenchIcons'
+import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState, type MouseEvent } from 'react'
+import { Check, ChevronRight, Database, FolderOpen, X } from './WorkbenchIcons'
 import { ModalDialog } from './ModalDialog'
 import { ConnectionOptions } from './ConnectionOptions'
 import { defaultPorts } from '../shared/database-engines'
@@ -16,6 +16,11 @@ export function ConnectionDialog({ profile, profileId, busy, error, saveOnly, on
   const [vaultStatus, setVaultStatus] = useState<PasswordStatus | null>(null)
   const [remember, setRemember] = useState(false), [useSaved, setUseSaved] = useState(false)
   const [removing, setRemoving] = useState(false)
+  const [testing, setTesting] = useState(false), testInFlight = useRef(false)
+  const [testResult, setTestResult] = useState<{ form: ConnectionConfig; useSaved: boolean; success: boolean; message: string } | null>(null)
+  const testSession = useRef<string | null>(null)
+  const testFocus = useRef<HTMLButtonElement | null>(null)
+  const blocked = busy || removing || testing
   const receiveVaultStatus = useEffectEvent((status: PasswordStatus) => {
       setVaultStatus(status)
       if (!form.password) { setRemember(status.saved); setUseSaved(status.saved && status.available) }
@@ -31,8 +36,21 @@ export function ConnectionDialog({ profile, profileId, busy, error, saveOnly, on
   const sameBinding = credentialBinding(form) === credentialBinding(profile)
   const addsProfile = !saveOnly && Boolean(profileId) && !sameConnectionProfile(profile, connectionProfile(form))
   const canUseSaved = Boolean(vaultStatus?.saved && vaultStatus.available && sameBinding && passwordEligible(form))
+  const testUsesSaved = Boolean(profileId && canUseSaved && useSaved && !form.password)
+  const visibleTestResult = testResult?.form === form && testResult.useSaved === testUsesSaved ? testResult : null
+  useEffect(() => () => {
+    // A pending open still closes itself below, even if the window is removed.
+    // If a close failed, retain its identity for retry and try once on dismissal.
+    if (testSession.current) void api.disconnect(testSession.current).catch(() => {})
+  }, [])
+  useLayoutEffect(() => {
+    if (testing) return
+    const button = testFocus.current
+    testFocus.current = null
+    if (button?.isConnected && (document.activeElement === document.body || document.activeElement === button.closest('dialog'))) button.focus()
+  }, [testing])
   async function removePassword() {
-    if (!profileId) return
+    if (!profileId || blocked || testInFlight.current) return
     setRemoving(true); setFileError('')
     try {
       await api.removeProfilePassword(profileId)
@@ -56,16 +74,48 @@ export function ConnectionDialog({ profile, profileId, busy, error, saveOnly, on
     try { const path = await (duckdb ? api.chooseDuckdbFile : api.chooseSqliteFile)(mode === 'create'); if (path) update('filePath', path); setFileError('') }
     catch (error) { setFileError((error as Error).message) }
   }
+  function connectionConfig(): ConnectionConfig {
+    return embedded ? { ...form, [modeKey]: mode, database: engineNames[form.engine], host: 'local', port: 1, user: 'local', password: '', accessToken: undefined, authentication: undefined, tls: 'disable', ca: undefined, ssh: undefined, sshSecrets: undefined } : form
+  }
+  async function testConnection(event: MouseEvent<HTMLButtonElement>) {
+    if (blocked || testInFlight.current || (embedded && mode === 'create') || !event.currentTarget.form?.reportValidity()) return
+    const config = connectionConfig(), useSavedPassword = testUsesSaved
+    const button = event.currentTarget, restoreFocus = document.activeElement === button
+    setFileError(''); setTestResult(null)
+    if (config.authentication === 'entra-token' && !config.accessToken?.trim()) {
+      setTestResult({ form, useSaved: useSavedPassword, success: false, message: 'Enter a current access token to test this connection. The token is never saved.' }); return
+    }
+    testFocus.current = restoreFocus ? button : null
+    testInFlight.current = true; setTesting(true)
+    try {
+      // A test owns its temporary session. It never replaces a query tab's
+      // connection, saves the draft/credentials, or executes the editor's SQL.
+      if (testSession.current) { await api.disconnect(testSession.current); testSession.current = null }
+      const session = useSavedPassword && profileId
+        ? await api.connectSavedPassword(profileId, connectionProfile(config), config.sshSecrets)
+        : await api.connect(config)
+      testSession.current = session.id
+      await api.disconnect(session.id); testSession.current = null
+      setTestResult({ form, useSaved: useSavedPassword, success: true, message: 'Connection successful. Test connection closed.' })
+    } catch (error) {
+      let message = error instanceof Error ? error.message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '') : 'Could not test the connection.'
+      for (const secret of [config.password, config.accessToken, config.sshSecrets?.password, config.sshSecrets?.passphrase]) if (secret) message = message.split(secret).join('[redacted]')
+      setTestResult({ form, useSaved: useSavedPassword, success: false, message: `${testSession.current ? 'Connection opened, but the test connection could not be closed' : 'Connection failed'}: ${message}` })
+    } finally {
+      testInFlight.current = false; setTesting(false)
+    }
+  }
   function submit() {
-    const config: ConnectionConfig = embedded ? { ...form, [modeKey]: mode, database: engineNames[form.engine], host: 'local', port: 1, user: 'local', password: '', accessToken: undefined, authentication: undefined, tls: 'disable', ca: undefined, ssh: undefined, sshSecrets: undefined } : form
+    if (blocked || testInFlight.current) return
+    const config = connectionConfig()
     const choice = { remember: Boolean((saveOnly || saveConnection) && remember && passwordEligible(config)), useSaved: Boolean(!saveOnly && canUseSaved && useSaved && !config.password) }
     if (choice.remember && !config.password && !(vaultStatus?.saved && sameBinding && !addsProfile)) { setFileError(addsProfile ? 'Enter a password to remember it for the new profile, or uncheck Remember password. The existing saved password is kept.' : 'Enter a password to remember it for these connection settings.'); return }
     setFileError('')
     void (saveOnly ? onSave(config, choice) : onConnect(config, saveConnection, choice))
   }
-  return <ModalDialog className="connection-dialog connection-form" aria-labelledby="connection-title" onDismiss={() => { if (!busy && !removing) onClose() }}><form onSubmit={event => { event.preventDefault(); submit() }}>
-    <div className="dialog-heading"><div><h2 id="connection-title">{saveOnly ? `Save ${engineNames[form.engine]} profile` : `Connect to ${engineNames[form.engine]}`}</h2></div><button type="button" aria-label="Close connection dialog" disabled={busy || removing} onClick={onClose}><X size={18} /></button></div>
-    <div className="connection-fields"><fieldset disabled={busy || removing}>
+  return <ModalDialog className="connection-dialog connection-form" aria-labelledby="connection-title" onDismiss={() => { if (!blocked && !testInFlight.current) onClose() }}><form onSubmit={event => { event.preventDefault(); submit() }}>
+    <div className="dialog-heading"><div><h2 id="connection-title">{saveOnly ? `Save ${engineNames[form.engine]} profile` : `Connect to ${engineNames[form.engine]}`}</h2></div><button type="button" aria-label="Close connection dialog" disabled={blocked} onClick={onClose}><X size={18} /></button></div>
+    <div className="connection-fields"><fieldset disabled={blocked}>
       <div className="form-row"><label>Database engine<select value={form.engine} onChange={event => changeEngine(event.target.value as DatabaseEngine)}>{Object.entries(engineNames).map(([engine, name]) => <option key={engine} value={engine}>{name}</option>)}</select></label>
       {input('Connection name', 'name')}</div>
       {embedded ? <>
@@ -77,12 +127,12 @@ export function ConnectionDialog({ profile, profileId, busy, error, saveOnly, on
         <div className="form-row">{input(form.engine === 'oracle' ? 'Service name' : 'Database', 'database')}{input(form.authentication === 'entra-token' ? 'Account label' : 'User', 'user')}</div>
         <small>{form.engine === 'postgres' ? 'Database is optional. Leave blank to use postgres; specify a database if postgres is unavailable.' : form.engine === 'mysql' || form.engine === 'mariadb' ? 'Database is optional. Leave blank to connect without a default database.' : form.engine === 'sqlserver' ? 'Database is optional. Leave blank to use the login’s default database.' : form.engine === 'azure-sql' ? 'Database is optional with access to master. Contained users must specify a database.' : 'Service or PDB name is required.'}</small>
         {form.engine === 'azure-sql' && <label>Authentication<select value={form.authentication ?? 'sql-password'} onChange={event => setForm(previous => ({ ...previous, authentication: event.target.value as ConnectionConfig['authentication'], password: '', accessToken: '' }))}><option value="sql-password">SQL login</option><option value="entra-token">Microsoft Entra access token</option></select></label>}
-        {form.authentication === 'entra-token' ? (!saveOnly && <label>Access token<input aria-label="Access token" required type="password" autoComplete="off" value={form.accessToken ?? ''} onChange={event => update('accessToken', event.target.value)} /><small>For https://database.windows.net/. Paste a current token; renewal is manual.</small></label>) : input('Password', 'password', 'password')}
+        {form.authentication === 'entra-token' ? <label>Access token<input aria-label="Access token" required={!saveOnly} type="password" autoComplete="off" value={form.accessToken ?? ''} onChange={event => update('accessToken', event.target.value)} /><small>{saveOnly ? 'Optional for saving a profile; required to test the connection. Never saved.' : 'For https://database.windows.net/. Paste a current token; renewal is manual.'}</small></label> : input('Password', 'password', 'password')}
         {passwordEligible(form) && <div className="password-options">
           {vaultStatus?.saved && <>
             <small>{addsProfile ? `“${profile.name}” has a saved password. Enter a password again to remember it for this new connection.` : 'Password saved. Leave blank to keep it, or enter a replacement.'}</small>
             {!sameBinding && <small>{saveOnly ? 'Connection settings changed. Enter a password explicitly; saving these settings removes the previous saved password.' : 'Connection settings changed. Enter a password explicitly; the existing saved connection and password are kept.'}</small>}
-            {!saveOnly && <label className="save-profile-option"><input type="checkbox" checked={canUseSaved && useSaved && !form.password} disabled={!canUseSaved || Boolean(form.password)} onChange={event => setUseSaved(event.target.checked)} />Use saved password</label>}
+            <label className="save-profile-option"><input type="checkbox" checked={canUseSaved && useSaved && !form.password} disabled={!canUseSaved || Boolean(form.password)} onChange={event => setUseSaved(event.target.checked)} />Use saved password</label>
             <button type="button" onClick={() => void removePassword()}>Remove saved password</button>
           </>}
           {(saveOnly || saveConnection) && <label className="save-profile-option"><input type="checkbox" checked={remember} disabled={!vaultStatus?.available && !remember} onChange={event => setRemember(event.target.checked)} />Remember password</label>}
@@ -102,7 +152,10 @@ export function ConnectionDialog({ profile, profileId, busy, error, saveOnly, on
       </details>
       {!embedded && <details className="connection-options" open={Boolean(profile.ssh)}><summary>SSH tunnel{form.ssh ? ` · ${form.ssh.host || 'Enabled'}` : ''}</summary><ConnectionOptions config={form} onChange={setForm} sshOnly/></details>}
     </fieldset></div>
-    {(error || fileError) && <p className="dialog-error" role="alert">{fileError || error}</p>}
-    <div className="dialog-actions"><button type="button" disabled={busy || removing} onClick={onClose}>Cancel</button><button className="primary-button" disabled={busy || removing || (!vaultStatus && passwordEligible(form))} type="submit">{busy ? (saveOnly ? 'Saving…' : 'Connecting…') : saveOnly ? 'Save profile' : 'Connect'}<ChevronRight size={15} /></button></div>
+    {(fileError || (!testing && !visibleTestResult && error)) && <p className="dialog-error" role="alert">{fileError || error}</p>}
+    {testing && <p className="connection-test-feedback" role="status">Testing connection…</p>}
+    {visibleTestResult && <p className={`connection-test-feedback ${visibleTestResult.success ? 'success' : 'failure'}`} role={visibleTestResult.success ? 'status' : 'alert'}>{visibleTestResult.success ? <Check size={16}/> : <X size={16}/>}<span>{visibleTestResult.message}</span></p>}
+    {embedded && mode === 'create' && <p className="connection-test-note">To test a connection, choose an existing database or temporary in-memory mode. Testing never creates a database file.</p>}
+    <div className="dialog-actions"><button className="test-connection-button" type="button" disabled={blocked || (embedded && mode === 'create') || (!vaultStatus && passwordEligible(form))} onClick={event => void testConnection(event)}>{testing ? 'Testing…' : 'Test connection'}</button><button type="button" disabled={blocked} onClick={onClose}>Cancel</button><button className="primary-button" disabled={blocked || (!vaultStatus && passwordEligible(form))} type="submit">{busy ? (saveOnly ? 'Saving…' : 'Connecting…') : saveOnly ? 'Save profile' : 'Connect'}<ChevronRight size={15} /></button></div>
   </form></ModalDialog>
 }
