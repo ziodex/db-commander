@@ -128,3 +128,75 @@ test('saved connections capacity: all profiles remain reachable and an over-limi
     await run(page, 'SELECT value FROM retained;'); await expect(page.getByRole('cell', { name: 'source remains connected', exact: true })).toBeVisible()
   } finally { await close(app); rmSync(directory, { recursive: true, force: true }) }
 })
+
+test('saved connections: edited settings connect independently while earlier tabs retain their actual database', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'dbcommander-edited-profile-'))
+  let app: ElectronApplication | undefined
+  try {
+    const launched = await launch(directory); app = launched.app; const page = launched.page
+    await page.getByRole('button', { name: 'Connect database', exact: true }).click()
+    let form = page.getByRole('dialog')
+    await form.getByLabel('Database engine').selectOption('duckdb'); await form.getByLabel('Open mode').selectOption('memory')
+    await form.getByLabel('Connection name', { exact: true }).fill('Original DuckDB'); await connected(page)
+    await run(page, "CREATE TEMP TABLE original_only(value TEXT); INSERT INTO original_only VALUES ('original connection');")
+    await profileAction(page, 'Original DuckDB', 'Edit')
+    form = page.getByRole('dialog')
+    await form.getByLabel('Database engine').selectOption('sqlite'); await form.getByLabel('Open mode').selectOption('memory')
+    await form.getByLabel('Connection name', { exact: true }).fill('Updated SQLite')
+    await form.getByRole('button', { name: 'Save profile', exact: true }).click(); await expect(form).toBeHidden()
+    const row = page.getByRole('button', { name: 'Open Updated SQLite in new tab', exact: true })
+    await expect(row).toHaveAttribute('aria-description', /SQLite · Not connected · Open tabs use previous settings/)
+    await expect(row.locator('.online-dot')).toHaveCount(0)
+    await expect(row).toContainText('Open tabs use previous settings')
+    await expect(page.locator('.statusbar .dialect-label')).toHaveText('DuckDB')
+    await row.click({ button: 'right' })
+    await expect(page.getByRole('menuitem', { name: 'Disconnect', exact: true })).toBeEnabled()
+    await page.getByRole('menuitem', { name: 'Connect', exact: true }).click()
+    await expect(page.locator('.statusbar .dialect-label')).toHaveText('SQLite')
+    await expect(row.locator('.online-dot')).toHaveCount(1)
+    await expect(row).toHaveAttribute('aria-description', /SQLite · Connected · Open tabs use previous settings/)
+    await run(page, 'SELECT sqlite_version() AS version;')
+    await page.getByRole('tab', { name: 'Untitled.sql', exact: true }).click()
+    await expect(page.locator('.statusbar .dialect-label')).toHaveText('DuckDB')
+    await run(page, 'SELECT value FROM original_only;')
+    await expect(page.getByRole('cell', { name: 'original connection', exact: true })).toBeVisible()
+    await row.click({ button: 'right' }); await page.getByRole('menuitem', { name: 'Disconnect', exact: true }).click()
+    await expect(row.locator('.online-dot')).toHaveCount(0)
+    await expect(row).not.toContainText('Open tabs use previous settings')
+  } finally { await close(app); rmSync(directory, { recursive: true, force: true }) }
+})
+
+test('saved connections: protection confirmation describes shared tabs and relocking reaches all owners', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'dbcommander-shared-protection-'))
+  let app: ElectronApplication | undefined
+  try {
+    const launched = await launch(directory); app = launched.app; const page = launched.page
+    await page.getByRole('button', { name: 'Connect database', exact: true }).click()
+    const form = page.getByRole('dialog')
+    await form.getByLabel('Database engine').selectOption('sqlite'); await form.getByLabel('Open mode').selectOption('memory')
+    await form.getByLabel('Connection name', { exact: true }).fill('Production memory')
+    await form.getByText('Profile options', { exact: true }).click(); await form.getByLabel('Environment', { exact: true }).selectOption('production')
+    await connected(page)
+    await page.getByRole('button', { name: 'Unlock connection', exact: true }).click()
+    const unlock = page.getByRole('dialog', { name: 'Unlock protected connection' })
+    await expect(unlock).toContainText('all tabs sharing this connection, including tabs opened during that time')
+    await expect(unlock).toContainText('Separate connections stay locked')
+    await unlock.getByLabel('Type connection name').fill('wrong')
+    await expect(unlock.getByRole('button', { name: 'Unlock connection', exact: true })).toBeDisabled()
+    await unlock.getByLabel('Type connection name').fill('Production memory')
+    await unlock.getByRole('button', { name: 'Unlock connection', exact: true }).click(); await expect(unlock).toBeHidden()
+    await page.getByRole('button', { name: 'New query tab', exact: true }).click()
+    await expect(page.getByLabel('Connection safeguards')).toContainText('Unlocked')
+    await run(page, 'SELECT 42 AS shared_unlock;')
+    const source = (await page.evaluate(() => window.dbCommander.loadWorkspace()))!.profiles[0].config
+    const separate = await page.evaluate(config => window.dbCommander.connect({ ...config, password: '' }), source)
+    expect(separate.safety?.unlockedUntil).toBe(0)
+    await page.evaluate(id => window.dbCommander.disconnect(id), separate.id)
+    await page.getByRole('button', { name: 'Lock connection', exact: true }).click()
+    await expect(page.getByLabel('Connection safeguards')).toContainText('Protected · Locked')
+    await page.getByRole('tab', { name: 'Untitled.sql', exact: true }).click()
+    await expect(page.getByLabel('Connection safeguards')).toContainText('Protected · Locked')
+    await page.getByRole('button', { name: /^Run SQL/ }).click()
+    await expect(page.locator('.error-banner')).toContainText('Unlock the connection and its shared tabs')
+  } finally { await close(app); rmSync(directory, { recursive: true, force: true }) }
+})

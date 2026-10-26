@@ -5,6 +5,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'n
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { setTimeout as pause } from 'node:timers/promises'
+import { DatabaseSync } from 'node:sqlite'
 
 async function launch(directory: string) {
   const env: Record<string, string | undefined> = { ...process.env, SQLCOMMANDER_USER_DATA: directory }; delete env.ELECTRON_RUN_AS_NODE
@@ -200,10 +201,22 @@ test('credentials unavailable, failed writes/deletes and missing secrets fail wi
     await fault(app, ['deleteCredential'])
     await profileAction(page, 'Unavailable vault', 'Delete')
     await page.getByRole('dialog').getByRole('button', { name: 'Delete profile', exact: true }).click()
-    await expect(page.getByRole('dialog').getByRole('alert')).toContainText('profile has been retained')
-    expect((await profile(page)).id).toBe(id)
-    await page.getByRole('button', { name: 'Keep profile', exact: true }).click()
-    await fault(app, []); await native(app, id, undefined, true)
+    await expect(page.getByRole('dialog')).toBeHidden()
+    await expect(page.locator('.error-banner')).toContainText('saved-password cleanup is pending')
+    expect((await page.evaluate(() => window.dbCommander.loadWorkspace()))!.profiles).toEqual([])
+    expect(await native(app, id, 'failed-write-sentinel')).toBe(true)
+    await expect(page.locator('.error-banner')).not.toContainText('sensitive-native-detail')
+    await fault(app, [])
+    // Reopening/reloading retries the durable cleanup before another password
+    // can be saved under the same profile ID.
+    await page.evaluate(() => window.dbCommander.loadWorkspace())
+    expect(await native(app, id)).toBe(true)
+    await page.getByRole('button', { name: 'New saved profile', exact: true }).click()
+    form = page.getByRole('dialog'); await form.getByLabel('Connection name').fill('Unavailable vault')
+    await form.getByLabel('Password', { exact: true }).fill('replacement-sentinel'); await form.getByLabel('Remember password', { exact: true }).check()
+    await save(page)
+    const replacementId = (await profile(page)).id; ids.add(replacementId)
+    await native(app, replacementId, undefined, true)
     await page.getByRole('button', { name: 'Open Unavailable vault in new tab', exact: true }).click()
     const warning = page.getByRole('dialog', { name: 'Connection failed', exact: true })
     await expect(warning.getByRole('alert')).toContainText('saved password is missing')
@@ -211,7 +224,7 @@ test('credentials unavailable, failed writes/deletes and missing secrets fail wi
     form = page.getByRole('dialog')
     await form.getByRole('button', { name: 'Remove saved password', exact: true }).click()
     await expect(form.getByLabel('Use saved password', { exact: true })).toHaveCount(0)
-    await noWorkspaceSecrets(directory, ['unsaved-vault-sentinel', 'failed-write-sentinel'])
+    await noWorkspaceSecrets(directory, ['unsaved-vault-sentinel', 'failed-write-sentinel', 'replacement-sentinel'])
     await form.getByLabel('Database engine').selectOption('azure-sql'); await form.getByLabel('Authentication').selectOption('entra-token')
     await expect(form.getByLabel('Remember password', { exact: true })).toHaveCount(0)
     await form.getByLabel('Database engine').selectOption('sqlite'); await expect(form.getByLabel('Remember password', { exact: true })).toHaveCount(0)
@@ -277,5 +290,61 @@ for (const tunneled of [false, true]) test(`credentials postgres ${tunneled ? 'S
     page = await recovered; await waitForWorkspaceReady(page)
     await expect(page.getByRole('button', { name: /^Run SQL/ })).toBeDisabled()
     await noWorkspaceSecrets(directory, ['local-test-only', 'local-key-passphrase', 'BEGIN OPENSSH PRIVATE KEY'])
+  } finally { await cleanup(app, ids, directory) }
+})
+
+test('credentials native: failed profile persistence preserves the saved password until a successful retry', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'dbcommander-credential-save-failure-')), ids = new Set<string>()
+  let app: ElectronApplication | undefined, blocker: DatabaseSync | undefined
+  try {
+    const launched = await launch(directory); app = launched.app; const page = launched.page
+    await page.getByRole('button', { name: 'New saved profile', exact: true }).click()
+    let form = page.getByRole('dialog'); await form.getByLabel('Connection name').fill('Save failure profile')
+    await form.getByLabel('Password', { exact: true }).fill('durability-sentinel'); await form.getByLabel('Remember password', { exact: true }).check()
+    await save(page)
+    const original = await profile(page); ids.add(original.id)
+    blocker = new DatabaseSync(join(directory, 'workspace.sqlite'))
+    blocker.exec("CREATE TRIGGER reject_profile_save BEFORE UPDATE ON workspace BEGIN SELECT RAISE(ABORT, 'simulated workspace save failure'); END;")
+    form = await edit(page, 'Save failure profile')
+    await form.getByLabel('Host', { exact: true }).fill('different.invalid')
+    await form.getByLabel('Remember password', { exact: true }).uncheck()
+    await form.getByRole('button', { name: 'Save profile', exact: true }).click()
+    await expect(form.getByRole('alert')).toContainText('simulated workspace save failure')
+    expect(await profile(page)).toEqual(original)
+    expect(await native(app, original.id, 'durability-sentinel')).toBe(true)
+    blocker.exec('DROP TRIGGER reject_profile_save'); blocker.close(); blocker = undefined
+    await save(page)
+    expect((await profile(page)).config.host).toBe('different.invalid')
+    expect((await profile(page)).credential).toBeUndefined()
+    expect(await native(app, original.id)).toBe(true)
+    await noWorkspaceSecrets(directory, ['durability-sentinel'])
+  } finally { blocker?.close(); await cleanup(app, ids, directory) }
+})
+
+test('credentials native: pending cleanup blocks password replacement until it can settle safely', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'dbcommander-credential-cleanup-')), ids = new Set<string>()
+  let app: ElectronApplication | undefined
+  try {
+    const launched = await launch(directory); app = launched.app; const page = launched.page
+    await page.getByRole('button', { name: 'New saved profile', exact: true }).click()
+    const form = page.getByRole('dialog'); await form.getByLabel('Connection name').fill('Cleanup ordering')
+    await form.getByLabel('Password', { exact: true }).fill('cleanup-old-sentinel'); await form.getByLabel('Remember password', { exact: true }).check()
+    await save(page)
+    const id = (await profile(page)).id; ids.add(id)
+    await fault(app, ['deleteCredential'])
+    const removal = await page.evaluate(async id => {
+      try { await window.dbCommander.removeProfilePassword(id); return '' } catch (error) { return (error as Error).message }
+    }, id)
+    expect(removal).toContain('cleanup is pending')
+    const replacement = await page.evaluate(async id => {
+      try { await window.dbCommander.saveProfilePassword(id, 'cleanup-new-sentinel'); return '' } catch (error) { return (error as Error).message }
+    }, id)
+    expect(replacement).toContain('cleanup is pending')
+    expect(await native(app, id, 'cleanup-old-sentinel')).toBe(true)
+    await fault(app, [])
+    await page.evaluate(id => window.dbCommander.saveProfilePassword(id, 'cleanup-new-sentinel'), id)
+    await page.evaluate(() => window.dbCommander.loadWorkspace())
+    expect(await native(app, id, 'cleanup-new-sentinel')).toBe(true)
+    await noWorkspaceSecrets(directory, ['cleanup-old-sentinel', 'cleanup-new-sentinel'])
   } finally { await cleanup(app, ids, directory) }
 })

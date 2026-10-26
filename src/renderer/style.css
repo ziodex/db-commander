@@ -656,6 +656,11 @@ body[data-resizing=horizontal], body[data-resizing=horizontal] * { cursor: row-r
 .connection-form > form > .connection-fields { min-height: 0; overflow: auto; padding: 1px 8px 1px 1px; }
 .connection-form > form > .dialog-actions { flex-shrink: 0; border-top: 1px solid var(--border); padding-top: 12px; margin-top: 12px; }
 .connection-form > form > .dialog-error { flex-shrink: 0; max-height: 90px; overflow: auto; }
+.connection-form .test-connection-button { margin-right: auto; border: 1px solid var(--control-border); }
+.connection-test-feedback { display: flex; align-items: flex-start; gap: 8px; flex-shrink: 0; max-height: 100px; overflow: auto; margin: 12px 0 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 4px; font-size: 13px; line-height: 1.5; }
+.connection-test-feedback.success { color: var(--success); background: var(--success-background); }
+.connection-test-feedback.failure { color: var(--danger); background: var(--danger-background); }
+.connection-test-note { margin: 10px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .connection-form label { margin-bottom: 12px; }
 .connection-form fieldset > small { display: block; margin: -3px 0 12px; color: var(--muted); line-height: 1.5; }
 .connection-form .password-options { border: 0; padding: 0; margin: 0 0 12px; gap: 6px; }

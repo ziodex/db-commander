@@ -15,10 +15,10 @@ export class SessionProtection {
   }
   unlock(id: string, confirmation: string) {
     const state = this.states.get(id)
-    if (!state || confirmation !== state.config.name) throw new Error('Type the exact connection name to unlock this tab.')
+    if (!state || confirmation !== state.config.name) throw new Error('Type the exact connection name to unlock this connection and its shared tabs.')
     state.until = this.now() + 10 * 60_000
     return this.status(id)
   }
   lock(id: string) { const state = this.states.get(id); if (state) state.until = 0; return this.status(id) }
-  assert(id: string) { const state = this.status(id); if (state.protected && !state.unlockedUntil) throw new Error('This protected connection is locked. Unlock this tab before executing SQL or changing data.') }
+  assert(id: string) { const state = this.status(id); if (state.protected && !state.unlockedUntil) throw new Error('This protected connection is locked. Unlock this connection and its shared tabs before executing SQL or changing data.') }
 }

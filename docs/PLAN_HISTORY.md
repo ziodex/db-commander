@@ -1,6 +1,6 @@
 # Db Commander plan history
 
-This file preserves the original roadmap and dated milestone reports. It is historical evidence, not the current beta backlog. Older pending-validation statements and release requirements can be superseded by later reports. Use the single [frozen beta scope and release checklist](PLAN.md) for current decisions; use [implementation](IMPLEMENTATION.md) and [validation](DRIVER_TESTING.md) for detailed evidence.
+This file preserves the original roadmap and dated milestone reports. It is historical evidence, not the current product backlog. Older pending-validation statements and release requirements can be superseded by later reports. Use the [current product roadmap](PLAN.md) for current decisions and the [archived beta checklist](PLAN_BETA_ARCHIVE.md) for the 20 October freeze; use [implementation](IMPLEMENTATION.md) and [validation](DRIVER_TESTING.md) for detailed evidence.
 
 Db Commander is a local-first, open-source SQL IDE for macOS, Linux, and Windows. Build it with Electron, TypeScript, React, and database adapters that execute outside the UI process. Essential development features remain open source and usable without an account.
 

@@ -43,13 +43,13 @@ export class PasswordVault {
     try { await (await this.entries(this.service, profile.id)).setPassword(value) }
     catch { throw new Error('Password was not saved. ' + unavailable) }
   }
-  async remove(profile: SavedConnectionProfile): Promise<void> {
+  async remove(profile: Pick<SavedConnectionProfile, 'id' | 'credential'>): Promise<void> {
     if (!profile.credential) return
     try {
       await (await this.entries(this.service, profile.id)).deleteCredential()
       await (await this.entries(this.legacyService, profile.id)).deleteCredential()
     }
-    catch { throw new Error('Saved password could not be removed. The profile has been retained. ' + unavailable) }
+    catch { throw new Error('Saved password could not be removed. ' + unavailable) }
   }
   async resolve(profile: SavedConnectionProfile, candidate: ConnectionProfile): Promise<string> {
     if (!profile.credential || !passwordEligible(candidate) || credentialBinding(profile.config) !== credentialBinding(candidate)) {
@@ -72,13 +72,12 @@ export class PasswordVault {
     return parsed.data.password
   }
   /** Credential references belong to main, not renderer workspace writes. */
-  async prepareWorkspace(previous: Workspace | null, incoming: Workspace): Promise<Workspace> {
+  prepareWorkspace(previous: Workspace | null, incoming: Workspace): Workspace {
     const profiles: SavedConnectionProfile[] = incoming.profiles.map(({ credential: _ignored, ...profile }) => profile)
     for (const old of previous?.profiles ?? []) {
       if (!old.credential) continue
       const next = profiles.find(profile => profile.id === old.id)
-      if (!next || credentialBinding(old.config) !== credentialBinding(next.config) || !passwordEligible(next.config)) await this.remove(old)
-      else next.credential = old.credential
+      if (next && credentialBinding(old.config) === credentialBinding(next.config) && passwordEligible(next.config)) next.credential = old.credential
     }
     return { ...incoming, profiles }
   }

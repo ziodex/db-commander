@@ -18,8 +18,8 @@ for (const engine of engineSchema.options) test(`connections ${engine}: SSH, fol
   async function unlock() {
     await page.getByRole('button', { name: 'Unlock connection', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: 'Unlock protected connection' })
-    await dialog.getByLabel('Type connection name').fill('wrong'); await expect(dialog.getByRole('button', { name: 'Unlock this tab', exact: true })).toBeDisabled()
-    await dialog.getByLabel('Type connection name').fill(name); await dialog.getByRole('button', { name: 'Unlock this tab', exact: true }).click(); await expect(dialog).not.toBeVisible()
+    await dialog.getByLabel('Type connection name').fill('wrong'); await expect(dialog.getByRole('button', { name: 'Unlock connection', exact: true })).toBeDisabled()
+    await dialog.getByLabel('Type connection name').fill(name); await dialog.getByRole('button', { name: 'Unlock connection', exact: true }).click(); await expect(dialog).not.toBeVisible()
   }
   try {
     await launch(); await page!.getByRole('button', { name: 'Connect database', exact: true }).click()
