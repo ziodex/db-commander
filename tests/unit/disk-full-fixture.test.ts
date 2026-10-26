@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest'
-import { detachDiskImage, diskImageDevice, verifyDiskImageDetached } from '../desktop/disk-full-fixture'
+import { createDiskImage, detachDiskImage, diskImageDevice, verifyDiskImageDetached } from '../desktop/disk-full-fixture'
 
 it('selects only the attached device owning the private fixture mount', () => {
   const mount = '/private/fixture/volume'
@@ -7,6 +7,36 @@ it('selects only the attached device owning the private fixture mount', () => {
   expect(diskImageDevice({ 'system-entities': entities }, mount)).toBe('/dev/disk4')
   for (const report of [{}, { 'system-entities': [entities[0]] }, { 'system-entities': [entities[0], { 'dev-entry': '/dev/disk40s1', 'mount-point': mount }] }, { 'system-entities': [{ 'dev-entry': '/dev/disk4', 'mount-point': '/another/mount' }] }]) {
     expect(() => diskImageDevice(report, mount)).toThrow('Cannot identify the owned disk-image device')
+  }
+})
+
+it('retries transient disk-image creation refusals only while its private output is absent', () => {
+  const busy = Object.assign(new Error('hdiutil refusal'), { stderr: Buffer.from('hdiutil: create failed - Resource busy') })
+  let attempts = 0, time = 0
+  const execute = vi.fn().mockImplementation(() => { if (++attempts <= 2) throw busy; return Buffer.from('created') })
+  const pause = vi.fn((ms: number) => { time += ms })
+  createDiskImage('/private/fixture/volume.dmg', execute, pause, () => time, () => false)
+  expect(execute).toHaveBeenCalledTimes(3); expect(time).toBe(1000)
+  for (const args of execute.mock.calls) expect(args).toEqual(['hdiutil', ['create', '-size', '32m', '-fs', 'HFS+', '-volname', 'DbCommanderDiskFault', '-type', 'UDIF', '-nospotlight', '/private/fixture/volume.dmg'], { stdio: 'pipe', timeout: 15000 }])
+})
+
+it('keeps disk-image creation retries bounded and preserves the original error', () => {
+  const busy = Object.assign(new Error('still busy'), { stderr: 'Resource busy' })
+  let time = 0
+  const execute = vi.fn(() => { throw busy }), pause = vi.fn((ms: number) => { time += ms })
+  expect(() => createDiskImage('/private/fixture/volume.dmg', execute, pause, () => time, () => false)).toThrow(busy)
+  expect(time).toBe(30000); expect(execute).toHaveBeenCalledTimes(61)
+})
+
+it('never retries disk-image creation over partial output or unrelated failures', () => {
+  for (const [error, exists] of [
+    [Object.assign(new Error('partial image'), { stderr: 'Resource busy' }), true],
+    [Object.assign(new Error('denied'), { stderr: 'Operation not permitted' }), false],
+    [Object.assign(new Error('timeout'), { code: 'ETIMEDOUT' }), false]
+  ] as const) {
+    const execute = vi.fn(() => { throw error }), pause = vi.fn()
+    expect(() => createDiskImage('/private/fixture/volume.dmg', execute, pause, Date.now, () => exists)).toThrow(error)
+    expect(execute).toHaveBeenCalledOnce(); expect(pause).not.toHaveBeenCalled()
   }
 })
 

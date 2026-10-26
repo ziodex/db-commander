@@ -165,7 +165,11 @@ test('credentials native store opt-in, restart, replacement, removal and profile
     await page.screenshot({ path: testInfo.outputPath('saved-password-controls.png') })
     await form.getByRole('button', { name: 'Cancel', exact: true }).click()
     await profileAction(page, 'Renamed vault profile', 'Delete')
-    await page.getByRole('dialog').getByRole('button', { name: 'Delete profile', exact: true }).click()
+    const deletion = page.getByRole('dialog', { name: 'Delete saved profile', exact: true })
+    await deletion.getByRole('button', { name: 'Delete profile', exact: true }).click()
+    // The row disappears optimistically; dialog completion follows durable
+    // workspace persistence and OS-store cleanup.
+    await expect(deletion).toBeHidden()
     await expect(page.getByRole('button', { name: 'Open Renamed vault profile in new tab', exact: true })).toHaveCount(0)
     expect(await native(app, id)).toBe(true)
     await noWorkspaceSecrets(directory, ['session-only-sentinel', 'first-vault-sentinel', 'replacement-vault-sentinel', 'remove-vault-sentinel', 'delete-vault-sentinel'])

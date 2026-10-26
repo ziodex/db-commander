@@ -1,4 +1,4 @@
-import { closeSync, fstatSync, ftruncateSync, mkdtempSync, openSync, realpathSync, rmSync, statfsSync, writeFileSync, writeSync } from 'node:fs'
+import { closeSync, existsSync, fstatSync, ftruncateSync, mkdtempSync, openSync, realpathSync, rmSync, statfsSync, writeFileSync, writeSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -35,6 +35,22 @@ export function detachDiskImage(mount: string, execute = execFileSync, pause = (
   }
 }
 
+export function createDiskImage(image: string, execute = execFileSync, pause = (ms: number) => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms) }, now = Date.now, exists = existsSync) {
+  const deadline = now() + 30000
+  for (;;) {
+    try {
+      execute('hdiutil', ['create', '-size', '32m', '-fs', 'HFS+', '-volname', 'DbCommanderDiskFault', '-type', 'UDIF', '-nospotlight', image], { stdio: 'pipe', timeout: 15000 })
+      return
+    } catch (error) {
+      // Hosted macOS can briefly refuse a new image while the native service
+      // settles. Retry only that refusal and only if no output was created;
+      // never overwrite a partial image or retry permission/timeout failures.
+      if (now() >= deadline || !/Resource busy/i.test(String((error as { stderr?: unknown }).stderr)) || exists(image)) throw error
+      pause(500)
+    }
+  }
+}
+
 /** A bounded destination for real ENOSPC; image and reports live on the host. */
 export function diskFullFixture() {
   if (process.platform !== 'darwin') throw new Error('The private disk-image fixture requires macOS.')
@@ -57,7 +73,7 @@ export function diskFullFixture() {
     rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
   }
   try {
-    execFileSync('hdiutil', ['create', '-size', '32m', '-fs', 'HFS+', '-volname', 'DbCommanderDiskFault', '-type', 'UDIF', '-nospotlight', image], { stdio: 'pipe' })
+    createDiskImage(image)
     const attached = execFileSync('hdiutil', ['attach', '-plist', '-nobrowse', '-mountpoint', mount, image], { stdio: 'pipe' }); mounted = true
     device = diskImageDevice(JSON.parse(String(execFileSync('plutil', ['-convert', 'json', '-o', '-', '-'], { input: attached, stdio: 'pipe' }))), mount)
     writeFileSync(join(mount, '.metadata_never_index'), '')
