@@ -8,7 +8,7 @@ COPY patches ./patches
 RUN pnpm install --frozen-lockfile --ignore-scripts
 COPY src ./src
 COPY tests ./tests
-COPY scripts/build-sqlite-worker.mjs scripts/build-windows-owner-guard.mjs ./scripts/
+COPY scripts/build-sqlite-worker.mjs scripts/build-windows-owner-guard.mjs scripts/build-windows-sqlserver.mjs ./scripts/
 COPY vitest.config.ts tsconfig.json ./
 RUN node scripts/build-sqlite-worker.mjs
 ENV SQLCOMMANDER_TEST_DRIVERS=sqlite

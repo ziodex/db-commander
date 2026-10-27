@@ -1,6 +1,8 @@
 # Initial beta scope and known limitations
 
-These notes describe the scope frozen on 20 October 2026. **No beta release has been declared.** Package metadata is developer-preview version 0.2.0; a release candidate has not been selected. The [product roadmap and delivery checklist](PLAN.md) now guide development. The [archived beta checklist](PLAN_BETA_ARCHIVE.md#beta-release-checklist) preserves the original freeze; these notes describe that preview baseline and are not a second backlog.
+These notes describe the scope frozen on 20 October 2026. **No beta release has been declared.** Package metadata is developer-preview version 0.2.1; a release candidate has not been selected. The [product roadmap and delivery checklist](PLAN.md) now guide development. The [archived beta checklist](PLAN_BETA_ARCHIVE.md#beta-release-checklist) preserves the original freeze; these notes describe that preview baseline and are not a second backlog.
+
+Version 0.2.1 adds SQL Server Windows Authentication on Windows using the current account. It requires a direct TCP connection and uses the Windows certificate store for TLS; SSH tunnels and Windows Authentication on other platforms are unsupported. This does not extend the Azure SQL authentication modes below.
 
 ## Included workflows
 

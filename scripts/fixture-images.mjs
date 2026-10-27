@@ -15,7 +15,7 @@ export function fixtureFingerprint(engine, root, architecture) {
   if (!dockerfiles[engine]) throw new Error(`Unknown Docker fixture: ${engine}`)
   const hash=createHash('sha256').update(JSON.stringify(['dbcommander-fixtures-v1',engine,architecture]))
   const embedded=['sqlite','duckdb'].includes(engine)
-  const paths=['compose.yaml','.dockerignore',`tests/docker/Dockerfile.${dockerfiles[engine]}`,...(embedded?['package.json','pnpm-lock.yaml','pnpm-workspace.yaml','.npmrc','patches','src','tests','vitest.config.ts','tsconfig.json',...(engine==='sqlite'?['scripts/build-sqlite-worker.mjs','scripts/build-windows-owner-guard.mjs']:[])]:copied[engine])]
+  const paths=['compose.yaml','.dockerignore',`tests/docker/Dockerfile.${dockerfiles[engine]}`,...(embedded?['package.json','pnpm-lock.yaml','pnpm-workspace.yaml','.npmrc','patches','src','tests','vitest.config.ts','tsconfig.json',...(engine==='sqlite'?['scripts/build-sqlite-worker.mjs','scripts/build-windows-owner-guard.mjs','scripts/build-windows-sqlserver.mjs']:[])]:copied[engine])]
   function add(path){const absolute=resolve(root,path),stat=statSync(absolute);if(stat.isDirectory()){for(const name of readdirSync(absolute).sort())add(relative(root,resolve(absolute,name)))}else{hash.update(JSON.stringify([path.replaceAll('\\','/'),stat.mode&0o777,stat.size]));hash.update(readFileSync(absolute))}}
   for(const path of paths)add(path)
   return hash.digest('hex')

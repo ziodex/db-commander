@@ -18,9 +18,9 @@ const connectionFields = z.object({
   host: z.string().trim().min(1).max(255),
   port: z.number().int().min(1).max(65535),
   database: z.string().max(255).default(''),
-  user: z.string().min(1).max(255),
+  user: z.string().max(255),
   password: z.string().max(4096),
-  authentication: z.enum(['sql-password', 'entra-token']).optional(),
+  authentication: z.enum(['sql-password', 'entra-token', 'windows']).optional(),
   accessToken: z.string().max(65536).optional(),
   tls: z.enum(['verify-full', 'disable']),
   ca: z.string().max(65536).optional(),
@@ -29,10 +29,15 @@ const connectionFields = z.object({
   duckdbMode: z.enum(['read-write', 'read-only', 'create', 'memory']).optional()
 }).strict()
 const hasEndpoint = (config: { engine: DatabaseEngine; database: string; ssh?: unknown }) => (config.engine !== 'oracle' || Boolean(config.database.trim())) && !(config.ssh && ['sqlite', 'duckdb'].includes(config.engine))
+const hasAuthentication = (config: { engine: DatabaseEngine; authentication?: string; user: string }) => config.authentication === 'windows'
+  ? config.engine === 'sqlserver'
+  : Boolean(config.user.length) && (config.authentication !== 'entra-token' || config.engine === 'azure-sql')
 export const connectionSchema = connectionFields.refine(hasEndpoint, { message: 'Oracle requires a service name.', path: ['database'] })
+  .refine(hasAuthentication, { message: 'Enter a user. Windows authentication is available only for SQL Server; Entra tokens only for Azure SQL.', path: ['authentication'] })
 export type ConnectionConfig = z.infer<typeof connectionSchema>
 export type ConnectionProfile = Omit<ConnectionConfig, 'password' | 'accessToken' | 'sshSecrets'>
 export const profileSchema = connectionFields.omit({ password: true, accessToken: true, sshSecrets: true }).refine(hasEndpoint, { message: 'Oracle requires a service name. Embedded databases cannot use SSH.' })
+  .refine(hasAuthentication, { message: 'Enter a user and choose an authentication method supported by this database.' })
 export const DEFAULT_PROFILE: ConnectionProfile = { engine: 'postgres', name: 'Local PostgreSQL', host: 'localhost', port: 5432, database: 'postgres', user: 'postgres', tls: 'verify-full', ca: '' }
 export const MAX_TABS = 20
 export const MAX_PROFILES = 100
@@ -110,7 +115,7 @@ export type GridRequest = z.infer<typeof gridRequestSchema>
 export type GridChange = z.infer<typeof gridChangeSchema>
 export type GridTable = z.infer<typeof gridTableSchema>
 export interface GridColumn { name: string; type: string; nullable: boolean; primaryKey: boolean; generated: boolean; hasDefault: boolean; filterable?: boolean; sortable?: boolean; textual?: boolean }
-export interface GridSnapshot { id: string; table: GridTable; columns: GridColumn[]; rows: Cell[][]; truncated: boolean; query: GridQueryOptions; mode: 'browse' | 'edit'; notice?: string; cellMarks?: import('./inspection').CellMark[]; /** Executed SELECT when it needs no bound filter values. */ statement?: string }
+export interface GridSnapshot { id: string; table: GridTable; columns: GridColumn[]; rows: Cell[][]; truncated: boolean; query: GridQueryOptions; mode: 'browse' | 'edit'; notice?: string; cellMarks?: import('./inspection').CellMark[]; /** Equivalent SELECT without browser display casts, when no filter values need binding. */ statement?: string }
 export interface GridResponse { session: SessionInfo; grid?: GridSnapshot; applied?: number; error?: string; imported?: number; importPreview?: import('./transfer').ImportPreview; inspection?: import('./inspection').CellInspection; references?: import('./inspection').ForeignKey[]; dataCapture?: import('./data-compare').DataCapture }
 export interface DesktopApi {
   preferences(): Promise<import('./editor-settings').EditorSettings | null>
@@ -120,6 +125,7 @@ export interface DesktopApi {
   executeApplicationMenu(path: string): Promise<void>
   updateTitleBar(appearance: import('./application-menu').TitleBarAppearance): Promise<void>
   onApplicationMenuKey(listener: (index: number | null) => void): () => void
+  onAbout(listener: (version: string) => void): () => void
   updateStatus(): Promise<import('./updates').UpdateStatus>
   checkForUpdates(): Promise<import('./updates').UpdateStatus>
   dismissUpdate(version?: string): Promise<void>

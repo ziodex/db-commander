@@ -18,7 +18,8 @@ const runtimeNotices = [
 ]
 const applicationResources = [
   { source: 'out/worker/sqlite-worker.cjs', destination: 'workers/sqlite-worker.cjs' },
-  { source: 'out/worker/windows-owner-guard.exe', destination: 'workers/windows-owner-guard.exe', platform: 'win32' }
+  { source: 'out/worker/windows-owner-guard.exe', destination: 'workers/windows-owner-guard.exe', platform: 'win32' },
+  { source: 'out/worker/windows-sqlserver.exe', destination: 'workers/windows-sqlserver.exe', platform: 'win32' }
 ]
 const applicationResourcesFor = platform => applicationResources.filter(file => !file.platform || file.platform === platform)
 // Builder drops dependency READMEs, including these upstream license texts.
@@ -97,7 +98,7 @@ function builderConfig(env = process.env) {
     directories: { output: env.SQLCOMMANDER_BUILD_OUTPUT || 'release', buildResources: 'build' },
     // Oracle is deliberately Thin-only. Keep dependency installation untouched;
     // omit the upstream-optional Thick addons only from release payloads.
-    files: ['out/**/*', '!out/worker/**/*', '!out/main/windows-owner-guard.exe', '!**/node_modules/oracledb/build{,/**/*}', 'package.json', 'LICENSE', 'THIRD_PARTY_NOTICES.md'],
+    files: ['out/**/*', '!out/worker/**/*', '!out/main/windows-owner-guard.exe', '!out/main/windows-sqlserver.exe', '!**/node_modules/oracledb/build{,/**/*}', 'package.json', 'LICENSE', 'THIRD_PARTY_NOTICES.md'],
     extraResources: [
       ...applicationResourcesFor(process.platform).map(file => ({ from: file.source, to: file.destination })),
       { from: 'build/icons/1024x1024.png', to: 'icon.png' },

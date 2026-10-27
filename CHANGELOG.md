@@ -2,7 +2,11 @@
 
 ## Unreleased — beta preparation
 
-No beta release has been declared. Package version 0.2.0 remains a developer preview; signed distribution and the final beta version are pending the [release gates](docs/PLAN.md#beta-release-checklist).
+No beta release has been declared. Package version 0.2.1 remains a developer preview; signed distribution and the final beta version are pending the [release gates](docs/PLAN.md#beta-release-checklist).
+
+- Shortened the SQL opened by Browse data to `SELECT *`, retaining identifier quoting, sorting and paging. Browser display conversions still preserve exact values.
+- Added SQL Server Windows Authentication with the current Windows account, using the Windows SQL client without storing a password. This mode requires a direct connection and uses the Windows certificate store for TLS.
+- Added **Help → About Db Commander**, showing the actual running version and a short application description.
 
 - Updated the workbench with the VS Code 2026 Dark theme, Material file/object icons, a Windows title-bar application menu, clearer typography and a compact results toolbar.
 - Added drag, Shift-click and keyboard cell-range selection, copying with or without column headers, and an active saved-connection highlight alongside green connected indicators.

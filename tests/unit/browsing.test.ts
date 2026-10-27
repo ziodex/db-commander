@@ -8,6 +8,15 @@ const columns: GridColumn[] = [
   { name: 'id', type: 'INTEGER', primaryKey: true, generated: false, hasDefault: false, nullable: false },
   { name: "Label' value", type: 'VARCHAR(100)', primaryKey: false, generated: false, hasDefault: false, nullable: true }
 ]
+it('offers short SELECT-star SQL without changing exact browser projections or pagination', () => {
+  for (const engine of engineSchema.options) {
+    const d = new GridSql(engine), selection = browseSelect(d, { schema: 'schema name', name: 'table name' }, columns)
+    expect(selection.statement).toBe(`SELECT * ${selection.from} ${d.mssql || engine === 'oracle' ? 'OFFSET 0 ROWS FETCH NEXT 201 ROWS ONLY' : 'LIMIT 201 OFFSET 0'}`)
+    expect(selection.statement).toContain(d.table({ schema: 'schema name', name: 'table name' }))
+    expect(selection.sql).toContain(d.q('sc_0'))
+    expect(selection.statement).not.toContain('sc_0')
+  }
+})
 it('rejects unbounded pages and SQL-shaped options at the IPC boundary', () => {
   const request = { action: 'browse', sessionId: randomUUID(), table: { schema: 'main', name: 'table' } }
   expect(gridRequestSchema.safeParse(request).success).toBe(true)

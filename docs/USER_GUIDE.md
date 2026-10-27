@@ -4,7 +4,7 @@ For installation from source, tests and contributing, start with the [developer 
 
 ## Current app and documentation
 
-The app is **Db Commander**, developer-preview version 0.2.0. The supported profile types are PostgreSQL, MySQL, MariaDB, SQL Server, experimental Azure SQL, SQLite, Oracle Thin and DuckDB. [Screenshots of the current workbench](../README.md#screenshots) use an isolated demo database. Development, build/test commands and fork setup are in the [README](../README.md); CI is managed by [GitHub Actions](GITHUB_ACTIONS.md).
+The app is **Db Commander**, developer-preview version 0.2.1. **Help → About Db Commander** shows the version of the running application. The supported profile types are PostgreSQL, MySQL, MariaDB, SQL Server, experimental Azure SQL, SQLite, Oracle Thin and DuckDB. [Screenshots of the current workbench](../README.md#screenshots) use an isolated demo database. Development, build/test commands and fork setup are in the [README](../README.md); CI is managed by [GitHub Actions](GITHUB_ACTIONS.md).
 
 ## Executing SQL
 
@@ -95,6 +95,8 @@ The review identifies source-only, target-only, changed, matching and unknown ob
 Matching means identical exposed metadata and definition text. Permissions, omitted engine options, generated names, whitespace and namespace qualifiers affect the comparison; unknown/truncated definitions never produce SQL suggestions. See [scope and verification](IMPLEMENTATION.md#same-engine-schema-comparison-and-explorer-context-menus).
 
 Table **Details / Browse / Edit / Alter** actions are in the table's context menu. Use right-click or focus a database/table and press **Shift+F10** (or the Menu key), then navigate with arrows and Enter; Escape dismisses the menu. Backup/restore uses the current database: select another database first to preserve switching safeguards. **Commands → Database backup and restore** also opens job history when disconnected.
+
+**Browse data** puts a short `SELECT * FROM …` query in the new table tab, with the browser's quoted identifiers, sorting and page limit. The browser applies its own exact-value display conversions internally; running the SQL in the editor uses normal query results.
 
 ## Migration-file export
 
@@ -421,6 +423,10 @@ Click a table to open its actions. **Append SELECT SQL** adds a safely quoted SE
 MySQL/MariaDB support sequential scripts and `DELIMITER` for routines. DDL can commit implicitly, and nontransactional tables cannot be rolled back. The transaction indicator uses server status and distinguishes manual commit mode. Run changes to `SQL_MODE` separately from other statements.
 
 SQL Server and Azure SQL use T-SQL batches: a standalone `GO` or `GO <count>` line separates batches; semicolons remain within the same batch. Variables, procedure definitions, multiple result sets, temporary tables, notices, and transactions retain normal server semantics. The first failed batch stops later batches; SQL Server itself decides whether to continue statements within a batch. `GO` is a client separator, not SQL sent to the server. SQLCMD file/shell commands are unsupported.
+
+On Windows, choose **SQL Server → Authentication → Windows Authentication** to sign in with the account running Db Commander, as with Windows Authentication in SQL Server Management Studio. No database user or password is needed or saved. That Windows account must have access to the server and database. This mode uses the Windows SQL client and supports direct TCP connections. Verified TLS uses the Windows certificate store; install private CAs there instead of pasting a custom CA. SSH tunnels and Windows Authentication on macOS/Linux are not supported. SQL logins continue to work on all supported platforms. Named instances must be addressed by their TCP hostname and port.
+
+To run the optional native Windows checks against a SQL Server accessible to your current account, build the app, set `SQLCOMMANDER_WINDOWS_AUTH_TEST=1`, and run `pnpm exec vitest run tests/integration/windows-auth.test.ts` and `pnpm exec playwright test tests/desktop/windows-auth.spec.ts`. These default to localhost:1433; `SQLCOMMANDER_WINDOWS_AUTH_HOST` and `SQLCOMMANDER_WINDOWS_AUTH_PORT` override the endpoint. The test connection disables TLS for local testing; integration writes use only a private temporary table.
 
 For Azure SQL, choose **Azure SQL**, enter the server hostname (for example `your-server.database.windows.net`), port 1433 and an optional target database (see server browsing above). TLS certificate and hostname verification is mandatory. Choose a SQL login or paste a current **Microsoft Entra access token** for `https://database.windows.net/`; the account label is for the profile only. Token acquisition/renewal, interactive login, managed identity and Windows integrated authentication are not implemented. No live Azure authentication, firewall, redirect or private-endpoint validation has been performed. The Docker Azure-profile test covers only the shared SQL-login path.
 

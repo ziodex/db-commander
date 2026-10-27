@@ -59,6 +59,6 @@ export function browseSelect(d: GridSql, table: GridTable, columns: GridColumn[]
   const limit = query.pageSize + 1
   const paging = d.mssql || d.engine === 'oracle' ? `OFFSET ${query.offset} ROWS FETCH NEXT ${limit} ROWS ONLY` : `LIMIT ${limit} OFFSET ${query.offset}`
   const from = `FROM ${d.table(table)}${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY ${order}`
-  return { sql: `SELECT ${expressions.join(',')} ${from} ${paging}`, from, values, query,
+  return { sql: `SELECT ${expressions.join(',')} ${from} ${paging}`, statement: `SELECT * ${from} ${paging}`, from, values, query,
     notice: `${keys.length ? 'Primary-key columns break sort ties.' : 'No sortable primary key: rows tied by the sort may move between pages.'} Pages are live reads; concurrent changes can move rows. Filters use the database’s comparison and collation rules. NULLs sort last.` }
 }

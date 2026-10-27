@@ -69,7 +69,8 @@ for (const engine of ['sqlite', 'duckdb'] as const) test(`${engine}: connection 
     await expect(page.getByRole('table', { name: 'Table data', exact: true }).getByRole('cell', { name: 'Sample order', exact: true })).toBeVisible()
     await expect.poll(buffer).toContain('LIMIT 201 OFFSET 0;')
     const generated = await buffer()
-    expect(generated.startsWith('SELECT ')).toBe(true)
+    expect(generated.startsWith('SELECT * FROM ')).toBe(true)
+    expect(generated).not.toContain('sc_0')
     expect(generated).not.toContain('CREATE TABLE')
     expect(generated).toContain('"main"."orders report"')
     expect(generated).toContain('"id" ASC LIMIT')
@@ -149,7 +150,7 @@ for (const engine of ['sqlite', 'duckdb'] as const) test(`${engine}: named brows
     await page.getByRole('tab', { name: 'orders', exact: true }).click()
     await expect(page.locator('.transaction-badge')).toHaveText('Autocommit')
     await page.getByRole('button', { name: /^Run SQL/ }).click(); await expect(page.locator('.status-text')).toHaveText('Completed')
-    await expect(page.getByRole('cell', { name: engine === 'sqlite' ? 'text:Memory row' : 'Memory row', exact: true })).toBeVisible()
+    await expect(page.getByRole('cell', { name: 'Memory row', exact: true })).toBeVisible()
     // A second browse view keeps the private database alive after its source closes.
     await tableAction(page, 'orders', 'Browse data'); await expect(page.locator('.status-text')).toHaveText('Table loaded')
     await page.getByRole('button', { name: 'Close orders', exact: true }).first().click()

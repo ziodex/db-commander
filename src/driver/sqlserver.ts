@@ -14,14 +14,15 @@ import type { GridResponse } from '../shared/contracts'
 import { schemaSnapshot } from './schema'
 import { SessionResultCache } from './result-cache'
 import { randomUUID } from 'node:crypto'
-import type { Connection } from 'tedious'
+import type { SqlServerConnection } from './sqlserver-transport'
+import { WindowsSqlServerConnection } from './windows-sqlserver'
 import type { ConnectionConfig, ResultSet, SchemaTable, SessionInfo } from '../shared/contracts'
 import { exportResultCsv, type Completion, type DatabaseDriver, type Emit } from './driver'
 import { splitSqlServerBatches } from '../shared/sql/sqlserver'
 import { openSqlServer, sqlServerQuery, sqlServerBound, streamSqlServer } from './sqlserver-transport'
 
 interface Operation { id: string; cancelled: boolean; cancel?: () => void; done?: Promise<void> }
-interface Session { nativeId:string; editor?: TableEditor; client: Connection; config: ConnectionConfig; info: SessionInfo; lost: boolean; busy?: Operation; metadata?: Promise<SchemaTable[]> }
+interface Session { nativeId:string; editor?: TableEditor; client: SqlServerConnection; config: ConnectionConfig; info: SessionInfo; lost: boolean; busy?: Operation; metadata?: Promise<SchemaTable[]> }
 export class SqlServerDriver implements DatabaseDriver {
   private sessions = new Map<string, Session>()
   private results = new SessionResultCache()
@@ -30,7 +31,7 @@ export class SqlServerDriver implements DatabaseDriver {
     if (config.engine !== this.engine) throw new Error('Connection engine does not match the selected driver.')
     const client = await openSqlServer(config)
     const session: Session = { nativeId:'', client, config, lost: false, info: {
-      id: randomUUID(), engine: this.engine, name: config.name, database: config.database, user: config.user,
+      id: randomUUID(), engine: this.engine, name: config.name, database: config.database, user: client instanceof WindowsSqlServerConnection ? client.user : config.user,
       host: config.host, port: config.port, tls: config.tls === 'verify-full', transaction: 'unknown', version: ''
     } }
     const lost = () => { if (this.sessions.has(session.info.id)) this.lost(session) }
@@ -179,7 +180,7 @@ export class SqlServerDriver implements DatabaseDriver {
   }
   async listDatabases(id: string) {
     const session = this.session(id)
-    let client: Connection
+    let client: SqlServerConnection
     try { client = await openSqlServer({ ...session.config, database: this.engine === 'azure-sql' ? 'master' : session.info.database }) }
     catch (error) {
       if (this.engine !== 'azure-sql' || (error as { code?: string }).code !== 'ELOGIN') throw error

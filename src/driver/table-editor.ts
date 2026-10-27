@@ -261,7 +261,7 @@ export class TableEditor {
       if (Buffer.byteLength(JSON.stringify(rows)) > 8 * 1024 * 1024) throw new Error('This page exceeds 8 MiB. Choose a smaller page size or use SQL to select fewer columns.')
       if (!browse && rows.some(row => definition.columns.some((c, index) => c.primaryKey && row[index] === null))) throw new Error('NULL primary keys cannot identify rows safely. This table remains read-only.')
       const grid: GridSnapshot = { id: randomUUID(), table, columns: definition.columns,
-        statement: selection.values.length ? undefined : selection.sql,
+        statement: selection.values.length ? undefined : selection.statement,
         rows: rows.slice(0, selection.query.pageSize).map(row => row.map(value => browse && value && value.length > 16384 ? value.slice(0, 16384) + '…' : value)),
         truncated: rows.length > selection.query.pageSize, query: selection.query, mode: browse ? 'browse' : 'edit',
         notice: selection.notice + (oversized ? ' Large cells are truncated to 16,384 characters.' : '') + (definition.columns.some(c => !displayable(this.dialect, c)) ? ' Some types require SQL inspection and are shown as placeholders.' : '') }
