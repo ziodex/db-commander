@@ -1,0 +1,2074 @@
+{
+  "schema": 1,
+  "identification": "Versioned crate source paths retained in the exact registry-signed native packages, with verified build/source provenance and lockfile integrity for the inspected artifacts. Positive identification of known Rust crates is not a complete dependency graph. Crate archives are checked against versioned crates.io registry checksums; absent license files use their exact VCS source commits.",
+  "targets": [
+    {
+      "platform": "darwin",
+      "arch": "arm64",
+      "package": "@napi-rs/keyring-darwin-arm64",
+      "parents": [
+        "@napi-rs/keyring"
+      ],
+      "version": "2.1.1",
+      "binary": "keyring.darwin-arm64.node",
+      "binarySha256": "e1027cec2b87c46760ce2fd5682e540213982173c6022956a7da93d7e331dd87",
+      "source": "keyring-darwin-arm64-2.1.1-THIRD-PARTY-NOTICES.txt",
+      "sha256": "fe94c81f9b77e347b21a644617bee3b725e576093b2c9b9084be098ade176230",
+      "bytes": 62854,
+      "crates": [
+        {
+          "name": "anyhow",
+          "version": "1.0.104",
+          "declaredLicense": "MIT OR Apache-2.0",
+          "crateUrl": "https://static.crates.io/crates/anyhow/anyhow-1.0.104.crate",
+          "crateSha256": "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a",
+              "bytes": 9723,
+              "sourceArchive": "https://static.crates.io/crates/anyhow/anyhow-1.0.104.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+              "bytes": 1023,
+              "sourceArchive": "https://static.crates.io/crates/anyhow/anyhow-1.0.104.crate"
+            }
+          ]
+        },
+        {
+          "name": "apple-native-keyring-store",
+          "version": "1.0.2",
+          "declaredLicense": "MIT OR Apache-2.0",
+          "crateUrl": "https://static.crates.io/crates/apple-native-keyring-store/apple-native-keyring-store-1.0.2.crate",
+          "crateSha256": "2b350bfd03649e07aa05c0a81b3e15934374e585c98204a57e20b9d49f49bb9a",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "78ebc2ea2a1cec9cbec2e1a6fc15e73474fe22bdad7575518e7f4628651d49c4",
+              "bytes": 10842,
+              "sourceArchive": "https://static.crates.io/crates/apple-native-keyring-store/apple-native-keyring-store-1.0.2.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "157cc607717b1b372a69f6b4526f6ad18c1279af9f3267835cca2943f37bc07d",
+              "bytes": 1062,
+              "sourceArchive": "https://static.crates.io/crates/apple-native-keyring-store/apple-native-keyring-store-1.0.2.crate"
+            }
+          ]
+        },
+        {
+          "name": "core-foundation",
+          "version": "0.10.1",
+          "declaredLicense": "MIT OR Apache-2.0",
+          "crateUrl": "https://static.crates.io/crates/core-foundation/core-foundation-0.10.1.crate",
+          "crateSha256": "b2a6cd9ae233e7f62ba4e9353e81a88df7fc8a5987b8d445b4d90c879bd156f6",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+              "bytes": 10847,
+              "sourceArchive": "https://static.crates.io/crates/core-foundation/core-foundation-0.10.1.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "62065228e42caebca7e7d7db1204cbb867033de5982ca4009928915e4095f3a3",
+              "bytes": 1067,
+              "sourceArchive": "https://static.crates.io/crates/core-foundation/core-foundation-0.10.1.crate"
+            }
+          ]
+        },
+        {
+          "name": "keyring-core",
+          "version": "1.0.0",
+          "declaredLicense": "MIT OR Apache-2.0",
+          "crateUrl": "https://static.crates.io/crates/keyring-core/keyring-core-1.0.0.crate",
+          "crateSha256": "fb1e621458ca9c51aa110bd0339d4751a056b9576bf1253aee1aa560dda0fc9d",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "78ebc2ea2a1cec9cbec2e1a6fc15e73474fe22bdad7575518e7f4628651d49c4",
+              "bytes": 10842,
+              "sourceArchive": "https://static.crates.io/crates/keyring-core/keyring-core-1.0.0.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "157cc607717b1b372a69f6b4526f6ad18c1279af9f3267835cca2943f37bc07d",
+              "bytes": 1062,
+              "sourceArchive": "https://static.crates.io/crates/keyring-core/keyring-core-1.0.0.crate"
+            }
+          ]
+        },
+        {
+          "name": "napi",
+          "version": "3.14.2",
+          "declaredLicense": "MIT",
+          "crateUrl": "https://static.crates.io/crates/napi/napi-3.14.2.crate",
+          "crateSha256": "a4e2cf85c02d9b057898c485b824c3c416b65193689e2b7f517efc94b86ed24c",
+          "licenses": [
+            {
+              "name": "LICENSE",
+              "sha256": "3f1ce66533302df3a32edbfdfc0b78f0dd34659e4c1f5817162e5ea3c2297215",
+              "bytes": 2138,
+              "url": "https://raw.githubusercontent.com/napi-rs/napi-rs/8bab46ee5dfd48a7b51e8bad3d09aed315ada4df/LICENSE",
+              "revision": "8bab46ee5dfd48a7b51e8bad3d09aed315ada4df"
+            }
+          ]
+        },
+        {
+          "name": "security-framework",
+          "version": "3.7.0",
+          "declaredLicense": "MIT OR Apache-2.0",
+          "crateUrl": "https://static.crates.io/crates/security-framework/security-framework-3.7.0.crate",
+          "crateSha256": "b7f4bc775c73d9a02cde8bf7b2ec4c9d12743edf609006c7facc23998404cd1d",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+              "bytes": 10847,
+              "sourceArchive": "https://static.crates.io/crates/security-framework/security-framework-3.7.0.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "91e934255ba3b2f21103d68c5581c23ef34aa95c4628e4405b8c901935e11c69",
+              "bytes": 1081,
+              "sourceArchive": "https://static.crates.io/crates/security-framework/security-framework-3.7.0.crate"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "platform": "darwin",
+      "arch": "x64",
+      "package": "@napi-rs/keyring-darwin-x64",
+      "parents": [
+        "@napi-rs/keyring"
+      ],
+      "version": "2.1.1",
+      "registryIntegrity": "sha512-RcHBNnOIzqliNU8Z0jc71bPs/PRn4IIO02XE6DV3HxVFAHo4CooNXDySCL+jbHhObLlSy9yynRn+wq5k+IAmRw==",
+      "verifiedSourceRevision": "97aa4e0412a0ba8a0d47541cebe0474eea5efe02",
+      "binary": "keyring.darwin-x64.node",
+      "binarySha256": "29f13379d2f0af7863693cc2d1edb64e7a542c63cb1a9d89844d901ae8d97c67",
+      "source": "keyring-darwin-x64-2.1.1-THIRD-PARTY-NOTICES.txt",
+      "sha256": "59e3a3a371295a4ed1d3b36715320626d83c6ceaa72e32156c3edfe72c6eeb5a",
+      "bytes": 62778,
+      "crates": [
+        {
+          "name": "anyhow",
+          "version": "1.0.104",
+          "declaredLicense": "MIT OR Apache-2.0",
+          "crateUrl": "https://static.crates.io/crates/anyhow/anyhow-1.0.104.crate",
+          "crateSha256": "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a",
+              "bytes": 9723,
+              "url": "https://static.crates.io/crates/anyhow/anyhow-1.0.104.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+              "bytes": 1023,
+              "url": "https://static.crates.io/crates/anyhow/anyhow-1.0.104.crate"
+            }
+          ]
+        },
+        {
+          "name": "apple-native-keyring-store",
+          "version": "1.0.2",
+          "declaredLicense": "MIT OR Apache-2.0",
+          "crateUrl": "https://static.crates.io/crates/apple-native-keyring-store/apple-native-keyring-store-1.0.2.crate",
+          "crateSha256": "2b350bfd03649e07aa05c0a81b3e15934374e585c98204a57e20b9d49f49bb9a",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "78ebc2ea2a1cec9cbec2e1a6fc15e73474fe22bdad7575518e7f4628651d49c4",
+              "bytes": 10842,
+              "url": "https://static.crates.io/crates/apple-native-keyring-store/apple-native-keyring-store-1.0.2.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "157cc607717b1b372a69f6b4526f6ad18c1279af9f3267835cca2943f37bc07d",
+              "bytes": 1062,
+              "url": "https://static.crates.io/crates/apple-native-keyring-store/apple-native-keyring-store-1.0.2.crate"
+            }
+          ]
+        },
+        {
+          "name": "core-foundation",
+          "version": "0.10.1",
+          "declaredLicense": "MIT OR Apache-2.0",
+          "crateUrl": "https://static.crates.io/crates/core-foundation/core-foundation-0.10.1.crate",
+          "crateSha256": "b2a6cd9ae233e7f62ba4e9353e81a88df7fc8a5987b8d445b4d90c879bd156f6",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+              "bytes": 10847,
+              "url": "https://static.crates.io/crates/core-foundation/core-foundation-0.10.1.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "62065228e42caebca7e7d7db1204cbb867033de5982ca4009928915e4095f3a3",
+              "bytes": 1067,
+              "url": "https://static.crates.io/crates/core-foundation/core-foundation-0.10.1.crate"
+            }
+          ]
+        },
+        {
+          "name": "keyring-core",
+          "version": "1.0.0",
+          "declaredLicense": "MIT OR Apache-2.0",
+          "crateUrl": "https://static.crates.io/crates/keyring-core/keyring-core-1.0.0.crate",
+          "crateSha256": "fb1e621458ca9c51aa110bd0339d4751a056b9576bf1253aee1aa560dda0fc9d",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "78ebc2ea2a1cec9cbec2e1a6fc15e73474fe22bdad7575518e7f4628651d49c4",
+              "bytes": 10842,
+              "url": "https://static.crates.io/crates/keyring-core/keyring-core-1.0.0.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "157cc607717b1b372a69f6b4526f6ad18c1279af9f3267835cca2943f37bc07d",
+              "bytes": 1062,
+              "url": "https://static.crates.io/crates/keyring-core/keyring-core-1.0.0.crate"
+            }
+          ]
+        },
+        {
+          "name": "napi",
+          "version": "3.14.2",
+          "declaredLicense": "MIT",
+          "crateUrl": "https://static.crates.io/crates/napi/napi-3.14.2.crate",
+          "crateSha256": "a4e2cf85c02d9b057898c485b824c3c416b65193689e2b7f517efc94b86ed24c",
+          "licenses": [
+            {
+              "name": "LICENSE.upstream",
+              "sha256": "3f1ce66533302df3a32edbfdfc0b78f0dd34659e4c1f5817162e5ea3c2297215",
+              "bytes": 2138,
+              "url": "https://raw.githubusercontent.com/napi-rs/napi-rs/8bab46ee5dfd48a7b51e8bad3d09aed315ada4df/LICENSE",
+              "revision": "8bab46ee5dfd48a7b51e8bad3d09aed315ada4df"
+            }
+          ]
+        },
+        {
+          "name": "security-framework",
+          "version": "3.7.0",
+          "declaredLicense": "MIT OR Apache-2.0",
+          "crateUrl": "https://static.crates.io/crates/security-framework/security-framework-3.7.0.crate",
+          "crateSha256": "b7f4bc775c73d9a02cde8bf7b2ec4c9d12743edf609006c7facc23998404cd1d",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+              "bytes": 10847,
+              "url": "https://static.crates.io/crates/security-framework/security-framework-3.7.0.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "91e934255ba3b2f21103d68c5581c23ef34aa95c4628e4405b8c901935e11c69",
+              "bytes": 1081,
+              "url": "https://static.crates.io/crates/security-framework/security-framework-3.7.0.crate"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "platform": "linux",
+      "arch": "x64",
+      "package": "@napi-rs/keyring-linux-x64-gnu",
+      "parents": [
+        "@napi-rs/keyring"
+      ],
+      "version": "2.1.1",
+      "registryIntegrity": "sha512-NHfMyYyu6laqRBzgfsB0zN12l+z5gz6xQqmLDT8ijevMMOc9ICcVo2GUJCPSX5WvRBgzui91D4R4QG0tahMurw==",
+      "verifiedSourceRevision": "97aa4e0412a0ba8a0d47541cebe0474eea5efe02",
+      "binary": "keyring.linux-x64-gnu.node",
+      "binarySha256": "7d84b249ad5092a251f374e89f79844e662009f7df5b43d4ce4298e47c351b03",
+      "source": "keyring-linux-x64-gnu-2.1.1-THIRD-PARTY-NOTICES.txt",
+      "sha256": "a9deb315df0fc1ed00b0d93c6d965da959d3044eef71510491225c58d4ba9010",
+      "bytes": 572064,
+      "crates": [
+        {
+          "name": "aes",
+          "version": "0.8.4",
+          "declaredLicense": "MIT OR Apache-2.0",
+          "crateUrl": "https://static.crates.io/crates/aes/aes-0.8.4.crate",
+          "crateSha256": "b169f7a6d4742236a0a00c541b845991d0ac43e546831af1249753ab4c3aa3a0",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5",
+              "bytes": 10849,
+              "url": "https://static.crates.io/crates/aes/aes-0.8.4.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "f7e8ab639afef15573680c97f796166835cbeb3865175882fea41c60d106b733",
+              "bytes": 1057,
+              "url": "https://static.crates.io/crates/aes/aes-0.8.4.crate"
+            }
+          ]
+        },
+        {
+          "name": "aes",
+          "version": "0.9.3",
+          "declaredLicense": "MIT OR Apache-2.0",
+          "crateUrl": "https://static.crates.io/crates/aes/aes-0.9.3.crate",
+          "crateSha256": "35f0f96ce78e38c3dc6d8948aa8163d06385be74000f3c7a95bf1eef35d3ea32",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5",
+              "bytes": 10849,
+              "url": "https://static.crates.io/crates/aes/aes-0.9.3.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "25f77efa393854f7c15eaf6a2589a2071db2d7337642742763adb12bdecf0445",
+              "bytes": 1115,
+              "url": "https://static.crates.io/crates/aes/aes-0.9.3.crate"
+            }
+          ]
+        },
+        {
+          "name": "anyhow",
+          "version": "1.0.104",
+          "declaredLicense": "MIT OR Apache-2.0",
+          "crateUrl": "https://static.crates.io/crates/anyhow/anyhow-1.0.104.crate",
+          "crateSha256": "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a",
+              "bytes": 9723,
+              "url": "https://static.crates.io/crates/anyhow/anyhow-1.0.104.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+              "bytes": 1023,
+              "url": "https://static.crates.io/crates/anyhow/anyhow-1.0.104.crate"
+            }
+          ]
+        },
+        {
+          "name": "async-broadcast",
+          "version": "0.7.2",
+          "declaredLicense": "MIT OR Apache-2.0",
+          "crateUrl": "https://static.crates.io/crates/async-broadcast/async-broadcast-0.7.2.crate",
+          "crateSha256": "435a87a52755b8f27fcf321ac4f04b2802e337c8c4872923137471ec39c37532",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "e4705ddab847449a2cdcb3c88b005ea10330aa249d9148ca2eef9c84c5d29895",
+              "bytes": 10757,
+              "url": "https://static.crates.io/crates/async-broadcast/async-broadcast-0.7.2.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "24e5860bf589d8501643e6ea51ffb3df66db2867492b09033d486183efbfa970",
+              "bytes": 1079,
+              "url": "https://static.crates.io/crates/async-broadcast/async-broadcast-0.7.2.crate"
+            }
+          ]
+        },
+        {
+          "name": "async-executor",
+          "version": "1.14.0",
+          "declaredLicense": "Apache-2.0 OR MIT",
+          "crateUrl": "https://static.crates.io/crates/async-executor/async-executor-1.14.0.crate",
+          "crateSha256": "c96bf972d85afc50bf5ab8fe2d54d1586b4e0b46c97c50a0c9e71e2f7bcd812a",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+              "bytes": 10847,
+              "url": "https://static.crates.io/crates/async-executor/async-executor-1.14.0.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+              "bytes": 1023,
+              "url": "https://static.crates.io/crates/async-executor/async-executor-1.14.0.crate"
+            }
+          ]
+        },
+        {
+          "name": "async-io",
+          "version": "2.6.0",
+          "declaredLicense": "Apache-2.0 OR MIT",
+          "crateUrl": "https://static.crates.io/crates/async-io/async-io-2.6.0.crate",
+          "crateSha256": "456b8a8feb6f42d237746d4b3e9a178494627745c3c56c6ea55d92ba50d026fc",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+              "bytes": 10847,
+              "url": "https://static.crates.io/crates/async-io/async-io-2.6.0.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+              "bytes": 1023,
+              "url": "https://static.crates.io/crates/async-io/async-io-2.6.0.crate"
+            }
+          ]
+        },
+        {
+          "name": "async-lock",
+          "version": "3.4.2",
+          "declaredLicense": "Apache-2.0 OR MIT",
+          "crateUrl": "https://static.crates.io/crates/async-lock/async-lock-3.4.2.crate",
+          "crateSha256": "290f7f2596bd5b78a9fec8088ccd89180d7f9f55b94b0576823bbbdc72ee8311",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+              "bytes": 10847,
+              "url": "https://static.crates.io/crates/async-lock/async-lock-3.4.2.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+              "bytes": 1023,
+              "url": "https://static.crates.io/crates/async-lock/async-lock-3.4.2.crate"
+            }
+          ]
+        },
+        {
+          "name": "async-process",
+          "version": "2.5.0",
+          "declaredLicense": "Apache-2.0 OR MIT",
+          "crateUrl": "https://static.crates.io/crates/async-process/async-process-2.5.0.crate",
+          "crateSha256": "fc50921ec0055cdd8a16de48773bfeec5c972598674347252c0399676be7da75",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+              "bytes": 10847,
+              "url": "https://static.crates.io/crates/async-process/async-process-2.5.0.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+              "bytes": 1023,
+              "url": "https://static.crates.io/crates/async-process/async-process-2.5.0.crate"
+            }
+          ]
+        },
+        {
+          "name": "async-task",
+          "version": "4.7.1",
+          "declaredLicense": "Apache-2.0 OR MIT",
+          "crateUrl": "https://static.crates.io/crates/async-task/async-task-4.7.1.crate",
+          "crateSha256": "8b75356056920673b02621b35afd0f7dda9306d03c79a30f5c56c44cf256e3de",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+              "bytes": 10847,
+              "url": "https://static.crates.io/crates/async-task/async-task-4.7.1.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+              "bytes": 1023,
+              "url": "https://static.crates.io/crates/async-task/async-task-4.7.1.crate"
+            }
+          ]
+        },
+        {
+          "name": "block-padding",
+          "version": "0.4.2",
+          "declaredLicense": "MIT OR Apache-2.0",
+          "crateUrl": "https://static.crates.io/crates/block-padding/block-padding-0.4.2.crate",
+          "crateSha256": "710f1dd022ef4e93f8a438b4ba958de7f64308434fa6a87104481645cc30068b",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5",
+              "bytes": 10849,
+              "url": "https://static.crates.io/crates/block-padding/block-padding-0.4.2.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "98181e7249d0c01737645ec982499ce99a0f07eb8f7d625b8840d799d10dbc01",
+              "bytes": 1082,
+              "url": "https://static.crates.io/crates/block-padding/block-padding-0.4.2.crate"
+            }
+          ]
+        },
+        {
+          "name": "blocking",
+          "version": "1.7.0",
+          "declaredLicense": "Apache-2.0 OR MIT",
+          "crateUrl": "https://static.crates.io/crates/blocking/blocking-1.7.0.crate",
+          "crateSha256": "a70e4329df6cb94385eed412ec92375c3cdd8a6e502493d1229b6414e4036dfa",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+              "bytes": 10847,
+              "url": "https://static.crates.io/crates/blocking/blocking-1.7.0.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+              "bytes": 1023,
+              "url": "https://static.crates.io/crates/blocking/blocking-1.7.0.crate"
+            }
+          ]
+        },
+        {
+          "name": "cipher",
+          "version": "0.4.4",
+          "declaredLicense": "MIT OR Apache-2.0",
+          "crateUrl": "https://static.crates.io/crates/cipher/cipher-0.4.4.crate",
+          "crateSha256": "773f3b9af64447d2ce9850330c473515014aa235e6a783b02db81ff39e4a3dad",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5",
+              "bytes": 10849,
+              "url": "https://static.crates.io/crates/cipher/cipher-0.4.4.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "5c7bd92d1f096f12203dc1b601e3cb17484fa1b023e30b6b8edcc80e416237ec",
+              "bytes": 1070,
+              "url": "https://static.crates.io/crates/cipher/cipher-0.4.4.crate"
+            }
+          ]
+        },
+        {
+          "name": "cipher",
+          "version": "0.5.2",
+          "declaredLicense": "MIT OR Apache-2.0",
+          "crateUrl": "https://static.crates.io/crates/cipher/cipher-0.5.2.crate",
+          "crateSha256": "e8cf2a2c93cd704877c0858356ed03480ff301ee950b43f1cbe4573b088bfa6c",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5",
+              "bytes": 10849,
+              "url": "https://static.crates.io/crates/cipher/cipher-0.5.2.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "950d712c518a02fcb7cff96950aee304a1cc5283361712c980ea21e8d6d669a5",
+              "bytes": 1070,
+              "url": "https://static.crates.io/crates/cipher/cipher-0.5.2.crate"
+            }
+          ]
+        },
+        {
+          "name": "concurrent-queue",
+          "version": "2.5.0",
+          "declaredLicense": "Apache-2.0 OR MIT",
+          "crateUrl": "https://static.crates.io/crates/concurrent-queue/concurrent-queue-2.5.0.crate",
+          "crateSha256": "4ca0197aee26d1ae37445ee532fefce43251d24cc7c166799f4d46817f1d3973",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+              "bytes": 10847,
+              "url": "https://static.crates.io/crates/concurrent-queue/concurrent-queue-2.5.0.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+              "bytes": 1023,
+              "url": "https://static.crates.io/crates/concurrent-queue/concurrent-queue-2.5.0.crate"
+            }
+          ]
+        },
+        {
+          "name": "dbus",
+          "version": "0.9.12",
+          "declaredLicense": "Apache-2.0/MIT",
+          "crateUrl": "https://static.crates.io/crates/dbus/dbus-0.9.12.crate",
+          "crateSha256": "3ab69f03cc8c4340c9c8e315114e1658e6775a9b16a04357973aa21cec22b32e",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "453745410e3be8cf25d56872ea2aec975a78e6c9f217443d0bf908a5bce7c8ff",
+              "bytes": 11362,
+              "url": "https://static.crates.io/crates/dbus/dbus-0.9.12.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "de3911c2d98c8bd2d701ee721347053d9b55995a11f9a8c955e44d3ca1b376bf",
+              "bytes": 1107,
+              "url": "https://static.crates.io/crates/dbus/dbus-0.9.12.crate"
+            }
+          ]
+        },
+        {
+          "name": "dbus-secret-service",
+          "version": "4.1.0",
+          "declaredLicense": "MIT OR Apache-2.0",
+          "crateUrl": "https://static.crates.io/crates/dbus-secret-service/dbus-secret-service-4.1.0.crate",
+          "crateSha256": "708b509edf7889e53d7efb0ffadd994cc6c2345ccb62f55cfd6b0682165e4fa6",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+              "bytes": 10847,
+              "url": "https://static.crates.io/crates/dbus-secret-service/dbus-secret-service-4.1.0.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "0d13fdf5615ccc7e7123b58b5c88b0d2bbabe345cd70b94e094ee44034db5be6",
+              "bytes": 1069,
+              "url": "https://static.crates.io/crates/dbus-secret-service/dbus-secret-service-4.1.0.crate"
+            }
+          ]
+        },
+        {
+          "name": "dbus-secret-service-keyring-store",
+          "version": "1.0.1",
+          "declaredLicense": "MIT OR Apache-2.0",
+          "crateUrl": "https://static.crates.io/crates/dbus-secret-service-keyring-store/dbus-secret-service-keyring-store-1.0.1.crate",
+          "crateSha256": "7227ffd3b4896266bbc100348025cebe51d9aea94ce118a1d68f4a6463963dae",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "78ebc2ea2a1cec9cbec2e1a6fc15e73474fe22bdad7575518e7f4628651d49c4",
+              "bytes": 10842,
+              "url": "https://static.crates.io/crates/dbus-secret-service-keyring-store/dbus-secret-service-keyring-store-1.0.1.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "157cc607717b1b372a69f6b4526f6ad18c1279af9f3267835cca2943f37bc07d",
+              "bytes": 1062,
+              "url": "https://static.crates.io/crates/dbus-secret-service-keyring-store/dbus-secret-service-keyring-store-1.0.1.crate"
+            }
+          ]
+        },
+        {
+          "name": "endi",
+          "version": "1.1.1",
+          "declaredLicense": "MIT",
+          "crateUrl": "https://static.crates.io/crates/endi/endi-1.1.1.crate",
+          "crateSha256": "66b7e2430c6dff6a955451e2cfc438f09cea1965a9d6f87f7e3b90decc014099",
+          "licenses": [
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+              "bytes": 1023,
+              "url": "https://static.crates.io/crates/endi/endi-1.1.1.crate"
+            }
+          ]
+        },
+        {
+          "name": "event-listener",
+          "version": "5.4.2",
+          "declaredLicense": "Apache-2.0 OR MIT",
+          "crateUrl": "https://static.crates.io/crates/event-listener/event-listener-5.4.2.crate",
+          "crateSha256": "5a23add41df1562121a9393cb065eab5146a1242410f23a644851e90cfd669d2",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+              "bytes": 10847,
+              "url": "https://static.crates.io/crates/event-listener/event-listener-5.4.2.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+              "bytes": 1023,
+              "url": "https://static.crates.io/crates/event-listener/event-listener-5.4.2.crate"
+            }
+          ]
+        },
+        {
+          "name": "event-listener-strategy",
+          "version": "0.5.4",
+          "declaredLicense": "Apache-2.0 OR MIT",
+          "crateUrl": "https://static.crates.io/crates/event-listener-strategy/event-listener-strategy-0.5.4.crate",
+          "crateSha256": "8be9f3dfaaffdae2972880079a491a1a8bb7cbed0b8dd7a347f668b4150a3b93",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+              "bytes": 10847,
+              "url": "https://static.crates.io/crates/event-listener-strategy/event-listener-strategy-0.5.4.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+              "bytes": 1023,
+              "url": "https://static.crates.io/crates/event-listener-strategy/event-listener-strategy-0.5.4.crate"
+            }
+          ]
+        },
+        {
+          "name": "fastrand",
+          "version": "2.5.0",
+          "declaredLicense": "Apache-2.0 OR MIT",
+          "crateUrl": "https://static.crates.io/crates/fastrand/fastrand-2.5.0.crate",
+          "crateSha256": "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+              "bytes": 10847,
+              "url": "https://static.crates.io/crates/fastrand/fastrand-2.5.0.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+              "bytes": 1023,
+              "url": "https://static.crates.io/crates/fastrand/fastrand-2.5.0.crate"
+            }
+          ]
+        },
+        {
+          "name": "futures-lite",
+          "version": "2.6.1",
+          "declaredLicense": "Apache-2.0 OR MIT",
+          "crateUrl": "https://static.crates.io/crates/futures-lite/futures-lite-2.6.1.crate",
+          "crateSha256": "f78e10609fe0e0b3f4157ffab1876319b5b0db102a2c60dc4626306dc46b44ad",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+              "bytes": 10847,
+              "url": "https://static.crates.io/crates/futures-lite/futures-lite-2.6.1.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+              "bytes": 1023,
+              "url": "https://static.crates.io/crates/futures-lite/futures-lite-2.6.1.crate"
+            },
+            {
+              "name": "LICENSE-THIRD-PARTY",
+              "sha256": "6226d0632e2e1a80c23597e964da9812ae193c535fe058154afb034e94167aa5",
+              "bytes": 1849,
+              "url": "https://static.crates.io/crates/futures-lite/futures-lite-2.6.1.crate"
+            }
+          ]
+        },
+        {
+          "name": "generic-array",
+          "version": "0.14.7",
+          "declaredLicense": "MIT",
+          "crateUrl": "https://static.crates.io/crates/generic-array/generic-array-0.14.7.crate",
+          "crateSha256": "85649ca51fd72272d7821adaf274ad91c288277713d9c18820d8499a7ff69e9a",
+          "licenses": [
+            {
+              "name": "LICENSE",
+              "sha256": "c09aae9d3c77b531f56351a9947bc7446511d6b025b3255312d3e3442a9a7583",
+              "bytes": 1107,
+              "url": "https://static.crates.io/crates/generic-array/generic-array-0.14.7.crate"
+            }
+          ]
+        },
+        {
+          "name": "hex",
+          "version": "0.4.3",
+          "declaredLicense": "MIT OR Apache-2.0",
+          "crateUrl": "https://static.crates.io/crates/hex/hex-0.4.3.crate",
+          "crateSha256": "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08",
+              "bytes": 11358,
+              "url": "https://static.crates.io/crates/hex/hex-0.4.3.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "f7bdb3426d045cd50efd4953026e3eb5a83d0199f458a075602611b9344da5b9",
+              "bytes": 1125,
+              "url": "https://static.crates.io/crates/hex/hex-0.4.3.crate"
+            }
+          ]
+        },
+        {
+          "name": "keyring-core",
+          "version": "1.0.0",
+          "declaredLicense": "MIT OR Apache-2.0",
+          "crateUrl": "https://static.crates.io/crates/keyring-core/keyring-core-1.0.0.crate",
+          "crateSha256": "fb1e621458ca9c51aa110bd0339d4751a056b9576bf1253aee1aa560dda0fc9d",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "78ebc2ea2a1cec9cbec2e1a6fc15e73474fe22bdad7575518e7f4628651d49c4",
+              "bytes": 10842,
+              "url": "https://static.crates.io/crates/keyring-core/keyring-core-1.0.0.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "157cc607717b1b372a69f6b4526f6ad18c1279af9f3267835cca2943f37bc07d",
+              "bytes": 1062,
+              "url": "https://static.crates.io/crates/keyring-core/keyring-core-1.0.0.crate"
+            }
+          ]
+        },
+        {
+          "name": "linux-keyutils-keyring-store",
+          "version": "1.0.0",
+          "declaredLicense": "MIT OR Apache-2.0",
+          "crateUrl": "https://static.crates.io/crates/linux-keyutils-keyring-store/linux-keyutils-keyring-store-1.0.0.crate",
+          "crateSha256": "39fbed79f71dc21eb21d3d07c0e908a3c58ff9a1fdbf5cf44230fb3deb6d994b",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "78ebc2ea2a1cec9cbec2e1a6fc15e73474fe22bdad7575518e7f4628651d49c4",
+              "bytes": 10842,
+              "url": "https://static.crates.io/crates/linux-keyutils-keyring-store/linux-keyutils-keyring-store-1.0.0.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "157cc607717b1b372a69f6b4526f6ad18c1279af9f3267835cca2943f37bc07d",
+              "bytes": 1062,
+              "url": "https://static.crates.io/crates/linux-keyutils-keyring-store/linux-keyutils-keyring-store-1.0.0.crate"
+            }
+          ]
+        },
+        {
+          "name": "napi",
+          "version": "3.14.2",
+          "declaredLicense": "MIT",
+          "crateUrl": "https://static.crates.io/crates/napi/napi-3.14.2.crate",
+          "crateSha256": "a4e2cf85c02d9b057898c485b824c3c416b65193689e2b7f517efc94b86ed24c",
+          "licenses": [
+            {
+              "name": "LICENSE.upstream",
+              "sha256": "3f1ce66533302df3a32edbfdfc0b78f0dd34659e4c1f5817162e5ea3c2297215",
+              "bytes": 2138,
+              "url": "https://raw.githubusercontent.com/napi-rs/napi-rs/8bab46ee5dfd48a7b51e8bad3d09aed315ada4df/LICENSE",
+              "revision": "8bab46ee5dfd48a7b51e8bad3d09aed315ada4df"
+            }
+          ]
+        },
+        {
+          "name": "num-bigint",
+          "version": "0.4.8",
+          "declaredLicense": "MIT OR Apache-2.0",
+          "crateUrl": "https://static.crates.io/crates/num-bigint/num-bigint-0.4.8.crate",
+          "crateSha256": "c89e69e7e0f03bea5ef08013795c25018e101932225a656383bd384495ecc367",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+              "bytes": 10847,
+              "url": "https://static.crates.io/crates/num-bigint/num-bigint-0.4.8.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "6485b8ed310d3f0340bf1ad1f47645069ce4069dcc6bb46c7d5c6faf41de1fdb",
+              "bytes": 1071,
+              "url": "https://static.crates.io/crates/num-bigint/num-bigint-0.4.8.crate"
+            }
+          ]
+        },
+        {
+          "name": "once_cell",
+          "version": "1.21.4",
+          "declaredLicense": "MIT OR Apache-2.0",
+          "crateUrl": "https://static.crates.io/crates/once_cell/once_cell-1.21.4.crate",
+          "crateSha256": "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+              "bytes": 10847,
+              "url": "https://static.crates.io/crates/once_cell/once_cell-1.21.4.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+              "bytes": 1023,
+              "url": "https://static.crates.io/crates/once_cell/once_cell-1.21.4.crate"
+            }
+          ]
+        },
+        {
+          "name": "parking",
+          "version": "2.2.1",
+          "declaredLicense": "Apache-2.0 OR MIT",
+          "crateUrl": "https://static.crates.io/crates/parking/parking-2.2.1.crate",
+          "crateSha256": "f38d5652c16fde515bb1ecef450ab0f6a219d619a7274976324d5e377f7dceba",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+              "bytes": 10847,
+              "url": "https://static.crates.io/crates/parking/parking-2.2.1.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+              "bytes": 1023,
+              "url": "https://static.crates.io/crates/parking/parking-2.2.1.crate"
+            },
+            {
+              "name": "LICENSE-THIRD-PARTY",
+              "sha256": "9a6d7a3c1b8edcc706c4b6c37f8dae9a77f02c7f9051df603f975db136b55419",
+              "bytes": 451,
+              "url": "https://static.crates.io/crates/parking/parking-2.2.1.crate"
+            }
+          ]
+        },
+        {
+          "name": "polling",
+          "version": "3.11.0",
+          "declaredLicense": "Apache-2.0 OR MIT",
+          "crateUrl": "https://static.crates.io/crates/polling/polling-3.11.0.crate",
+          "crateSha256": "5d0e4f59085d47d8241c88ead0f274e8a0cb551f3625263c05eb8dd897c34218",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+              "bytes": 10847,
+              "url": "https://static.crates.io/crates/polling/polling-3.11.0.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+              "bytes": 1023,
+              "url": "https://static.crates.io/crates/polling/polling-3.11.0.crate"
+            }
+          ]
+        },
+        {
+          "name": "rustix",
+          "version": "1.1.5",
+          "declaredLicense": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+          "crateUrl": "https://static.crates.io/crates/rustix/rustix-1.1.5.crate",
+          "crateSha256": "891efababe418670775f199f0d233d84843c227a0949a883ce15b37c78d6629d",
+          "licenses": [
+            {
+              "name": "COPYRIGHT",
+              "sha256": "377c2e7c53250cc5905c0b0532d35973392af16ffb9596a41d99d202cf3617c9",
+              "bytes": 853,
+              "url": "https://static.crates.io/crates/rustix/rustix-1.1.5.crate"
+            },
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+              "bytes": 10847,
+              "url": "https://static.crates.io/crates/rustix/rustix-1.1.5.crate"
+            },
+            {
+              "name": "LICENSE-Apache-2.0_WITH_LLVM-exception",
+              "sha256": "268872b9816f90fd8e85db5a28d33f8150ebb8dd016653fb39ef1f94f2686bc5",
+              "bytes": 12243,
+              "url": "https://static.crates.io/crates/rustix/rustix-1.1.5.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+              "bytes": 1023,
+              "url": "https://static.crates.io/crates/rustix/rustix-1.1.5.crate"
+            }
+          ]
+        },
+        {
+          "name": "secret-service",
+          "version": "5.2.0",
+          "declaredLicense": "MIT OR Apache-2.0",
+          "crateUrl": "https://static.crates.io/crates/secret-service/secret-service-5.2.0.crate",
+          "crateSha256": "5107b24b91445dd2aa449a258a1807b63240942157292354dc5bfdbeb8bc6db8",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+              "bytes": 10847,
+              "url": "https://static.crates.io/crates/secret-service/secret-service-5.2.0.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "074585dbaf488db540c26f7b20f36053a157d7580bb1c390dc9f6afdb017c83a",
+              "bytes": 1069,
+              "url": "https://static.crates.io/crates/secret-service/secret-service-5.2.0.crate"
+            }
+          ]
+        },
+        {
+          "name": "signal-hook-registry",
+          "version": "1.4.8",
+          "declaredLicense": "MIT OR Apache-2.0",
+          "crateUrl": "https://static.crates.io/crates/signal-hook-registry/signal-hook-registry-1.4.8.crate",
+          "crateSha256": "c4db69cba1110affc0e9f7bcd48bbf87b3f4fc7c61fc9155afd4c469eb3d6c1b",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+              "bytes": 10847,
+              "url": "https://static.crates.io/crates/signal-hook-registry/signal-hook-registry-1.4.8.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "503558bfefe66ca15e4e3f7955b3cb0ec87fd52f29bf24b336af7bd00e946d5c",
+              "bytes": 1068,
+              "url": "https://static.crates.io/crates/signal-hook-registry/signal-hook-registry-1.4.8.crate"
+            }
+          ]
+        },
+        {
+          "name": "slab",
+          "version": "0.4.12",
+          "declaredLicense": "MIT",
+          "crateUrl": "https://static.crates.io/crates/slab/slab-0.4.12.crate",
+          "crateSha256": "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5",
+          "licenses": [
+            {
+              "name": "LICENSE",
+              "sha256": "8ce0830173fdac609dfb4ea603fdc002c2f4af0dc9b1a005653f5da9cf534b18",
+              "bytes": 1055,
+              "url": "https://static.crates.io/crates/slab/slab-0.4.12.crate"
+            }
+          ]
+        },
+        {
+          "name": "winnow",
+          "version": "1.0.4",
+          "declaredLicense": "MIT",
+          "crateUrl": "https://static.crates.io/crates/winnow/winnow-1.0.4.crate",
+          "crateSha256": "23b97319f7b8343df12cc98938e5c3eb436064524c8d2b4e30a1d3a36eecdf81",
+          "licenses": [
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "cb5aedb296c5246d1f22e9099f925a65146f9f0d6b4eebba97fd27a6cdbbab2d",
+              "bytes": 1023,
+              "url": "https://static.crates.io/crates/winnow/winnow-1.0.4.crate"
+            }
+          ]
+        },
+        {
+          "name": "zbus",
+          "version": "5.19.0",
+          "declaredLicense": "MIT",
+          "crateUrl": "https://static.crates.io/crates/zbus/zbus-5.19.0.crate",
+          "crateSha256": "5db4be7c075cb421e4b7ee645541604239bd243ba7c357511f4ff3a74b555907",
+          "licenses": [
+            {
+              "name": "LICENSE",
+              "sha256": "260e4ff3fc493695880c90774283eb1e3d018f898fabe655bbd52dd2cbd2fcad",
+              "bytes": 1080,
+              "url": "https://static.crates.io/crates/zbus/zbus-5.19.0.crate"
+            }
+          ]
+        },
+        {
+          "name": "zvariant",
+          "version": "5.15.0",
+          "declaredLicense": "MIT",
+          "crateUrl": "https://static.crates.io/crates/zvariant/zvariant-5.15.0.crate",
+          "crateSha256": "c1d34c27cc6cdd1f458427519dd6b8612f7b7e3f7b9a0b2355d041dda9869147",
+          "licenses": [
+            {
+              "name": "LICENSE",
+              "sha256": "260e4ff3fc493695880c90774283eb1e3d018f898fabe655bbd52dd2cbd2fcad",
+              "bytes": 1080,
+              "url": "https://static.crates.io/crates/zvariant/zvariant-5.15.0.crate"
+            }
+          ]
+        },
+        {
+          "name": "zvariant_utils",
+          "version": "4.2.0",
+          "declaredLicense": "MIT",
+          "crateUrl": "https://static.crates.io/crates/zvariant_utils/zvariant_utils-4.2.0.crate",
+          "crateSha256": "bad0294361a320b694a328460dc73add56c306150f5cb6bfafc44446120008a3",
+          "licenses": [
+            {
+              "name": "LICENSE",
+              "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+              "bytes": 1023,
+              "url": "https://static.crates.io/crates/zvariant_utils/zvariant_utils-4.2.0.crate"
+            }
+          ]
+        }
+      ],
+      "nativeLibraries": [
+        {
+          "name": "libdbus",
+          "version": "1.14.4",
+          "identification": "Embedded libdbus 1.14.4 string and vendored C implementation paths in the exact pinned ELF; DT_NEEDED has no external libdbus. Pinned keyring source enables vendored DBus. Static inference only; full Cargo/build-feature graph remains incomplete.",
+          "sourceArchive": "https://dbus.freedesktop.org/releases/dbus/dbus-1.14.4.tar.xz",
+          "sourceArchiveSha256": "7c0f9b8e5ec0ff2479383e62c0084a3a29af99edf1514e9f659b81b30d4e353e",
+          "sourceArchiveBytes": 1368196,
+          "referenceCarrier": {
+            "crate": "libdbus-sys",
+            "version": "0.2.7",
+            "crateSha256": "328c4789d42200f1eeec05bd86c9c13c7f091d2ba9a6ea35acdf51f31bc0f043",
+            "scope": "Reference source comparison only; not proof of the native Rust wrapper version."
+          },
+          "noticeFiles": [
+            {
+              "name": "COPYING",
+              "bytes": 29175,
+              "sha256": "e61807cd1c32ff4e7bd5b4b61dd21997c6dc5642cf19316124fe38d50e1f9fa3"
+            },
+            {
+              "name": "AUTHORS",
+              "bytes": 9553,
+              "sha256": "ce6017badad3f59591fcbb7a080b548a61c547e08a07c637fbf7bec67634a573"
+            }
+          ],
+          "referenceCSourceFiles": 47,
+          "referenceLibraryHeaders": 71,
+          "sourceComparison": "All reference C source/header bytes and COPYING match the official dbus 1.14.4 archive.",
+          "upstreamTerms": "Full upstream COPYING retains its alternative terms and per-file qualifications. No license choice or redistribution approval is made.",
+          "sourceHeaders": [
+            {
+              "path": "dbus/dbus-address.c",
+              "sourceSha256": "734205c689c2c875480e590e5161f9f75c2d5f3b768b5a0e1d096942f9ba56c0",
+              "bytes": 1062,
+              "sha256": "d70021de288fdabd6458c1dce7030fdb04cf2930ecb3125b3ff4186f1c9770f3"
+            },
+            {
+              "path": "dbus/dbus-auth.c",
+              "sourceSha256": "c30a70e3a69f37c9502f2fbbd22f3ae32d4faf037135bfcddcdd3ad391378397",
+              "bytes": 935,
+              "sha256": "e37b02a59cbfae47b10f95d0c688de94cb93f644a012fdb0c758c4bf1fafc161"
+            },
+            {
+              "path": "dbus/dbus-bus.c",
+              "sourceSha256": "fd3eb57aa49cdb8324b03e1dff2e3ff19ce7ce086b75d69ade7e4903fc3e0c62",
+              "bytes": 1002,
+              "sha256": "08b91ed4c9f9b76c7d532098914179cb090238621fd51254c78dd40d19166c59"
+            },
+            {
+              "path": "dbus/dbus-connection.c",
+              "sourceSha256": "e91977833aabe04827b5028817c98d5f8b53629fb3696d00c41ab39e8ef84291",
+              "bytes": 942,
+              "sha256": "a4e99f8af73291289507bc29ba28fab1b23f073ec39f301c1cac51708bab1a2a"
+            },
+            {
+              "path": "dbus/dbus-credentials.c",
+              "sourceSha256": "90abde0d8cbdd7a4e89a65caf82e4e7661ae1c28437a3cc86a66bcac5b5bb809",
+              "bytes": 958,
+              "sha256": "a4adc44df51ac6e8d6cdb756ce5b162bcd5ecb72905c0ab03dfea8e810c8f6ad"
+            },
+            {
+              "path": "dbus/dbus-dataslot.c",
+              "sourceSha256": "67a60fba8aa1f5b089d317ed5d73b6c977e0bd072f8f27b46740bc978308789b",
+              "bytes": 938,
+              "sha256": "430c4d3dfb47f180ea862fd2a621d989e8a8e9cc261309ae032365b8c03d7c0d"
+            },
+            {
+              "path": "dbus/dbus-errors.c",
+              "sourceSha256": "6cb7e4a9698bcfea2ee56a645d223a94ef6f3795e5603cfb60a47f3b95ee48f7",
+              "bytes": 971,
+              "sha256": "cb14169466ebf3607c2ef873d2ee5cb21b877fa599ace719906ef69f2e87225c"
+            },
+            {
+              "path": "dbus/dbus-file-unix.c",
+              "sourceSha256": "615e0fdd00567198be9e959fc83565c9911ff68afd13844a4ec3608a169001e2",
+              "bytes": 1032,
+              "sha256": "a19ef274a0f735695f9de66606fcda48b6296b06ce0f8977466e95a7d4c80518"
+            },
+            {
+              "path": "dbus/dbus-file.c",
+              "sourceSha256": "22023a3eddb084d064f6d16ee5f12124818337bb7e45601af550ccd4aabc175c",
+              "bytes": 1044,
+              "sha256": "ee62f6f41069a35da485e648e1762cd92b30ae43aff7cba4e15bd60c381e8a23"
+            },
+            {
+              "path": "dbus/dbus-hash.c",
+              "sourceSha256": "9c0f63103b5673c1d0b6c21f419b2fc8605ef39faa0f2b0ccf212d02174272cc",
+              "bytes": 4021,
+              "sha256": "40edf8e6c1bc6b1444108eaa2b051d5c293a2f3d5201322aff37ba058adf16f3"
+            },
+            {
+              "path": "dbus/dbus-internals.c",
+              "sourceSha256": "c6dc83b6c4a13921c2a423f0a0354648523f41b2a468af5d4d18c5f383bde756",
+              "bytes": 978,
+              "sha256": "e363e428496108e179226a965ad470b84e24afdd352dbd446a644fac9d6e063e"
+            },
+            {
+              "path": "dbus/dbus-keyring.c",
+              "sourceSha256": "748efa82167b2a786e71827782a722f9f2cba3b3dc6e0626123835f4459bc99e",
+              "bytes": 955,
+              "sha256": "f9372bac7466fa17c428c0c53096acea5f8188a53db41ac5abf58e5be50e1e59"
+            },
+            {
+              "path": "dbus/dbus-list.c",
+              "sourceSha256": "52cd0df14439c33af224b046213013074caa28a8820e29c76da3280c42720e85",
+              "bytes": 973,
+              "sha256": "5d39e8b60c42001795013554e80ecc2f4f1dcd427e639f0b3f5f4ec2ea50762f"
+            },
+            {
+              "path": "dbus/dbus-marshal-basic.c",
+              "sourceSha256": "5695218fd4a61e3e888395eafcae9ffaaf307bae6534f03db5cc9cb88f2c019e",
+              "bytes": 1017,
+              "sha256": "6169090eb74cdf98c64f975e77638ecfa5021bba2441a85d3a6a1a0f20d46512"
+            },
+            {
+              "path": "dbus/dbus-marshal-byteswap.c",
+              "sourceSha256": "4f3f798daa1d315e9ed1c68eace5a63862338cd69068ed797660d9c8ad9c29bc",
+              "bytes": 953,
+              "sha256": "efd3c4e6791944efcf55e54a3cfc2cd944e82cd0e6719176f49bb653665596b3"
+            },
+            {
+              "path": "dbus/dbus-marshal-header.c",
+              "sourceSha256": "523edab210e7af838b4469c9ddacd189217a2ee237b608934d5a52c6d22eb188",
+              "bytes": 973,
+              "sha256": "7cca890fd6439ded05ce2d1e37354a4026111c86f4322dcd85d1a5aec8dc1de4"
+            },
+            {
+              "path": "dbus/dbus-marshal-recursive.c",
+              "sourceSha256": "7e9237fa810b04ba5dfeaf053f1eddd98aca1f1c5894d6c9c7af5e54443d3752",
+              "bytes": 970,
+              "sha256": "a7a7f826cda65f0fffe22ce4086159c656141b65d30d9611c7582d546cdf864a"
+            },
+            {
+              "path": "dbus/dbus-marshal-validate.c",
+              "sourceSha256": "e65afdc80be613b23f80592cdfe10223a498a14473ba74a5d131c63b364d05f0",
+              "bytes": 960,
+              "sha256": "e937d3a48479bb2fa3a9b442e40b160a4dc359e92b0c7b1eb248fa82fbb1289a"
+            },
+            {
+              "path": "dbus/dbus-memory.c",
+              "sourceSha256": "fa7db65ae5a27cc9898dcdc72a80eaf918e30f1e7c040a83814420e6c8da69c7",
+              "bytes": 940,
+              "sha256": "99fcdab50cdea60df0877c929400ae4b07525e6d531ccb3d3543ffa66a2e7760"
+            },
+            {
+              "path": "dbus/dbus-mempool.c",
+              "sourceSha256": "89c6075e5695f6dea4ad34958e26281acbc952a9a54fa603cf74350882e32ef3",
+              "bytes": 1013,
+              "sha256": "c5c90c2895c13e884b6d0f7f9bf41a1b884ca2f609540cfcef0cfd084d1960a4"
+            },
+            {
+              "path": "dbus/dbus-message.c",
+              "sourceSha256": "433c3a0c91c5bf7e98f320386a74d277b7a65d360b1aeda30886dac2ec57b893",
+              "bytes": 994,
+              "sha256": "f983314d4be3f1f199baf4bbd8d658fdff62d1106428dd0e8c6a38e7f58f3cc3"
+            },
+            {
+              "path": "dbus/dbus-misc.c",
+              "sourceSha256": "6d1789e9eaf5d5386deb66c0a6f467b2701911b4bd40e255243f21ef4ccd2bee",
+              "bytes": 967,
+              "sha256": "1c08f3ebca95d319aa3785c2aa88d359057aa3f5f756331a6fc109ea245baa93"
+            },
+            {
+              "path": "dbus/dbus-nonce.c",
+              "sourceSha256": "6352bb3092fcc78d58b598908ae5bda674c27a591c038360c718b32d3f494ac6",
+              "bytes": 1036,
+              "sha256": "3d621ae82bce302a20f5c30b963cf32f3fa2761f58fdc2d25f311ab9835724bc"
+            },
+            {
+              "path": "dbus/dbus-object-tree.c",
+              "sourceSha256": "4d26336fded71ca1e2a05534a605a4cf98d572759672323363f8e8f7ffc019e9",
+              "bytes": 968,
+              "sha256": "45388cfb8ab2bcc68391efc514a42985679a2445b825e21e8cf4b4da26cc2482"
+            },
+            {
+              "path": "dbus/dbus-pending-call.c",
+              "sourceSha256": "16dee76e1c3e758016a4d941f3d5a0ffdeace992ae5807547c69d8da19899bf0",
+              "bytes": 962,
+              "sha256": "efe2646a95986bf304147e559a939488b14f8761c677700d97573b41d5b19e53"
+            },
+            {
+              "path": "dbus/dbus-pipe-unix.c",
+              "sourceSha256": "bb6483794fd09461f0867a0cfe24a1da92f2df5c46cce4086e819c0d448ec39c",
+              "bytes": 997,
+              "sha256": "6ec1e964381605c3306bbec4b5d57d3bb08b88a329478105d88681b6d6a31426"
+            },
+            {
+              "path": "dbus/dbus-pipe.c",
+              "sourceSha256": "c826903ff91eaccf359e043c1a8a5bf34eb347200c5c7ae5790d0e262eea2ec8",
+              "bytes": 1014,
+              "sha256": "337f2e7e445a771afad4c986da4f01339e31448878a049d738a934d287a0c664"
+            },
+            {
+              "path": "dbus/dbus-resources.c",
+              "sourceSha256": "bc919687f25f667d71b9f329c3c8074be50dfa4624ad5499e1a26ac841e3bc0e",
+              "bytes": 939,
+              "sha256": "bcf4585d8a2a594e5e8e0021e92005e9858fa274e0b76146f877de8d86abf17b"
+            },
+            {
+              "path": "dbus/dbus-server-debug-pipe.c",
+              "sourceSha256": "065c20be529d2dd0c335a5291be2f7752c69721f9a300aa6688fc885514dfcda",
+              "bytes": 1003,
+              "sha256": "49de7d62352f85d5912154dea87f72836d961b3d6d84407e668e98f34e42f448"
+            },
+            {
+              "path": "dbus/dbus-server-socket.c",
+              "sourceSha256": "8592455bddad3913cb981c12ff783f6e1bdb082dd48563959b1846ab25d6fdd8",
+              "bytes": 970,
+              "sha256": "016045bf5d4114628d67be75f9f609063c2b35fdc143429ca31dfd7e809210cb"
+            },
+            {
+              "path": "dbus/dbus-server-unix.c",
+              "sourceSha256": "77b5f6b89723a1bb76addcc02fd07e49329e3737b305330fcec93bf06e7ab048",
+              "bytes": 978,
+              "sha256": "6ed1d6016910a0f1426f24b428e95e5edc3e472929cfb5aa45cfd349bc372c7e"
+            },
+            {
+              "path": "dbus/dbus-server.c",
+              "sourceSha256": "c76c6c49785b320267e37ddf65e4e534c842cc91bfe00a5b37e2f46248433102",
+              "bytes": 946,
+              "sha256": "1c9862c08f6a80c0cd5060416dbd98b9b33c8925cae15c31ff64bae7d8857bca"
+            },
+            {
+              "path": "dbus/dbus-sha.c",
+              "sourceSha256": "0f17343877056f7bc46a2a7911fcd5dac1f8cfe213ded79f524674d66afc5f4c",
+              "bytes": 965,
+              "sha256": "7ff6d09898c94633f8d7f4819e66a56302f0e63112b8cbc95e45d926956a42d9"
+            },
+            {
+              "path": "dbus/dbus-signature.c",
+              "sourceSha256": "90ea486088e783e2749fdc832a256ab3ff165890cd3dc96d311163e2739e351f",
+              "bytes": 962,
+              "sha256": "4e4b214f7bd8a4b431630fc29c509ad8bfa507d8c27e3a73e570443a3cd240a1"
+            },
+            {
+              "path": "dbus/dbus-string.c",
+              "sourceSha256": "cc9f6be7fff9b81675dd8990c45897b0e29009dd210754fdc9817e3b76c50c44",
+              "bytes": 1274,
+              "sha256": "df306c02ef6c7253330d85f0fb58cc01ffe80e72e7eaec245b2e25573ef89c2a"
+            },
+            {
+              "path": "dbus/dbus-syntax.c",
+              "sourceSha256": "8c8038a7ca6a08089651fe2efc1054bea0d3a810b18b2b47e8234bf59a5de4fd",
+              "bytes": 1025,
+              "sha256": "3aabc04c85dcd020de114a55d6e1fe93f24c9df63555f009789954ffe0c19d57"
+            },
+            {
+              "path": "dbus/dbus-sysdeps-pthread.c",
+              "sourceSha256": "1f867e164631eb65cd574ee5c35db2b5e2a10ff61fb70eaf3b41eab0cdfcd33d",
+              "bytes": 989,
+              "sha256": "f31841952815ddcdb0600d76f67fbd0cd49b5f4a09737a3133170a93945e19aa"
+            },
+            {
+              "path": "dbus/dbus-sysdeps-unix.c",
+              "sourceSha256": "d33c16198f83865438e253b7b7e946b10713eb6c034866aa5fa7e6174e74e3ae",
+              "bytes": 1044,
+              "sha256": "ee62f6f41069a35da485e648e1762cd92b30ae43aff7cba4e15bd60c381e8a23"
+            },
+            {
+              "path": "dbus/dbus-sysdeps.c",
+              "sourceSha256": "b13dc86ada924016c585f48db8988a86fac78e07db9d3a9f906b90e6304dae29",
+              "bytes": 1066,
+              "sha256": "1ecdd3d1b644ff5fecf8f985a33381ae61219efb46738404a8662d84ce940239"
+            },
+            {
+              "path": "dbus/dbus-threads.c",
+              "sourceSha256": "d3b27f8aa6413f9b8502a7b6b5bca24d91940ec224055d7d8d12747375e5e2e7",
+              "bytes": 946,
+              "sha256": "e040fb933cec1a6cff1c4d6852f34f357a795cf748860fe328b248b4bb734605"
+            },
+            {
+              "path": "dbus/dbus-timeout.c",
+              "sourceSha256": "2b14cc034ed6c464b67b833a82be8f6363af7907600cf9bb3ebc049ece24ed6b",
+              "bytes": 941,
+              "sha256": "eb705703814274ebb032b3e764f77a5d75aa55668ca8b588f69302daeecf2855"
+            },
+            {
+              "path": "dbus/dbus-transport-socket.c",
+              "sourceSha256": "c51f42326c6240f1e81376a7ef67113570378cfadfe15514555cc9bcabd79e16",
+              "bytes": 975,
+              "sha256": "7492085dff560e6704aea9265fad13ca7592ac1573efe7529c380d935281d057"
+            },
+            {
+              "path": "dbus/dbus-transport-unix.c",
+              "sourceSha256": "7de0ef9fc515b554a1e651efdfa1aaf17447308e5f68baa9025e14b63b3f0303",
+              "bytes": 971,
+              "sha256": "4826be468566c1e853a884a8681b6ebef48db6e744bb92fa36e6ed69e0294875"
+            },
+            {
+              "path": "dbus/dbus-transport.c",
+              "sourceSha256": "1ed1effc5d72f2698bf6e22235707a92c15deae458f8e06caea584ceac404e7d",
+              "bytes": 976,
+              "sha256": "a3dc7951794d458333d73ab6529da8912060878676a4bb942b074f3a7fef4b8f"
+            },
+            {
+              "path": "dbus/dbus-userdb.c",
+              "sourceSha256": "b828f2906e54a0a36a2f794b84789fdbf1086c4fd6a612e320e4eda9c13ea355",
+              "bytes": 943,
+              "sha256": "f19f4690958e5831ff149a4ebfe0ec00530cfb94210682b3e611d9806d5e8488"
+            },
+            {
+              "path": "dbus/dbus-uuidgen.c",
+              "sourceSha256": "114d57c0f2bf579e8bd0d6bb2734c88413fd9a54ac6c617767bad66b21ece3a5",
+              "bytes": 980,
+              "sha256": "119aad76c755ede572e5108f26ebf48b2cc11b999934644226d8723a59302d12"
+            },
+            {
+              "path": "dbus/dbus-watch.c",
+              "sourceSha256": "08df96bf42719ffa2ec2668fc62904048665f062deb576abd140f3d7bd5dc25b",
+              "bytes": 941,
+              "sha256": "efd827f7b4546318e0f4e3256fc1d29f1fda9eb2e9ac0d50a7f2be62886fb413"
+            },
+            {
+              "path": "dbus/dbus-address.h",
+              "sourceSha256": "bdbf69a3c5b1edfddb3e7263e1801bfadc765484fcd6bcc4b33338dc2088ca38",
+              "bytes": 937,
+              "sha256": "13b1005d67211743f8501b669b9abdca54b9fa311ea7efddf8009c15a51432ac"
+            },
+            {
+              "path": "dbus/dbus-asv-util.h",
+              "sourceSha256": "778f6753a8c97cd8a8d854b72412616a00c9dc0ccb1e7f74f4347f9d6922d2c2",
+              "bytes": 923,
+              "sha256": "9cafd95c66bdbbb72f49c3e02f46767158e5982317a738266e4b07954e38e740"
+            },
+            {
+              "path": "dbus/dbus-auth.h",
+              "sourceSha256": "9700cb2027007608bb9e34abeb27a8b546c83d42c1e4999a47d1ee9dfae0cdf5",
+              "bytes": 923,
+              "sha256": "b95deb6803835d623de1cd81addce678cd52cbeba43984260d00b7b567acfe21"
+            },
+            {
+              "path": "dbus/dbus-bus.h",
+              "sourceSha256": "37a06cf36473dc0325065f7ea22314c7e4a9e294f289941ba6d286d77ceb03da",
+              "bytes": 964,
+              "sha256": "6b7cc13a83dfadb93f3d502926abd0e569467c0477cd47e14ce343d3f8007079"
+            },
+            {
+              "path": "dbus/dbus-connection-internal.h",
+              "sourceSha256": "493962af1e20b5de78730a2491466b72e223dde7378caa615faff29bfb9c568b",
+              "bytes": 958,
+              "sha256": "180e4aaa3af6f3025ef4a4a9175265ca64acdccd0f46f8171d3bed9c6b059dae"
+            },
+            {
+              "path": "dbus/dbus-connection.h",
+              "sourceSha256": "2f78028b43527613242b2422f8417fe43b269725f64b6089040cc926ff52cd88",
+              "bytes": 942,
+              "sha256": "f7ac5faff2e2668668107b7c4cff1f36d353904f17ea25772b0bbe1733bb0c68"
+            },
+            {
+              "path": "dbus/dbus-credentials.h",
+              "sourceSha256": "67f3b0440873bd337d82766ad8038ca480ca8bde1c73d1bd499131eb258d1131",
+              "bytes": 958,
+              "sha256": "4f29635ad3f69db3836c59865d5747a9beffb37134b990c0a1cd12bad1cb2b94"
+            },
+            {
+              "path": "dbus/dbus-dataslot.h",
+              "sourceSha256": "e7242bbfa25ae9b29e739333d7887d30b9e2b7bd7fbdbb5f5cf58bb847a37702",
+              "bytes": 937,
+              "sha256": "23d896fac877c1cf450fe025417040b854fadbc09db6986a9d8c07214b02269d"
+            },
+            {
+              "path": "dbus/dbus-errors.h",
+              "sourceSha256": "b1ba59435a38bba109d4af6cbba1940695df7bffc16a54c92534f9cedbecea69",
+              "bytes": 964,
+              "sha256": "84d488ab25ced8e9c312b2fd889b6bbaf16fdde158da431bc720260c564905d2"
+            },
+            {
+              "path": "dbus/dbus-file.h",
+              "sourceSha256": "8a2a354f49018a26c47159dd9ec652121aa90677312350cdd44645d0f5528a2f",
+              "bytes": 1012,
+              "sha256": "3b049c077d5084c36aa86353b55e6c71b46646556f3adf19e168db42aab8d54a"
+            },
+            {
+              "path": "dbus/dbus-hash.h",
+              "sourceSha256": "74d81686c4cfa086656cbb7c118d201078c81fd51b4528338fa39953eb57cc7a",
+              "bytes": 972,
+              "sha256": "6a973cf6929dfa51eba0c850cf29277b2231e4a1e8118f984ea8c72be89482f4"
+            },
+            {
+              "path": "dbus/dbus-internals.h",
+              "sourceSha256": "244099d3b98ae76096b6bb96cc2e4fe3be61abd996a6505e7a5d80a4ef00e7b9",
+              "bytes": 977,
+              "sha256": "7eb14a893f0b3b2a10c9ecef921e8b7dcfc296cf0d6bebd25c149bc329e7c644"
+            },
+            {
+              "path": "dbus/dbus-keyring.h",
+              "sourceSha256": "b7903510dd67293de504b71e701127eadcc2555a032ee37386e1b29a152b09c2",
+              "bytes": 948,
+              "sha256": "9d591ad10c30e2f97c19f139243a2e21d0f0f082ddc6fc49b72abda3e6d0bafd"
+            },
+            {
+              "path": "dbus/dbus-list.h",
+              "sourceSha256": "1027024135a47ec22bf61b376f9deff276f484964e2263ec0089d3bde46d173f",
+              "bytes": 978,
+              "sha256": "650063e0c3f6cc71c72cac836c0298cf0fccb821d16fa2e67ea0025446b9f4f9"
+            },
+            {
+              "path": "dbus/dbus-macros.h",
+              "sourceSha256": "3c373c8898b7f4aa0147ea9216e228e29deb82ab7cf68d147da37f803dbda182",
+              "bytes": 926,
+              "sha256": "5fce62c7e36a158bffbc46fa780a64bd918b9ed25d4b5047b390c6c575d89af7"
+            },
+            {
+              "path": "dbus/dbus-mainloop.h",
+              "sourceSha256": "6ab855d115c6db9b9ccb15e1fa1af78006183fc5bda73d1f27f8fb4e85b7e0d0",
+              "bytes": 933,
+              "sha256": "f30b63a37471b962f6633f2d528916ea1b4022950bdbda52e68235050b7aad61"
+            },
+            {
+              "path": "dbus/dbus-marshal-basic.h",
+              "sourceSha256": "a5fd0ec0db5a0dc5758789381ebdd01f01b0676fe8f92d363a0632757d1aeeb7",
+              "bytes": 1013,
+              "sha256": "1a3e16f46a89b7a7b7e1f3c85248e3876c736b4a2a9f38de5f5f0bb44b6826ef"
+            },
+            {
+              "path": "dbus/dbus-marshal-byteswap.h",
+              "sourceSha256": "dd89f0d22976415d4c8f107d5852b7e6e2f66458be72033bc215f7cbb90b4039",
+              "bytes": 953,
+              "sha256": "69fab9f5c6b1e32e0f563cabc728350bdeee81e987cfeae854f5f6446be130f8"
+            },
+            {
+              "path": "dbus/dbus-marshal-header.h",
+              "sourceSha256": "77fc3743230923e8ce936aa49ef1af94fccb60e16d22c7d126123035d690ede5",
+              "bytes": 973,
+              "sha256": "4654c79d450e1997f10aa00fc86f1f82b67c9569bd56d087ed810123088676f8"
+            },
+            {
+              "path": "dbus/dbus-marshal-recursive.h",
+              "sourceSha256": "05433eeef388ffe161018c48cbb92c82c86b605490d2c731a3a64f1a3f9c0d2b",
+              "bytes": 970,
+              "sha256": "72cc68015a085abe872709bc6b543b53f0dc17deb11add5af49032b7f70d60a3"
+            },
+            {
+              "path": "dbus/dbus-marshal-validate.h",
+              "sourceSha256": "ed6660159ccab8c32f0a0ab80b66de51d96225a4c7f9857dd2774334c5ce9496",
+              "bytes": 962,
+              "sha256": "f438d56538f077cef319e6f3ee002475a58ef3cb2551c690d52194ac2f1aec56"
+            },
+            {
+              "path": "dbus/dbus-memory.h",
+              "sourceSha256": "e51e7730e88116d1e814c3e95893ba0eff2c924341f564082d256d5f026a1d5f",
+              "bytes": 933,
+              "sha256": "f3aa0bc8c5042064bf708cf31f7fd5ae2fd1965e29615f45a8f1387d8d4c0fbe"
+            },
+            {
+              "path": "dbus/dbus-mempool.h",
+              "sourceSha256": "82527c10c4a9786bf1484a220306baf3401a3900989c943940f644746511d545",
+              "bytes": 926,
+              "sha256": "29a5d8f2d5b4331ea18b029ce058e242c5c69bb1dd67eaacb8e1ad79f0f79f63"
+            },
+            {
+              "path": "dbus/dbus-message-internal.h",
+              "sourceSha256": "1245cd461c576914f37ccf47688da3ed93f9c3285a6c20d4f767ff1c39622822",
+              "bytes": 959,
+              "sha256": "497115db000417e48b0a9e3261cf07dd3ecacc0f29af4bb11b59442888b3d4cd"
+            },
+            {
+              "path": "dbus/dbus-message-private.h",
+              "sourceSha256": "408e58f07686dc6758951e244f3229f03f6f362ee3c831f494fbe4559204c404",
+              "bytes": 980,
+              "sha256": "e0f12628533b4df93e04d804d6aff031a8a2511702664e4c0489c9d5bf2cd020"
+            },
+            {
+              "path": "dbus/dbus-message.h",
+              "sourceSha256": "29f93f0fab85f30baef9b928e5a9cb353130d086cd0b629775acd1edf5349363",
+              "bytes": 941,
+              "sha256": "82079dc7af5353613615729fa5fb52c849a25ee112dc2a3ae9a6505874fea01f"
+            },
+            {
+              "path": "dbus/dbus-misc.h",
+              "sourceSha256": "331c5aee975603b3d964663e9c0abb3127417bc9235c09daa1e8e863c6818806",
+              "bytes": 966,
+              "sha256": "58794ebe1c2eb68c7a54a9fcc3b3f1376ae0eeb0775560d0fc370a30fe9044f6"
+            },
+            {
+              "path": "dbus/dbus-nonce.h",
+              "sourceSha256": "9fa332371193a8675727e1696aad65849d36df1991490ce0b8351f9272a4090d",
+              "bytes": 1035,
+              "sha256": "52691b8be0bb6352577b268bec71bdfe29e741ea1fb2c034411409727eb66e3e"
+            },
+            {
+              "path": "dbus/dbus-object-tree.h",
+              "sourceSha256": "2068c610fd9564eb942011fa169e489c8e6da704cb854e2263d0f08e9caa5ed1",
+              "bytes": 961,
+              "sha256": "3de646cb0e558ced13e20fe336241712658cdfe0c645e06f1fc89b21701dd32f"
+            },
+            {
+              "path": "dbus/dbus-pending-call-internal.h",
+              "sourceSha256": "368ffeed3198c1094bd9ff4bfcd56d907bd85e61bc9aae1cfc4160fb58589028",
+              "bytes": 961,
+              "sha256": "9988b55f2efed410831e6db4ef220f167c98796eaec043c45bacca501dc38790"
+            },
+            {
+              "path": "dbus/dbus-pending-call.h",
+              "sourceSha256": "1d61d3a1eec0b373b5da91775038e9650929c72dadc4b6734bc874d611811a17",
+              "bytes": 961,
+              "sha256": "40f870b075988547d9ae28f70ae93a81d00cd94082834e8837369a188fa4ea67"
+            },
+            {
+              "path": "dbus/dbus-pipe.h",
+              "sourceSha256": "908e0482512f509e119a2f000fda1bc1c05e61a00b004188ec38115b7fbad8c7",
+              "bytes": 1028,
+              "sha256": "9bb68143887d34bdb46f1ee514e961fa80a1b3cfe51327f083b66954fbbae95a"
+            },
+            {
+              "path": "dbus/dbus-pollable-set.h",
+              "sourceSha256": "c643bd6f0d87fded817da4f9701db219a358d4aebf40773a654324ec3c89e829",
+              "bytes": 993,
+              "sha256": "6042c8cd5f57526eeff87a685e67415fba7b3be772bd9bc9e20a1fe322571346"
+            },
+            {
+              "path": "dbus/dbus-protocol.h",
+              "sourceSha256": "fc039f2bc84644d514c961959b20500baa9b778ec7a589c53f18633baae32f88",
+              "bytes": 989,
+              "sha256": "3e458a1c5a61431d5acbad2484475cd4592a90d9fec6423bd1058d48324254e6"
+            },
+            {
+              "path": "dbus/dbus-resources.h",
+              "sourceSha256": "47166949048a800078247e31ee3da90e2ea6f18492730cce8e46062539aabce0",
+              "bytes": 938,
+              "sha256": "7b82256a16e113c9e03e01445060bf981a5237103d07538b21cdea1fb74880ff"
+            },
+            {
+              "path": "dbus/dbus-server-debug-pipe.h",
+              "sourceSha256": "82cd21724b96d5bb56a6a161d2d6d9cec814006d9b366d6681e1a707cf7424f0",
+              "bytes": 996,
+              "sha256": "60768c01227102944b41b7667b5cc97f4ea6440eac4f28810a805b4ce61d9fa4"
+            },
+            {
+              "path": "dbus/dbus-server-launchd.h",
+              "sourceSha256": "200791e43dd83f50c535582da6efa3357f47e61a46b026308b13dd0f7f492b81",
+              "bytes": 1195,
+              "sha256": "54af0b702e42509b44a466f42e090f00171874eba9b009b4212aabbca9aa946e"
+            },
+            {
+              "path": "dbus/dbus-server-protected.h",
+              "sourceSha256": "cac366e4af5f19553ee9334fb354f9ab14f0ce5c862f7817c64fb711aab7cea1",
+              "bytes": 995,
+              "sha256": "8b000807be5f9239ca34467c23a392b5898a71cabd1acf6df095a4b668395deb"
+            },
+            {
+              "path": "dbus/dbus-server-socket.h",
+              "sourceSha256": "e864859411c683c8923335b9c538fcf9a621af168845c27afc547f4468883e8d",
+              "bytes": 957,
+              "sha256": "05c89ff019483fb861c5ae082750aaeead537132043e0f9ebbc568fc1ecad079"
+            },
+            {
+              "path": "dbus/dbus-server-unix.h",
+              "sourceSha256": "db80106f32c64f5933bb09c722c2cc8fbd3022f8c5df19d2ce731c452ee3d684",
+              "bytes": 965,
+              "sha256": "7ca7ad239dfe6cac16c32e41b2488877921732942b50be3049b82224f6d438f8"
+            },
+            {
+              "path": "dbus/dbus-server-win.h",
+              "sourceSha256": "330c697f17b2a145937155929c8831fbbd66b00e201388530eeba40466c626cd",
+              "bytes": 1031,
+              "sha256": "0759d4851103ca157bf3a6eff35f3fe192cdd086cbc2618f086a6e10753d870f"
+            },
+            {
+              "path": "dbus/dbus-server.h",
+              "sourceSha256": "b38cd3fd001bd5c58b55bbdc5ed32b6824fd3001198b64f4f4bd7c1e3f0a9b14",
+              "bytes": 934,
+              "sha256": "d97c269816800411f818681e9844b0390f14ca8dfda2eb92d10d163d4186f0ef"
+            },
+            {
+              "path": "dbus/dbus-sha.h",
+              "sourceSha256": "cd63f3ee67b79205fff303de7285952e59419c6fc35e41082fc18b44b29b408e",
+              "bytes": 927,
+              "sha256": "1a34fab019f4e8d0a974b0582b16d75f2180c9c935868102ff426bd21f70bf7a"
+            },
+            {
+              "path": "dbus/dbus-shared.h",
+              "sourceSha256": "b3b5456a131a1cbab7eb685f308822734f5b724b0b96252f57bc0bad614fbc16",
+              "bytes": 976,
+              "sha256": "973c4a9143d5709f202257b44f212ba1105d1d82ad2c5a3ffd112a6f3b2a4a57"
+            },
+            {
+              "path": "dbus/dbus-shell.h",
+              "sourceSha256": "8b2eb6138c7051664b7f8d3710b3eff48f350527d639d7d5329ab93162eef533",
+              "bytes": 993,
+              "sha256": "3113595d6c4657f7f0369d6df948410b2f4f526d5eb31d6a5e81c62293650a5d"
+            },
+            {
+              "path": "dbus/dbus-signature.h",
+              "sourceSha256": "b2320263bc4568e70526301d617ffb540f47e5afe2d901584df0e8915e6b6f48",
+              "bytes": 947,
+              "sha256": "5a528c4f31157d668f6c7e087e09e15d0384c2909df2bb580acdfe25d4a722ca"
+            },
+            {
+              "path": "dbus/dbus-sockets-win.h",
+              "sourceSha256": "e1e16783a4c3cd62606c524191e86200b8cbe4747d3397da321488d7afafff30",
+              "bytes": 978,
+              "sha256": "ae2e555795e8e24197e69b500fe4123764d705630d1fccc8b6c819ca47a8a4da"
+            },
+            {
+              "path": "dbus/dbus-spawn.h",
+              "sourceSha256": "8f407ac128b0305049ab159a88a1123c599b16e8d1744edf7f4cb28067e990a5",
+              "bytes": 979,
+              "sha256": "ded09fb530c15ccefa782e6f761f605c0b9c58d01a234214aaafd1485184fd21"
+            },
+            {
+              "path": "dbus/dbus-string-private.h",
+              "sourceSha256": "298ffb5f8edc5c7ad2d41b18f123af56582b1c0d42898935f8b5cb90c058b3d2",
+              "bytes": 982,
+              "sha256": "bee697e11a0bf4571096ac8a5374d18db79ff689f3fcdc77dcfd5fcf9f5d6d40"
+            },
+            {
+              "path": "dbus/dbus-string.h",
+              "sourceSha256": "7bddeeeebf692f7c7a083d0409df932cc69b6dbfe2959ab3fe5f209fb3cbd127",
+              "bytes": 1036,
+              "sha256": "2d54b56b7a26d0c084011153e337e43e88d7f114930e6302a254f4461cd923c2"
+            },
+            {
+              "path": "dbus/dbus-syntax.h",
+              "sourceSha256": "84bf3b915af641566b86038b1c695211192a6d711f8e8b21375cf452b23bbd2d",
+              "bytes": 1024,
+              "sha256": "7ac50d91c79062a1d47810e3adcd292fb2a73a55002b99c51f2cba793bba31cd"
+            },
+            {
+              "path": "dbus/dbus-sysdeps-unix.h",
+              "sourceSha256": "2708c98d67f6bce3f7406eaa20eef8e65c0f722a3bcecc88c9f3a54589edd1db",
+              "bytes": 1053,
+              "sha256": "21644b18c62dfcb5ee5fd1a51a1e5402dda0957f4772c7da7b7680727d21528a"
+            },
+            {
+              "path": "dbus/dbus-sysdeps-win.h",
+              "sourceSha256": "60abf321a472cf3da0f39a9424f6c86223638f988b982724936cab4e4e9c833d",
+              "bytes": 1063,
+              "sha256": "2fce218ab72494bce4bd9ae386fd7671f2e6b142077446313fad4cb7559c84fe"
+            },
+            {
+              "path": "dbus/dbus-sysdeps-wince-glue.h",
+              "sourceSha256": "2d85dd16e87a43da65e541fefc566ad3c42dd446871111be89a51daad1619b98",
+              "bytes": 1051,
+              "sha256": "19b2e7cd7fa9eab9bf19cc1a56580dc261484b15e87e8805223c69fa59268a1c"
+            },
+            {
+              "path": "dbus/dbus-sysdeps.h",
+              "sourceSha256": "413e90a404dcffdd49e55aea33f6a55d7add6e75af8e1e02170a6a5871d5bffd",
+              "bytes": 1028,
+              "sha256": "9bb68143887d34bdb46f1ee514e961fa80a1b3cfe51327f083b66954fbbae95a"
+            },
+            {
+              "path": "dbus/dbus-test-tap.h",
+              "sourceSha256": "4e2d6152320102182c1492ad6a84c3c5efe1fd67a28c081584c8e6cefb81eabc",
+              "bytes": 1246,
+              "sha256": "c39fb3635fcc0c7786d0c8f2361ad6c009d0dc698df60416941e1874e179dfe7"
+            },
+            {
+              "path": "dbus/dbus-test.h",
+              "sourceSha256": "14e4b9c7b021b485f7aa65bca72784fdcf7cd90893396d090131e9766a6e0960",
+              "bytes": 942,
+              "sha256": "1429ab6d7b5fccb5e0bd9d981c7d7397a9db1f71a3363bb3488ad2f9497f7bda"
+            },
+            {
+              "path": "dbus/dbus-threads-internal.h",
+              "sourceSha256": "dc7ea099504861c5ede7d9c9b6e524d0347c7581fa9236a98d34062f019100ac",
+              "bytes": 950,
+              "sha256": "3a85802be46ba8af881de1f689feef66b6c3959fe1453e151d15e6ce93735627"
+            },
+            {
+              "path": "dbus/dbus-threads.h",
+              "sourceSha256": "ae6e81b0a02b0929f5956b51019802e837e7b3d8b8380590f7dcb6daa355ddce",
+              "bytes": 935,
+              "sha256": "374c6c7035aef7e49cbb688b90730cff98cf27d6e555d05fb2d60fe9c919bb4c"
+            },
+            {
+              "path": "dbus/dbus-timeout.h",
+              "sourceSha256": "d3ace004ce586c80c0e063b908c381d1d45ef7c14d44799c284e7ab810ebbe01",
+              "bytes": 945,
+              "sha256": "60b20907ba50873a1e5a23bd8de58faa50d0568cc3f567bc3defe396c4693d39"
+            },
+            {
+              "path": "dbus/dbus-transport-protected.h",
+              "sourceSha256": "aa6f5666339aee880d36afc198d56e3d327a8778d2190e432c0aad3ddc71bd24",
+              "bytes": 1007,
+              "sha256": "4b9a61b988acd638cb4e83a5d591c693c0493a964a0f28104342c728785ea78c"
+            },
+            {
+              "path": "dbus/dbus-transport-socket.h",
+              "sourceSha256": "da03f73649fd271e836dc480ab4d8d02a85d33ea58f531599958751811fe41ea",
+              "bytes": 961,
+              "sha256": "ae52c75c3a29c8570ff7ec67678767ba3b063b26b6f1d2d24f8f0ef2e103059a"
+            },
+            {
+              "path": "dbus/dbus-transport-unix.h",
+              "sourceSha256": "b7373e450ca735f54c214060e5bae6dfaf35de43e4afe54a5529081511100141",
+              "bytes": 958,
+              "sha256": "aaf70aa5177039b64777a098502752b283db291a593a1c89ceab8322c405b9dd"
+            },
+            {
+              "path": "dbus/dbus-transport-win.h",
+              "sourceSha256": "af4047d742c53fbd0143a3b416a4ab3e16d2d81a92ab856b8f2e5ffdb8a3151a",
+              "bytes": 1023,
+              "sha256": "3532a86abe438c6df3efe133ee909ef8669626ecdcc6f854935b9e7d16f22366"
+            },
+            {
+              "path": "dbus/dbus-transport.h",
+              "sourceSha256": "9855e05faea255c9e86b06c066c4f160532771ca04ab32a5ddf09f18ed258929",
+              "bytes": 975,
+              "sha256": "976c7e73b08056bb95ec438cfd2e06af9262521c2e3d4687708e65475c462011"
+            },
+            {
+              "path": "dbus/dbus-types.h",
+              "sourceSha256": "4be10675d7bea8b805749cac9d4189b7292a3417552f3824d9a3c1db8c305472",
+              "bytes": 936,
+              "sha256": "05926d0a8b032c9b84b63a7895dbac9b65d1d3e5ae804372cf5bbdd648818c7c"
+            },
+            {
+              "path": "dbus/dbus-userdb.h",
+              "sourceSha256": "f6136076d14436c0c82f8d65106fc1f300f1fffaa850a25158fadd43a33d43ee",
+              "bytes": 938,
+              "sha256": "b67e72eddfb2dfbbaa6ec3994034c008864b09435cf55e570187d51f4184d952"
+            },
+            {
+              "path": "dbus/dbus-uuidgen.h",
+              "sourceSha256": "a0274bfffaff94a7096e715194dbd2f8c9cb16e1bff54f93cc75fd298fb69bef",
+              "bytes": 980,
+              "sha256": "efa2087548748408d21332ef6388a221856014d44c482a3346cdade810cf983c"
+            },
+            {
+              "path": "dbus/dbus-valgrind-internal.h",
+              "sourceSha256": "6f259b7263478066edb4f6e7979101b274dd162918b3c0a87c496ce5ab2b4d68",
+              "bytes": 943,
+              "sha256": "1c45bc94175399319d0a827eb3bd1b0ef47b571d31ea7f895f9c911e83980637"
+            },
+            {
+              "path": "dbus/dbus-watch.h",
+              "sourceSha256": "48b13bfbd1504bdfdb282e505bc51174c6c293e7139ad2c8715c28785a90cfcb",
+              "bytes": 939,
+              "sha256": "92c89afe3708b182a3b936694f5bce800bc289a338577b93833d7f35d571f21b"
+            },
+            {
+              "path": "dbus/dbus.h",
+              "sourceSha256": "c46f0241cab14bfbd25efc0fbb6d55b3a63bd14d576349780510e90feed94135",
+              "bytes": 958,
+              "sha256": "853e592c83b371d957a83e4edf7f53e43b00f20241056b3bfba8f4a416418b7b"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "platform": "win32",
+      "arch": "x64",
+      "package": "@napi-rs/keyring-win32-x64-msvc",
+      "parents": [
+        "@napi-rs/keyring"
+      ],
+      "version": "2.1.1",
+      "registryIntegrity": "sha512-DjRshMlsMdEyZTNpqfQYj60kDrCZLkl4y80U3w5WJQIj7ypToj02+A/hfJw/g68wzbSZ6uXhklyITQ1DABZAUg==",
+      "verifiedSourceRevision": "97aa4e0412a0ba8a0d47541cebe0474eea5efe02",
+      "binary": "keyring.win32-x64-msvc.node",
+      "binarySha256": "e622d8c817bf014e38f4a0f6dd51bc3b4a825bdc7ca8cd55c81d22254843537f",
+      "source": "keyring-win32-x64-msvc-2.1.1-THIRD-PARTY-NOTICES.txt",
+      "sha256": "5141857781450e7fa8a77c851ec9422c92bad4619d1480641b40f39e2022d6fe",
+      "bytes": 86269,
+      "crates": [
+        {
+          "name": "aho-corasick",
+          "version": "1.1.5",
+          "declaredLicense": "Unlicense OR MIT",
+          "crateUrl": "https://static.crates.io/crates/aho-corasick/aho-corasick-1.1.5.crate",
+          "crateSha256": "c982642fa9e8606056828ee9a8505737230110bb1099153c79efe865c59d12ba",
+          "licenses": [
+            {
+              "name": "COPYING",
+              "sha256": "01c266bced4a434da0051174d6bee16a4c82cf634e2679b6155d40d75012390f",
+              "bytes": 126,
+              "url": "https://static.crates.io/crates/aho-corasick/aho-corasick-1.1.5.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "0f96a83840e146e43c0ec96a22ec1f392e0680e6c1226e6f3ba87e0740af850f",
+              "bytes": 1081,
+              "url": "https://static.crates.io/crates/aho-corasick/aho-corasick-1.1.5.crate"
+            },
+            {
+              "name": "UNLICENSE",
+              "sha256": "7e12e5df4bae12cb21581ba157ced20e1986a0508dd10d0e8a4ab9a4cf94e85c",
+              "bytes": 1211,
+              "url": "https://static.crates.io/crates/aho-corasick/aho-corasick-1.1.5.crate"
+            }
+          ]
+        },
+        {
+          "name": "anyhow",
+          "version": "1.0.104",
+          "declaredLicense": "MIT OR Apache-2.0",
+          "crateUrl": "https://static.crates.io/crates/anyhow/anyhow-1.0.104.crate",
+          "crateSha256": "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a",
+              "bytes": 9723,
+              "url": "https://static.crates.io/crates/anyhow/anyhow-1.0.104.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+              "bytes": 1023,
+              "url": "https://static.crates.io/crates/anyhow/anyhow-1.0.104.crate"
+            }
+          ]
+        },
+        {
+          "name": "keyring-core",
+          "version": "1.0.0",
+          "declaredLicense": "MIT OR Apache-2.0",
+          "crateUrl": "https://static.crates.io/crates/keyring-core/keyring-core-1.0.0.crate",
+          "crateSha256": "fb1e621458ca9c51aa110bd0339d4751a056b9576bf1253aee1aa560dda0fc9d",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "78ebc2ea2a1cec9cbec2e1a6fc15e73474fe22bdad7575518e7f4628651d49c4",
+              "bytes": 10842,
+              "url": "https://static.crates.io/crates/keyring-core/keyring-core-1.0.0.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "157cc607717b1b372a69f6b4526f6ad18c1279af9f3267835cca2943f37bc07d",
+              "bytes": 1062,
+              "url": "https://static.crates.io/crates/keyring-core/keyring-core-1.0.0.crate"
+            }
+          ]
+        },
+        {
+          "name": "memchr",
+          "version": "2.8.3",
+          "declaredLicense": "Unlicense OR MIT",
+          "crateUrl": "https://static.crates.io/crates/memchr/memchr-2.8.3.crate",
+          "crateSha256": "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98",
+          "licenses": [
+            {
+              "name": "COPYING",
+              "sha256": "01c266bced4a434da0051174d6bee16a4c82cf634e2679b6155d40d75012390f",
+              "bytes": 126,
+              "url": "https://static.crates.io/crates/memchr/memchr-2.8.3.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "0f96a83840e146e43c0ec96a22ec1f392e0680e6c1226e6f3ba87e0740af850f",
+              "bytes": 1081,
+              "url": "https://static.crates.io/crates/memchr/memchr-2.8.3.crate"
+            },
+            {
+              "name": "UNLICENSE",
+              "sha256": "7e12e5df4bae12cb21581ba157ced20e1986a0508dd10d0e8a4ab9a4cf94e85c",
+              "bytes": 1211,
+              "url": "https://static.crates.io/crates/memchr/memchr-2.8.3.crate"
+            }
+          ]
+        },
+        {
+          "name": "napi",
+          "version": "3.14.2",
+          "declaredLicense": "MIT",
+          "crateUrl": "https://static.crates.io/crates/napi/napi-3.14.2.crate",
+          "crateSha256": "a4e2cf85c02d9b057898c485b824c3c416b65193689e2b7f517efc94b86ed24c",
+          "licenses": [
+            {
+              "name": "LICENSE.upstream",
+              "sha256": "3f1ce66533302df3a32edbfdfc0b78f0dd34659e4c1f5817162e5ea3c2297215",
+              "bytes": 2138,
+              "url": "https://raw.githubusercontent.com/napi-rs/napi-rs/8bab46ee5dfd48a7b51e8bad3d09aed315ada4df/LICENSE",
+              "revision": "8bab46ee5dfd48a7b51e8bad3d09aed315ada4df"
+            }
+          ]
+        },
+        {
+          "name": "napi-sys",
+          "version": "3.4.0",
+          "declaredLicense": "MIT",
+          "crateUrl": "https://static.crates.io/crates/napi-sys/napi-sys-3.4.0.crate",
+          "crateSha256": "e22a4f25c16a5c5411d987cd6fbd48313522ae1789ade2d6dd3efdc6d40a0fc8",
+          "licenses": [
+            {
+              "name": "LICENSE.upstream",
+              "sha256": "3f1ce66533302df3a32edbfdfc0b78f0dd34659e4c1f5817162e5ea3c2297215",
+              "bytes": 2138,
+              "url": "https://raw.githubusercontent.com/napi-rs/napi-rs/37109f133043aff379a38edfb8b1548e7e9309e5/LICENSE",
+              "revision": "37109f133043aff379a38edfb8b1548e7e9309e5"
+            }
+          ]
+        },
+        {
+          "name": "regex",
+          "version": "1.13.1",
+          "declaredLicense": "MIT OR Apache-2.0",
+          "crateUrl": "https://static.crates.io/crates/regex/regex-1.13.1.crate",
+          "crateSha256": "f020237b6c8eed93db2e2cb53c00c60a8e1bc73da7d073199a1180401450218d",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+              "bytes": 10847,
+              "url": "https://static.crates.io/crates/regex/regex-1.13.1.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "6485b8ed310d3f0340bf1ad1f47645069ce4069dcc6bb46c7d5c6faf41de1fdb",
+              "bytes": 1071,
+              "url": "https://static.crates.io/crates/regex/regex-1.13.1.crate"
+            }
+          ]
+        },
+        {
+          "name": "regex-automata",
+          "version": "0.4.18",
+          "declaredLicense": "MIT OR Apache-2.0",
+          "crateUrl": "https://static.crates.io/crates/regex-automata/regex-automata-0.4.18.crate",
+          "crateSha256": "ad8553b9b26413251cbf30e620595c7a41b3887f03da04579c0e6b0d6a06b4b2",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+              "bytes": 10847,
+              "url": "https://static.crates.io/crates/regex-automata/regex-automata-0.4.18.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "6485b8ed310d3f0340bf1ad1f47645069ce4069dcc6bb46c7d5c6faf41de1fdb",
+              "bytes": 1071,
+              "url": "https://static.crates.io/crates/regex-automata/regex-automata-0.4.18.crate"
+            }
+          ]
+        },
+        {
+          "name": "regex-syntax",
+          "version": "0.8.11",
+          "declaredLicense": "MIT OR Apache-2.0",
+          "crateUrl": "https://static.crates.io/crates/regex-syntax/regex-syntax-0.8.11.crate",
+          "crateSha256": "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+              "bytes": 10847,
+              "url": "https://static.crates.io/crates/regex-syntax/regex-syntax-0.8.11.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "6485b8ed310d3f0340bf1ad1f47645069ce4069dcc6bb46c7d5c6faf41de1fdb",
+              "bytes": 1071,
+              "url": "https://static.crates.io/crates/regex-syntax/regex-syntax-0.8.11.crate"
+            },
+            {
+              "name": "src/unicode_tables/LICENSE-UNICODE",
+              "sha256": "74db5baf44a41b1000312c673544b3374e4198af5605c7f9080a402cec42cfa3",
+              "bytes": 2847,
+              "url": "https://static.crates.io/crates/regex-syntax/regex-syntax-0.8.11.crate"
+            }
+          ]
+        },
+        {
+          "name": "windows-native-keyring-store",
+          "version": "1.1.0",
+          "declaredLicense": "MIT OR Apache-2.0",
+          "crateUrl": "https://static.crates.io/crates/windows-native-keyring-store/windows-native-keyring-store-1.1.0.crate",
+          "crateSha256": "063426e76fdec7438d56bb777f67e318a84a25c707b07e575cb8b78e10c028f8",
+          "licenses": [
+            {
+              "name": "LICENSE-APACHE",
+              "sha256": "c50e49cbc9917204c7e1d9c046342069e839c4947ef8c6027d23a3184ae73706",
+              "bytes": 11043,
+              "url": "https://static.crates.io/crates/windows-native-keyring-store/windows-native-keyring-store-1.1.0.crate"
+            },
+            {
+              "name": "LICENSE-MIT",
+              "sha256": "1b9916aeb17b63b74372d5493b6c6ce828eef2853e1dc48ac2bba701f148920c",
+              "bytes": 1087,
+              "url": "https://static.crates.io/crates/windows-native-keyring-store/windows-native-keyring-store-1.1.0.crate"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+node_modules
+.git
+out
+release
+test-results
+.test-artifacts

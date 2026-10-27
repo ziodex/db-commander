@@ -1,0 +1,17 @@
+# Generate the test wallet with orapki from the full image.
+FROM ghcr.io/gvenzl/oracle-free:23.26.3-full@sha256:26d4e51430b185f7cc51f136b166df4766a288ba34d05d710ec0d96664f35660 AS certificates
+USER root
+RUN mkdir -p /etc/dbcommander/tls && chown oracle:oinstall /etc/dbcommander/tls
+USER oracle
+RUN orapki wallet create -wallet /etc/dbcommander/tls -pwd Local-Wallet-Only2026 -auto_login && \
+    orapki wallet add -wallet /etc/dbcommander/tls -pwd Local-Wallet-Only2026 \
+      -dn 'CN=localhost' -keysize 2048 -self_signed -validity 3650 -sign_alg sha256 && \
+    orapki wallet export -wallet /etc/dbcommander/tls -pwd Local-Wallet-Only2026 \
+      -dn 'CN=localhost' -cert /etc/dbcommander/tls/server.crt
+# The running database needs only the wallet, not the Java wallet tooling.
+FROM ghcr.io/gvenzl/oracle-free:23.26.3-slim@sha256:6d61d267a3b978c24c5ac1790e62e927416a0aec446bd86e4b3a1527562757bd
+COPY --from=certificates --chown=oracle:oinstall /etc/dbcommander/tls /etc/dbcommander/tls
+COPY --chown=oracle:oinstall tests/docker/oracle-listener.ora /opt/oracle/product/26ai/dbhomeFree/network/admin/listener.ora
+COPY --chown=oracle:oinstall tests/docker/oracle-sqlnet.ora /opt/oracle/product/26ai/dbhomeFree/network/admin/sqlnet.ora
+COPY --chown=oracle:oinstall tests/docker/oracle-init.sql /container-entrypoint-initdb.d/001-fixtures.sql
+COPY --chown=oracle:oinstall --chmod=755 tests/docker/oracle-ready.sh /container-entrypoint-initdb.d/999-ready.sh

@@ -1,0 +1,20 @@
+name: Retain test evidence
+description: Upload JUnit reports and desktop diagnostics on success or failure
+inputs:
+  name:
+    description: Unique target name within the workflow
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      if: always()
+      with:
+        name: test-results-${{ inputs.name }}
+        path: |
+          .test-artifacts/ci-results
+          test-results
+        include-hidden-files: true
+        if-no-files-found: warn
+        overwrite: true
+        retention-days: 14

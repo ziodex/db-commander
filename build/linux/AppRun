@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+
+# Preserve Chromium's sandbox policy. Never infer --no-sandbox from an external
+# namespace probe: its AppArmor policy can differ from the Electron executable.
+APPDIR=${APPDIR:-$(dirname "$(readlink -f "$0")")}
+export APPDIR
+export PATH="$APPDIR:$APPDIR/usr/sbin${PATH:+:$PATH}"
+export XDG_DATA_DIRS="$APPDIR/usr/share${XDG_DATA_DIRS:+:$XDG_DATA_DIRS}:/usr/local/share:/usr/share"
+export LD_LIBRARY_PATH="$APPDIR/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+exec "$APPDIR/dbcommander" "$@"

@@ -1,0 +1,127 @@
+name: dbcommander-dev
+services:
+  ssh:
+    build:
+      context: .
+      dockerfile: tests/docker/Dockerfile.ssh
+    ports:
+      - "127.0.0.1:${SQLCOMMANDER_SSH_PORT:-52222}:22"
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /run/sshd.pid && kill -0 $$(cat /run/sshd.pid)"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+  postgres:
+    build:
+      context: .
+      dockerfile: tests/docker/Dockerfile.postgres
+    environment:
+      POSTGRES_DB: dbcommander
+      POSTGRES_USER: dbcommander
+      POSTGRES_PASSWORD: local-test-only
+    ports:
+      - "127.0.0.1:${SQLCOMMANDER_PG_PORT:-55432}:5432"
+    command:
+      - postgres
+      - -c
+      - ssl=on
+      - -c
+      - ssl_cert_file=/etc/postgresql/tls/server.crt
+      - -c
+      - ssl_key_file=/etc/postgresql/tls/server.key
+    volumes:
+      - ./tests/docker/postgres-init.sql:/docker-entrypoint-initdb.d/001-fixtures.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dbcommander -d dbcommander"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+  mysql:
+    build:
+      context: .
+      dockerfile: tests/docker/Dockerfile.mysql-family
+      args:
+        DATABASE_IMAGE: mysql:8.4
+    environment:
+      MYSQL_DATABASE: dbcommander
+      MYSQL_USER: dbcommander
+      MYSQL_PASSWORD: local-test-only
+      MYSQL_ROOT_PASSWORD: local-root-test-only
+    ports:
+      - "127.0.0.1:${SQLCOMMANDER_MYSQL_PORT:-53306}:3306"
+    command: ["--ssl-ca=/etc/dbcommander/tls/server.crt", "--ssl-cert=/etc/dbcommander/tls/server.crt", "--ssl-key=/etc/dbcommander/tls/server.key", "--local-infile=OFF", "--log-bin-trust-function-creators=1", "--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    volumes:
+      - ./tests/docker/mysql-init.sql:/docker-entrypoint-initdb.d/001-fixtures.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysql --protocol=TCP -h127.0.0.1 -udbcommander -plocal-test-only dbcommander -e 'SELECT COUNT(*) FROM numbers'"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+  mariadb:
+    build:
+      context: .
+      dockerfile: tests/docker/Dockerfile.mysql-family
+      args:
+        DATABASE_IMAGE: mariadb:11.4
+    environment:
+      MARIADB_DATABASE: dbcommander
+      MARIADB_USER: dbcommander
+      MARIADB_PASSWORD: local-test-only
+      MARIADB_ROOT_PASSWORD: local-root-test-only
+    ports:
+      - "127.0.0.1:${SQLCOMMANDER_MARIADB_PORT:-53307}:3306"
+    command: ["--ssl-ca=/etc/dbcommander/tls/server.crt", "--ssl-cert=/etc/dbcommander/tls/server.crt", "--ssl-key=/etc/dbcommander/tls/server.key", "--local-infile=OFF", "--log-bin-trust-function-creators=1", "--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    volumes:
+      - ./tests/docker/mysql-init.sql:/docker-entrypoint-initdb.d/001-fixtures.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mariadb --protocol=TCP -h127.0.0.1 -udbcommander -plocal-test-only dbcommander -e 'SELECT COUNT(*) FROM numbers'"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+  sqlserver:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: tests/docker/Dockerfile.sqlserver
+    environment:
+      ACCEPT_EULA: 'Y'
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: Local-SA-Only!2026
+      MSSQL_MEMORY_LIMIT_MB: '2048'
+    ports:
+      - "127.0.0.1:${SQLCOMMANDER_SQLSERVER_PORT:-51433}:1433"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'Local-SA-Only!2026' -C -b -Q 'SELECT 1' -o /dev/null"]
+      interval: 3s
+      timeout: 10s
+      retries: 60
+  oracle:
+    build:
+      context: .
+      dockerfile: tests/docker/Dockerfile.oracle
+    environment:
+      ORACLE_PASSWORD: Local-Admin-Only2026
+      APP_USER: dbcommander
+      APP_USER_PASSWORD: local-test-only
+    shm_size: 1gb
+    ports:
+      - "127.0.0.1:${SQLCOMMANDER_ORACLE_PORT:-52484}:2484"
+      - "127.0.0.1:${SQLCOMMANDER_ORACLE_TCP_PORT:-51521}:1521"
+    healthcheck:
+      test: ["CMD-SHELL", "healthcheck.sh && test -f /opt/oracle/.dbcommander-ready"]
+      interval: 3s
+      timeout: 10s
+      retries: 120
+      start_period: 20s
+  sqlite:
+    init: true
+    profiles: ["sqlite-tests"]
+    build:
+      context: .
+      dockerfile: tests/docker/Dockerfile.sqlite
+  duckdb:
+    init: true
+    profiles: ["duckdb-tests"]
+    build:
+      context: .
+      dockerfile: tests/docker/Dockerfile.duckdb
