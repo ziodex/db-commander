@@ -657,7 +657,11 @@ const startup = app.whenReady().then(async () => {
       { type: 'separator' as const }, { role: 'resetZoom' as const }, { role: 'zoomIn' as const }, { role: 'zoomOut' as const },
       { type: 'separator' as const }, { role: 'togglefullscreen' as const }
     ] }, { id: 'workspace-window-menu', role: 'windowMenu' },
-    { role: 'help', submenu: [{ id: 'check-for-updates', label: 'Check for updates', click: () => { tray.restoreActive(); void updates.check(true) } }] }
+    { role: 'help', submenu: [
+      { id: 'check-for-updates', label: 'Check for updates', click: () => { tray.restoreActive(); void updates.check(true) } },
+      { type: 'separator' },
+      { id: 'about-db-commander', label: 'About Db Commander', click: (_item, target) => menuWindow(target)?.webContents.send('sql:about', app.getVersion()) }
+    ] }
   ])
   const windowMenu = menu.getMenuItemById('workspace-window-menu')!.submenu!
   windowMenu.append(new MenuItem({ type: 'separator' }))

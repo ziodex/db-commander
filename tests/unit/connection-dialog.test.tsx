@@ -36,6 +36,23 @@ async function fixture(profile: ConnectionProfile = DEFAULT_PROFILE, saveOnly = 
 }
 const testButton = () => screen.getByRole('button', { name: 'Test connection' })
 
+it('uses the current Windows account without user, password or saved-password controls', async () => {
+  const view = await fixture({ ...DEFAULT_PROFILE, engine: 'sqlserver', port: 1433 })
+  fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'old-sql-password' } })
+  fireEvent.change(screen.getByLabelText('Authentication'), { target: { value: 'windows' } })
+  expect(screen.queryByLabelText('User')).toBeNull()
+  expect(screen.queryByLabelText('Password')).toBeNull()
+  expect(screen.queryByLabelText('Remember password')).toBeNull()
+  expect(screen.getByText(/Uses your current Windows account/)).toBeTruthy()
+  fireEvent.click(testButton()); await screen.findByText('Connection successful. Test connection closed.')
+  expect(api.connect).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ authentication: 'windows', user: '', password: '' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Save profile' }))
+  await waitFor(() => expect(view.onSave).toHaveBeenCalledWith(expect.objectContaining({ authentication: 'windows' }), { remember: false, useSaved: false }))
+  fireEvent.change(screen.getByLabelText('Authentication'), { target: { value: 'sql-password' } })
+  expect(screen.getByLabelText('User')).toBeTruthy()
+  expect((screen.getByLabelText('Password') as HTMLInputElement).value).toBe('')
+})
+
 it('tests unsaved edits once, waits for disconnect, and leaves save/connect actions untouched', async () => {
   const opening = deferred<SessionInfo>(), closing = deferred<void>()
   api.connect.mockReturnValue(opening.promise); api.disconnect.mockReturnValue(closing.promise)

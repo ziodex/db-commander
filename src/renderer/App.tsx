@@ -2,6 +2,7 @@ import { useJobFeed } from './use-job-feed'
 import { useWorkspaceRecovery } from './use-workspace-recovery'
 import { TitleBar } from './TitleBar'
 import { UpdateBanner } from './UpdateBanner'
+import { AboutDialog } from './AboutDialog'
 import { ModalDialog } from './ModalDialog'
 import { workspaceSqlLimit } from '../shared/workspace-limits'
 import { useSqlFiles } from './use-sql-files'
@@ -814,6 +815,7 @@ export function App() {
   return <div className="app-shell">
     <TitleBar api={api} appearance={theme}><ActionMenu label="Workspace" items={workspaceTools}/><div className="panel-controls" role="group" aria-label="Panel layout"><button id="toggle-sidebar" aria-label="Toggle sidebar" aria-pressed={layout.sidebarVisible} title={`${layout.sidebarVisible ? 'Hide' : 'Show'} sidebar (Cmd/Ctrl+B)`} disabled={!ready} onClick={() => layoutCommand('toggle-sidebar')}><PanelLeft size={16} /></button><button id="toggle-results" aria-label="Toggle results" aria-pressed={layout.resultsVisible} title={`${layout.resultsVisible ? 'Hide' : 'Show'} results (Cmd/Ctrl+J)`} disabled={!ready} onClick={() => layoutCommand('toggle-results')}><PanelBottom size={16} /></button></div><button className="command-button" aria-label="Commands" title="Search commands (Cmd/Ctrl+K)" onClick={() => setPalette(true)}><Search size={13} />Commands<kbd>{shortcutKey} K</kbd></button></TitleBar>
     <UpdateBanner api={api} />
+    <AboutDialog api={api} />
     <div className="workspace-body" ref={workspaceBodyRef}>
       <nav className="activity-bar" aria-label="Workspace navigation"><button className={!historyView ? 'active' : ''} aria-label="Database explorer" title="Database explorer" onClick={() => showSidebar(false)}><Database size={20} /></button><button className={historyView ? 'active' : ''} aria-label="Query history" title="Query history" onClick={() => showSidebar(true)}><History size={20} /></button><button aria-label="Open SQL file" title="Open SQL file (Cmd/Ctrl+O)" disabled={sqlFiles.busy} onClick={openSql}><FolderOpen size={20} /></button><div className="activity-spacer" /><button aria-label="Application preferences" title="Application preferences" disabled={!ready} onClick={() => setEditorSettingsOpen(true)}><Settings2 size={20} /></button></nav>
       <aside id="workspace-sidebar" aria-label="Sidebar" className="sidebar" hidden={!layout.sidebarVisible} style={{ width: sidebarWidth }}>

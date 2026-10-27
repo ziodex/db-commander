@@ -67,7 +67,7 @@ test('Windows title bar integrates application menus, native roles and accessibl
     // State is read from the real menu each time, including dynamically disabled commands.
     await app.evaluate(({ Menu }) => { Menu.getApplicationMenu()!.getMenuItemById('check-for-updates')!.enabled = false })
     await bar.getByRole('menuitem', { name: 'Help', exact: true }).click()
-    await expect(page.getByRole('menu', { name: 'Help', exact: true }).getByRole('menuitem')).toBeDisabled()
+    await expect(page.getByRole('menu', { name: 'Help', exact: true }).getByRole('menuitem', { name: 'Check for updates', exact: true })).toBeDisabled()
     const blocked = await page.evaluate(async () => {
       const menus = (await window.dbCommander.applicationMenu())!
       try { await window.dbCommander.executeApplicationMenu(menus.find(item => item.label === 'Help')!.items![0].path); return false } catch { return true }

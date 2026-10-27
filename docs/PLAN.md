@@ -12,7 +12,7 @@ This roadmap replaces the frozen beta backlog. The [previous beta plan](PLAN_BET
 
 ## Current foundation
 
-Version 0.2.0 is a developer preview. The implementation includes saved profiles and OS-stored passwords, TLS/SSH, query tabs sharing connections, transactions/cancellation, SQL files and recovery, snippets/history/parameters, completion/formatting, split editors, themes, paginated table browsing and conservative editing, object inspection and basic schema changes, diagrams/comparisons, migration export, import/full-result export, backup/restore, plans, and session/lock tools.
+Version 0.2.1 is a developer preview. The implementation includes saved profiles and OS-stored passwords, TLS/SSH, SQL Server Windows Authentication on Windows, query tabs sharing connections, transactions/cancellation, SQL files and recovery, snippets/history/parameters, completion/formatting, split editors, themes, paginated table browsing and conservative editing, object inspection and basic schema changes, diagrams/comparisons, migration export, import/full-result export, backup/restore, plans, and session/lock tools.
 
 Adapters exist for PostgreSQL, MySQL, MariaDB, SQL Server, Azure SQL, SQLite, DuckDB and Oracle Thin mode. Capability, authentication and qualification differ by engine. Azure SQL remains experimental; local TDS coverage does not qualify the cloud service.
 

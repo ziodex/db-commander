@@ -21,6 +21,13 @@ const api: DesktopApi = {
   applicationMenu: () => ipcRenderer.invoke('sql:applicationMenu'),
   executeApplicationMenu: path => ipcRenderer.invoke('sql:executeApplicationMenu', path),
   updateTitleBar: appearance => ipcRenderer.invoke('sql:updateTitleBar', appearance),
+  onAbout: listener => {
+    const callback = (_event: Electron.IpcRendererEvent, version: unknown) => {
+      if (typeof version === 'string' && version.length > 0 && version.length <= 96) listener(version)
+    }
+    ipcRenderer.on('sql:about', callback)
+    return () => ipcRenderer.removeListener('sql:about', callback)
+  },
   onApplicationMenuKey: listener => {
     const callback = (_event: Electron.IpcRendererEvent, index: unknown) => {
       if (index === null || (typeof index === 'number' && Number.isInteger(index) && index >= 0 && index < 100)) listener(index)
