@@ -7,20 +7,32 @@
 1. Fork all branches, including `development`, and enable workflows in your fork's **Actions** tab if GitHub asks.
 2. Push to `development` or `main`, or open a pull request targeting one of those branches. Ordinary validation requires no repository secrets or cloud service connections.
 3. Open the run in **Actions → CI**. First-time external contributors may need a maintainer to approve their run under the repository's Actions policy.
-4. Download reports and tested unsigned installers from the run's **Artifacts** section. These builds are developer test output, not signed public releases.
+4. Download test reports from the run's **Artifacts** section. Installer bundles are produced by explicit release qualification or the optional Windows installer diagnostics.
 
-The workflow uses `pull_request`, not `pull_request_target`, has only `contents: read`, and checks out code without persisting Git credentials. Signing secrets are referenced only in the protected release job. External actions are pinned to full commit SHAs. Shared steps live under [`.github/actions`](../.github/actions), including the toolchain, Linux desktop, installer lifecycle and report collection.
+The workflow uses `pull_request`, not `pull_request_target`, defaults to `contents: read`, and checks out code without persisting Git credentials. The promotion gate additionally has `actions: read` to inspect development CI. Signing secrets are referenced only in the protected release job. External actions are pinned to full commit SHAs. Shared steps live under [`.github/actions`](../.github/actions), including the toolchain, Linux desktop, installer lifecycle and report collection.
 
 Node.js 22, the pnpm version in `package.json`, and `pnpm install --frozen-lockfile` are used throughout. The pnpm store is cached; `node_modules` is installed for each native host, including optional native dependencies. Do not disable optional dependencies or reuse another architecture's `node_modules`.
 
 ## Jobs and coverage
 
+Full validation runs on pushes to `development` and PRs targeting it. Main pushes and PRs targeting main run only **Main build and startup**, a Linux native build with startup, native SQLite/DuckDB loading and startup recovery checks. They do not rerun the full interaction/driver matrix or build installers. A manual run without `create_release` also runs this quick check. Explicit releases run the full desktop/driver matrix before signed installer qualification.
+
+### Promoting development to main
+
+Open a PR from this repository's `development` branch into `main` after the latest development push CI is green. **Development CI passed** requires the exact current development commit, a completed successful `CI` push run, all four Desktop and seven Driver targets, and **Full development CI**. Pending, failed, cancelled, skipped or missing qualification fails the gate; a green feature PR is insufficient. If opened early, rerun the promotion check after development CI completes.
+
+Development must already contain main, so promotion introduces the tested development tree without untested merge differences. After a main merge commit, bring main into development as part of the next development change and validate that combined history before its next promotion. Feature branches and forks cannot promote directly to main.
+
+Configure required GitHub Actions checks with no CI bypass: **Full development CI** for `development`; **Development CI passed** and **Main build and startup** for `main`, with branches required to be up to date. Keep review/deletion/history protections separately. Fork maintainers must configure these rules in their own repository. Required checks are repository settings, not applied by cloning workflow YAML.
+
+The corresponding rule definitions are versioned in [`.github/branch-rules`](../.github/branch-rules). Apply them as additional repository rulesets after the workflow is available; preserve existing review rules. They accept checks only from the GitHub Actions app and grant no bypass actors.
+
 | Job | Native runner | Validation |
 | --- | --- | --- |
-| Desktop / macOS Intel | `macos-15-intel`, x64 | Unit tests, build, packaged Electron, DMG/ZIP lifecycle and artifact staging |
+| Desktop / macOS Intel | `macos-15-intel`, x64 | Unit tests, build and full packaged Electron workflows |
 | Desktop / Apple Silicon | `macos-15`, arm64 | Same checks natively on Apple Silicon |
-| Desktop / Windows | `windows-2025`, x64 | Unit tests, packaged Electron, NSIS lifecycle and staging |
-| Desktop / Linux | `ubuntu-24.04`, x64 | Unit tests, packaged Electron, DEB/AppImage lifecycle, Fedora RPM lifecycle and staging |
+| Desktop / Windows | `windows-2025`, x64 | Unit tests and full packaged Electron workflows |
+| Desktop / Linux | `ubuntu-24.04`, x64 | Unit tests and full packaged Electron workflows |
 | Driver, seven matrix entries | `ubuntu-24.04`, x64 | Real PostgreSQL, MySQL, MariaDB, SQL Server, SQLite, Oracle and DuckDB contracts, then selected Electron workflows |
 
 Host preflight refuses emulated or mismatched architectures. Driver concurrency is capped at three, with each fixture isolated to its job. Oracle alone removes unused hosted SDK directories to make room for its images. Linux Docker must report native x64; the SQL Server fixture also exercises Azure SQL profile paths, without claiming live Azure service qualification.
@@ -40,7 +52,7 @@ The outer wrapper creates a disposable credential store. The desktop wrapper own
 ## Reports and artifacts
 
 - `test-results-desktop-<platform>-<arch>` and `test-results-driver-<driver>` contain JUnit XML from `.test-artifacts/ci-results` and diagnostics/screenshots from `test-results`, on success or failure. A build failure before tests start may produce no XML; the failed step's logs show that failure.
-- `dbcommander-unsigned-<platform>-<arch>` contains only staged, tested installers, inventory/notices, checksums, manifest and lifecycle reports.
+- `test-results-main-startup` contains quick main build/startup reports and diagnostics.
 - `release-<platform>-<arch>` contains a verified signed-release candidate for promotion, when explicitly requested.
 - `dbcommander-release-<run ID>-<attempt>` is the complete promoted bundle with all four targets and eight installer/archive formats.
 
@@ -60,6 +72,6 @@ In **Actions → CI → Run workflow**, choose **main** and enable **create_rele
 
 Create and protect the `release` environment before configuring its signing secrets. Normal pushes and fork pull requests do not use it. See [release setup](RELEASING.md#github-actions-release-setup) for the Apple and Windows credentials and manual publishing process.
 
-GitHub requires a workflow to be present on the default branch before it can be manually dispatched. The current active source is `development`; the bootstrap `main` has an independent initial history. Before the first manual release, a maintainer must establish the reviewed source/workflows on `main` and the default branch. Updating `development` does not rewrite `main` or publish a release.
+GitHub requires a workflow to be present on the default branch before it can be manually dispatched. Main contains the full application and documentation. Promote reviewed, qualified development commits through the gate above before requesting a release.
 
 References: [GitHub-hosted runners](https://docs.github.com/en/actions/reference/runners/github-hosted-runners), [fork pull-request workflows](https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows#workflows-in-forked-repositories), [manual dispatch](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow), and [deployment environments](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments).

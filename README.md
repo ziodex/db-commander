@@ -133,7 +133,7 @@ git switch -c feature/your-change
 
 Before opening a pull request, run `pnpm lint`, `pnpm typecheck` and `pnpm test`, plus the real-engine or desktop tests affected by your change. Push your feature branch to your fork and open the pull request against **`ziodex/db-commander:development`**. Describe the behavior change and the checks you ran. See [CONTRIBUTING.md](CONTRIBUTING.md) for review expectations.
 
-GitHub Actions runs on pushes to `development` and `main`, and on pull requests targeting either branch. It tests four native desktop targets and seven Linux x64 database targets, including installers and OS credential storage. Ordinary CI uses no signing secrets. First-time fork contributions may need maintainer approval before GitHub starts their workflows. [CI jobs, artifacts and manual diagnostics](docs/GITHUB_ACTIONS.md) explain what each run produces.
+GitHub Actions runs full unit, native desktop and seven-driver validation on `development` and its pull requests. A promotion to `main` requires successful full push CI for that exact development commit. Main and its promotion PRs run a quick Linux build and packaged startup check; installer lifecycle validation is reserved for explicit releases. Ordinary CI uses no signing secrets. First-time fork contributions may need maintainer approval before GitHub starts their workflows. [CI jobs, artifacts and promotion requirements](docs/GITHUB_ACTIONS.md) explain the checks.
 
 Signed release builds are an explicit manual run on `main`, after all checks in that same run pass. Fork maintainers can use ordinary unsigned CI immediately; publishing signed releases requires their own protected environment and credentials. See [RELEASING.md](docs/RELEASING.md).
 
