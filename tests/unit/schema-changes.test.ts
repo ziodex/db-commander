@@ -1,0 +1,85 @@
+import { describe, expect, it } from 'vitest'
+import { schemaSql } from '../../src/schema/sql'
+import { SchemaChanges } from '../../src/schema/changes'
+import { engineSchema, type SessionInfo } from '../../src/shared/contracts'
+import { prepareSchemaChangeSchema, schemaColumnSchema, transactionalDdl, type SchemaChange } from '../../src/shared/schema-changes'
+import type { Completion } from '../../src/driver/driver'
+import type { ObjectDetail } from '../../src/shared/catalog'
+
+const session: SessionInfo = { id: '00000000-0000-4000-8000-000000000001', engine: 'postgres', name: 'test', database: 'test', user: 'test', host: 'localhost', port: 1, tls: false, transaction: 'idle', version: '' }
+const c = schemaColumnSchema.parse({ name: 'id', type: 'integer', nullable: false, primaryKey: true })
+const create: SchemaChange = { action: 'create-table', location: { schema: 'test' }, name: "odd'; DROP TABLE x;--", columns: [c] }
+const target = { schema: 'test', name: 't', kind: 'table' as const, identity: '1' }
+const detail: ObjectDetail = { object: target, source: 'catalog-connection', fetchedAt: '', definition: { sql: 'CREATE TABLE t(id INT)', source: 'native' }, sections: [{ title: 'Columns', columns: ['Name','Type'], rows: [['id','integer']] }] }
+const catalogSession = (s: SessionInfo) => ({ getSession: () => ({ ...s }), explore: async () => ({ detail: structuredClone(detail) }) })
+describe('schema change plans', () => {
+  it('accepts structured operations and rejects arbitrary SQL, type injection and control characters', () => {
+    const input = { sessionId: session.id, change: create }
+    expect(prepareSchemaChangeSchema.parse(input).change).toEqual(create)
+    for (const bad of [{ ...input, sql: 'COMMIT' }, { ...input, change: { ...create, sql: 'COMMIT' } }, { ...input, change: { ...create, name: 'a\0b' } }, { ...input, change: { ...create, columns: [{ ...c, type: 'INT);DROP TABLE x;--' }] } }]) expect(() => prepareSchemaChangeSchema.parse(bad)).toThrow()
+  })
+  it.each(engineSchema.options)('quotes identifiers and exposes transaction boundaries for %s', engine => {
+    const s = { ...session, engine, user: 'test' }, change = { ...create, location: { schema: engine === 'oracle' ? 'TEST' : 'test' } }
+    const generated = schemaSql(change, s)
+    expect(generated.commands).toHaveLength(1)
+    expect(generated.sql).toContain("odd'; DROP TABLE x;--")
+    expect(Boolean(generated.begin)).toBe(transactionalDdl(engine))
+    expect(generated.sql.includes('COMMIT;')).toBe(false)
+    expect(generated.warnings.join(' ')).toMatch(transactionalDdl(engine) ? /uncommitted/ : /cannot be rolled back/)
+  })
+  it('bounds identifiers and rejects incomplete metadata operations', () => {
+    expect(() => schemaSql({ ...create, name: '界'.repeat(22) },session)).toThrow(/UTF-8/)
+    expect(() => schemaSql({ action: 'rename-table', target, name: 'x'.repeat(129) }, { ...session, engine: 'sqlserver' },detail)).toThrow(/128/)
+    expect(() => schemaSql({ action: 'rename-column', target, column: 'missing', name: 'new' }, session,detail)).toThrow(/no longer visible/)
+    expect(() => schemaSql({ ...create, columns: [c,c] },session)).toThrow(/distinct/)
+    expect(() => schemaSql({ action: 'add-column', target, column: { ...c, name: 'next', primaryKey: false } },session,detail)).toThrow(/default/)
+    expect(() => schemaSql({ action: 'create-schema', location: { schema: 'main' } }, { ...session, engine: 'sqlite' })).toThrow(/Namespace creation/)
+  })
+  it('renders SQL Server default-constraint removal and DuckDB required-column changes in the review', () => {
+    const sqlserver = { ...detail, sections: [{ title: 'Columns', columns: ['Name','Default constraint'], rows: [['id','DF id']] }] }
+    expect(schemaSql({ action: 'drop-column', target, column: 'id' }, { ...session, engine: 'sqlserver' }, sqlserver).commands).toEqual(['ALTER TABLE [test].[t] DROP CONSTRAINT [DF id]', 'ALTER TABLE [test].[t] DROP COLUMN [id]'])
+    expect(schemaSql({ action: 'add-column', target, column: { ...c, name: 'next', primaryKey: false, default: { kind: 'number', value: '1' } } }, { ...session, engine: 'duckdb' }, detail).commands).toHaveLength(2)
+  })
+  it('requires a fresh, one-use plan and all relevant acknowledgments', async () => {
+    const manager = new SchemaChanges(), s = { ...session, engine: 'mysql' as const }, driver = catalogSession(s)
+    const plan = await manager.prepare({ sessionId: s.id, change: create }, driver)
+    const request = { sessionId: s.id, planId: plan.id, confirmed: true as const, implicitCommitApproved: false, destructiveApproved: false }
+    const execute = async () => ({ status: 'completed' } as Completion)
+    await expect(manager.apply(request,driver,execute)).rejects.toThrow(/implicit commit/)
+    plan.sql = 'DROP DATABASE test;' // A renderer copy cannot replace the retained SQL.
+    const actual: string[] = []
+    const result = await manager.apply({ ...request, implicitCommitApproved: true },driver,async sql => { actual.push(sql); return execute() })
+    expect(result.status).toBe('completed'); expect(actual[0]).toContain('CREATE TABLE'); expect(actual[0]).not.toContain('DROP DATABASE')
+    await expect(manager.apply({ ...request, implicitCommitApproved: true },driver,execute)).rejects.toThrow(/expired/)
+  })
+  it('cancels between transactional statements and rolls back the owned transaction', async () => {
+    const manager = new SchemaChanges(), s = { ...session }, executed: string[] = [], driver = catalogSession(s)
+    const plan = await manager.prepare({ sessionId: s.id, change: create }, driver)
+    const result = await manager.apply({ sessionId: s.id, planId: plan.id, confirmed: true, implicitCommitApproved: false, destructiveApproved: false }, driver, async sql => {
+      executed.push(sql)
+      if (sql === 'BEGIN') { s.transaction = 'transaction'; manager.cancel(s.id) }
+      if (sql === 'ROLLBACK') s.transaction = 'idle'
+      return { status: 'completed' } as Completion
+    })
+    expect(executed).toEqual(['BEGIN','ROLLBACK']); expect(result.status).toBe('cancelled'); expect(result.session.transaction).toBe('idle')
+  })
+  it('reports unknown when a failed statement cannot be rolled back', async () => {
+    const manager = new SchemaChanges(), s = { ...session }, driver = catalogSession(s)
+    const plan = await manager.prepare({ sessionId: s.id, change: create }, driver)
+    const result = await manager.apply({ sessionId: s.id, planId: plan.id, confirmed: true, implicitCommitApproved: false, destructiveApproved: false }, driver, async sql => {
+      if (sql === 'BEGIN') { s.transaction = 'transaction'; return { status: 'completed' } as Completion }
+      if (sql === 'ROLLBACK') throw new Error('connection lost')
+      return { status: 'failed', error: 'DDL failed' } as Completion
+    })
+    expect(result.status).toBe('unknown'); expect(result.message).toMatch(/nothing will be replayed/)
+  })
+  it('does not claim rollback when a server-side DDL trigger ends the transaction', async () => {
+    const manager = new SchemaChanges(), s = { ...session }, driver = catalogSession(s)
+    const plan = await manager.prepare({ sessionId: s.id, change: create }, driver)
+    const result = await manager.apply({ sessionId: s.id, planId: plan.id, confirmed: true, implicitCommitApproved: false, destructiveApproved: false }, driver, async sql => {
+      s.transaction = sql === 'BEGIN' ? 'transaction' : 'idle'
+      return { status: sql === 'BEGIN' ? 'completed' : 'failed', error: 'Trigger ended the transaction' } as Completion
+    })
+    expect(result.status).toBe('unknown'); expect(result.message).not.toContain('was rolled back')
+  })
+})

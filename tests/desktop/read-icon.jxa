@@ -1,0 +1,17 @@
+// Use AppKit on its main thread. Electron's worker-thread file-icon loader can
+// trap on macOS 27; this checks Finder's native bundle identity independently.
+ObjC.import('AppKit')
+function run(args) {
+  const icon = $.NSWorkspace.sharedWorkspace.iconForFile(args[0])
+  icon.size = $.NSMakeSize(128, 128)
+  const bitmap = $.NSBitmapImageRep.imageRepWithData(icon.TIFFRepresentation)
+  const png = bitmap.representationUsingTypeProperties($.NSBitmapImageFileTypePNG, $.NSDictionary.dictionary)
+  if (!png.writeToFileAtomically(args[1], true)) throw new Error('Could not save the resolved Finder icon.')
+  const width = Number(bitmap.pixelsWide), height = Number(bitmap.pixelsHigh)
+  let branded = 0
+  for (let row = 0; row < 16; row++) for (let column = 0; column < 16; column++) {
+    const color = bitmap.colorAtXY(Math.floor((column + .5) * width / 16), Math.floor((row + .5) * height / 16)).colorUsingColorSpace($.NSColorSpace.deviceRGBColorSpace)
+    if (Number(color.alphaComponent) > .8 && Number(color.greenComponent) > Number(color.redComponent) + .078 && Number(color.greenComponent) > Number(color.blueComponent) + .078) branded++
+  }
+  return JSON.stringify({ width, height, brandedFraction: branded / 256 })
+}

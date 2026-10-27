@@ -1,0 +1,17 @@
+{
+  "appVersion": "0.2.0",
+  "appSourceCommit": "a947969f75ee7a80430f35938f7968bdc898e79d",
+  "capturedAt": "2026-10-24T08:43:27.302Z",
+  "platform": "win32",
+  "arch": "x64",
+  "viewport": {
+    "width": 1440,
+    "height": 960
+  },
+  "data": "Synthetic in-memory DuckDB shop, created by scripts/capture-screenshots.mjs",
+  "files": [
+    "query-workbench-dark.png",
+    "table-browser-light.png",
+    "schema-diagram-light.png"
+  ]
+}

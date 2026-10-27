@@ -1,0 +1,35 @@
+diff --git a/out/node-module-collector/pnpmNodeModulesCollector.js b/out/node-module-collector/pnpmNodeModulesCollector.js
+index 8853912e013d3769f3e763d06720a94091a7ffaa..95c7905b63e778fbf6438aa5cd46ccd330c37275 100644
+--- a/out/node-module-collector/pnpmNodeModulesCollector.js
++++ b/out/node-module-collector/pnpmNodeModulesCollector.js
+@@ -87,10 +87,9 @@ class PnpmNodeModulesCollector extends nodeModulesCollector_1.NodeModulesCollect
+         }
+         return promise;
+     }
+-    // pnpm 10+ does not automatically preserve transitive optional platform-specific
+-    // packages (e.g. sass-embedded-linux-x64) across lock file regeneration. Users
+-    // must list them as direct optionalDependencies. Missing ones are emitted as
+-    // PKG_OPTIONAL_PLATFORM_NOT_INSTALLED warnings in the log summary.
++    // pnpm lists locked optional packages even when they target another platform
++    // and were correctly omitted during installation. Native packaging must only
++    // collect compatible binaries; missing compatible packages still warn.
+     async extractProductionDependencyGraph(tree, dependencyId) {
+         var _a;
+         if (this.productionGraph[dependencyId]) {
+@@ -121,6 +120,16 @@ class PnpmNodeModulesCollector extends nodeModulesCollector_1.NodeModulesCollect
+             }
+             // Then check if optional dependency path exists (using actual resolved path)
+             if (optional[packageName]) {
++                const target = /(?:^|[-/])(linux|win32|darwin|freebsd|android)[-_](x64|arm64|ia32|arm|ppc64|s390x|loong64|riscv64|universal)(?=[-_]|$)/.exec(packageName);
++                if (target && (target[1] !== process.platform || (target[2] !== "universal" && target[2] !== process.arch))) {
++                    return undefined;
++                }
++                if (target && target[1] === "linux" && /-(musl|gnu|gnueabihf)$/.test(packageName)) {
++                    const header = process.report?.getReport().header;
++                    if (header && (packageName.endsWith("-musl") === Boolean(header.glibcVersionRuntime))) {
++                        return undefined;
++                    }
++                }
+                 const pkg = await this.locateFromDepOrRoot(packageName, tree.path, dependency.version);
+                 if (!pkg) {
+                     this.logMissingDependency(`${packageName}@${dependency.version}`);

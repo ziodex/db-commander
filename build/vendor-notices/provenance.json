@@ -1,0 +1,23 @@
+{
+  "electronVersion": "44.7.0",
+  "depsUrl": "https://raw.githubusercontent.com/electron/electron/v44.7.0/DEPS",
+  "depsSha256": "46608960fb52f7120de7d531e9b243f16e03ced0febf85b095a2d49264c6d846",
+  "frameworks": [
+    {
+      "name": "Mantle",
+      "revision": "2a8e2123a3931038179ee06105c9e6ec336b12ea",
+      "licenseUrl": "https://raw.githubusercontent.com/Mantle/Mantle/2a8e2123a3931038179ee06105c9e6ec336b12ea/LICENSE.md",
+      "sha256": "285eede6f638adc9c352be7d66134611e5ea95044095a84de9867fb864e66eab",
+      "bytes": 2445,
+      "source": "Mantle-LICENSE.md"
+    },
+    {
+      "name": "ReactiveObjC",
+      "revision": "74ab5baccc6f7202c8ac69a8d1e152c29dc1ea76",
+      "licenseUrl": "https://raw.githubusercontent.com/ReactiveCocoa/ReactiveObjC/74ab5baccc6f7202c8ac69a8d1e152c29dc1ea76/LICENSE.md",
+      "sha256": "095fec1a3d6ad029fe0661fa6092a272d50af016b1771992e0bba9b2a73e7763",
+      "bytes": 1093,
+      "source": "ReactiveObjC-LICENSE.md"
+    }
+  ]
+}

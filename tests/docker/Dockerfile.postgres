@@ -1,0 +1,8 @@
+FROM postgres:17-alpine
+RUN apk add --no-cache openssl \
+    && mkdir -p /etc/postgresql/tls \
+    && openssl req -new -x509 -nodes -days 3650 -newkey rsa:2048 \
+       -keyout /etc/postgresql/tls/server.key -out /etc/postgresql/tls/server.crt \
+       -subj '/CN=localhost' -addext 'subjectAltName=DNS:localhost,IP:127.0.0.1' \
+    && chown -R postgres:postgres /etc/postgresql/tls \
+    && chmod 600 /etc/postgresql/tls/server.key

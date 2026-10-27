@@ -1,0 +1,47 @@
+.titlebar.integrated-titlebar {
+  height: 36px;
+  min-height: 36px;
+  flex-wrap: nowrap;
+  gap: 8px;
+  padding: 0 8px;
+  padding-left: calc(env(titlebar-area-x, 0px) + 8px);
+  padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, calc(100vw - 138px)) + 8px);
+  user-select: none;
+}
+.integrated-titlebar > .brand-mark { flex: none; }
+.titlebar-spacer { flex: 1; min-width: 0; align-self: stretch; }
+.integrated-titlebar .panel-controls { margin-left: 0; flex: none; }
+.integrated-titlebar button { height: 28px; padding: 4px 8px; }
+.integrated-titlebar .command-button { flex: none; }
+.application-menubar { display: flex; align-items: center; flex: none; -webkit-app-region: no-drag; }
+.application-menubar > button { font-size: 12px; border-radius: 4px; gap: 0; }
+.application-menubar > button[aria-expanded=true] { background: var(--surface-hover); }
+.application-menu-popup {
+  position: fixed;
+  z-index: 1100;
+  min-width: 230px;
+  max-width: calc(100vw - 8px);
+  max-height: calc(100vh - 8px);
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  background: var(--surface-raised);
+  color: var(--text);
+  box-shadow: 0 8px 24px #0006;
+  -webkit-app-region: no-drag;
+}
+.application-menu-popup > button { display: flex; width: 100%; min-height: 32px; gap: 8px; padding: 4px 8px; text-align: left; justify-content: flex-start; }
+.application-menu-popup > button:focus { background: var(--surface-hover); outline: 1px solid var(--focus); outline-offset: -1px; }
+.application-menu-popup > [role=separator] { margin: 4px 8px; border-top: 1px solid var(--border); }
+.application-menu-check { display: inline-flex; flex: 0 0 14px; }
+.application-menu-back { transform: rotate(180deg); }
+.application-menu-shortcut { margin-left: auto; padding-left: 20px; color: var(--muted); }
+.application-menu-popup > button > .workbench-icon:last-child { margin-left: auto; }
+@media (max-width: 1200px) {
+  .integrated-titlebar .command-button { font-size: 0; gap: 0; }
+  .integrated-titlebar .command-button kbd { display: none; }
+}
+@media (max-width: 650px) {
+  .integrated-titlebar { gap: 4px; }
+}

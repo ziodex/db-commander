@@ -1,0 +1,25 @@
+import { ZodError } from 'zod'
+import { useEffect,useRef,useState } from 'react'
+import type { DatabaseEngine } from '../shared/contracts'
+import { scalarParameterTypes,arrayParameterTypes,isArrayParameter,parametersSchema,type QueryParameter } from '../shared/parameters'
+function parameterHint(p: QueryParameter) {
+  const type = isArrayParameter(p) ? p.type.slice(0,-2) : p.type
+  const format = type==='decimal'?'Plain decimal, up to 38 digits and 30 fractional digits. No exponent or separators.':type==='date'?'YYYY-MM-DD · years 1000–9999':type==='timestamp'?'YYYY-MM-DD HH:mm:ss[.ffffff] · years 1000–9999 · no timezone offset or conversion':type==='timestamptz'?'YYYY-MM-DD HH:mm:ss[.ffffff]Z or ±HH:MM · up to ±14:00 · normalized to UTC; original offset is not retained':type==='hex'?'Pairs of hexadecimal digits, without a prefix.':''
+  if (!isArrayParameter(p)) return format
+  const input = type==='boolean'?'JSON array: [true, false, null]':type==='integer'||type==='decimal'?'JSON array of quoted numbers: ["1", "2", null]. Numbers must be strings to preserve precision.':'JSON array of strings or null, such as ["value", null].'
+  return input + ' Up to 1,000 elements; no nested arrays. ' + format
+}
+export function ParameterDialog({sql,names,engine,onRun,onClose,submitLabel='Run with parameters'}:{sql:string;names:string[];engine?:DatabaseEngine;onRun(values:QueryParameter[]):Promise<void>;onClose():void;submitLabel?:string}) {
+  const dialog=useRef<HTMLDialogElement>(null),[values,setValues]=useState<QueryParameter[]>(()=>names.map(name=>({name,type:'text',value:''}))),[error,setError]=useState(''),[busy,setBusy]=useState(false)
+  useEffect(()=>{const node=dialog.current!;node.showModal();return()=>node.close()},[])
+  return <dialog ref={dialog} className="connection-dialog parameter-dialog" aria-label="Query parameters" onKeyDown={e=>e.stopPropagation()} onCancel={e=>{e.preventDefault();e.stopPropagation();if(!busy)onClose()}}>
+    <div className="dialog-heading"><h2>Query parameters</h2><button aria-label="Close parameters" disabled={busy} onClick={onClose}>×</button></div>
+    <p>Values are bound as data, never pasted into SQL. They are used for this run only and are not saved in history, snippets or workspace recovery. Parameters cannot replace identifiers.</p>
+    <textarea aria-label="Parameterized SQL" readOnly value={sql}/>
+    {values.map((p,i)=><div className="parameter-row" key={p.name}><strong>:{p.name}</strong><label>Type<select aria-label={`Type for ${p.name}`} disabled={busy} value={p.type} onChange={e=>{setError('');setValues(v=>v.map((x,j)=>j===i?{...x,type:e.target.value as QueryParameter['type'],value:e.target.value==='null'?'':e.target.value==='boolean'?'true':x.value}:x))}}><optgroup label="Scalar">{scalarParameterTypes.map(t=><option key={t} value={t}>{t==='timestamptz'?'timestamp with timezone':t}</option>)}</optgroup><optgroup label="Array">{arrayParameterTypes.map(t=><option key={t} value={t}>{t}</option>)}</optgroup></select></label><label>Value<textarea aria-label={`Value for ${p.name}`} disabled={busy||p.type==='null'} maxLength={65536} value={p.value} onChange={e=>{setError('');setValues(v=>v.map((x,j)=>j===i?{...x,value:e.target.value}:x))}}/><small>{parameterHint(p)}</small></label></div>)}
+    {values.some(isArrayParameter)&&<p>Use an array as the only value in IN (:name) or NOT IN (:name). {engine==='postgres'||engine==='duckdb'?'Native array expressions such as ANY(:name) are also supported.':'Other array expressions are not supported on this engine.'} Empty arrays match no rows with IN and all rows with NOT IN. NULL elements follow SQL NULL rules, including NOT IN. Repeated arrays count toward the 1,000 bound-value limit.</p>}
+    {values.some(p=>p.type==='timestamptz'||p.type==='timestamptz[]')&&<p>{engine==='mysql'||engine==='mariadb'?'Binds as UTC DATETIME(6), without a timezone. TIMESTAMP columns use the session timezone: set it to UTC or explicitly convert before assignment.':engine==='sqlite'?'Binds as UTC text with six fractional digits and +00:00. Use TEXT columns to keep this representation.':'Binds as a timestamp with timezone. Results may display in another timezone.'} Named timezones and daylight-saving rules are not inferred; supply the offset for that instant.</p>}
+    {engine==='sqlite'&&values.some(p=>['decimal','date','timestamp','decimal[]','date[]','timestamp[]'].includes(p.type))&&<p>SQLite binds these values as text. Store decimals in TEXT columns to preserve precision; numeric affinity and arithmetic can convert them to floating point.</p>}
+    {error&&<p className="dialog-error" role="alert">{error}</p>}<div className="dialog-actions"><button disabled={busy} onClick={onClose}>Cancel</button><button disabled={busy} onClick={async()=>{setBusy(true);setError('');try{await onRun(parametersSchema.parse(values))}catch(e){setError(e instanceof ZodError ? e.issues.map(issue => (typeof issue.path[0] === 'number' ? ':' + values[issue.path[0]].name + ': ' : '') + issue.message).join(' ') : (e as Error).message)}finally{setBusy(false)}}}>{submitLabel}</button></div>
+  </dialog>
+}

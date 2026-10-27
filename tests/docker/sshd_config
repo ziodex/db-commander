@@ -1,0 +1,15 @@
+Port 22
+ListenAddress 0.0.0.0
+HostKey /fixture/host_key
+PermitRootLogin no
+PasswordAuthentication yes
+PubkeyAuthentication yes
+KbdInteractiveAuthentication no
+AllowUsers tunnel
+AllowTcpForwarding local
+AllowAgentForwarding no
+X11Forwarding no
+PermitTTY no
+MaxSessions 0
+PerSourcePenalties no
+PidFile /run/sshd.pid
