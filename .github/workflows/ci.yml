@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       create_release:
-        description: Build signed release candidates after the full main CI matrix passes
+        description: Run full qualification and build signed release candidates on main
         type: boolean
         default: false
 
@@ -29,8 +29,57 @@ env:
   PLAYWRIGHT_JUNIT_OUTPUT_FILE: .test-artifacts/ci-results/desktop.xml
 
 jobs:
+  development-gate:
+    name: Development CI passed
+    if: github.event_name == 'pull_request' && github.base_ref == 'main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Require the exact development commit and its full successful push CI
+        run: node scripts/check-development-ci.mjs
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  quick:
+    name: Main build and startup
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'pull_request' && github.base_ref == 'main') ||
+      (github.event_name == 'workflow_dispatch' && !inputs.create_release)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - uses: ./.github/actions/linux-desktop
+      - name: Build the native application
+        run: pnpm package
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Check packaged startup and native database loading
+        shell: bash
+        run: bash scripts/with-test-keyring.sh node scripts/with-test-desktop.mjs node scripts/smoke-package.mjs
+        env:
+          SQLCOMMANDER_STARTUP_ONLY: 'true'
+      - uses: ./.github/actions/reports
+        if: always()
+        with:
+          name: main-startup
+
   desktop:
     name: Desktop (${{ matrix.platform }}-${{ matrix.arch }})
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/development') ||
+      (github.event_name == 'pull_request' && github.base_ref == 'development') ||
+      (github.event_name == 'workflow_dispatch' && inputs.create_release)
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     strategy:
@@ -57,8 +106,6 @@ jobs:
       - run: node scripts/check-release.mjs --arch ${{ matrix.arch }}
       - uses: ./.github/actions/linux-desktop
         if: runner.os == 'Linux'
-        with:
-          packaging: 'true'
       - name: Prepare Windows display
         if: runner.os == 'Windows'
         shell: powershell
@@ -76,22 +123,6 @@ jobs:
       - name: Packaged desktop tests (macOS / Windows)
         if: runner.os != 'Linux'
         run: node scripts/smoke-package.mjs
-      - name: Build unsigned installers and upgrade fixture
-        run: |
-          $PSNativeCommandUseErrorActionPreference = $true
-          node scripts/build-release.mjs --fixture --arch ${{ matrix.arch }}
-          node scripts/build-release.mjs --arch ${{ matrix.arch }}
-      - uses: ./.github/actions/installers
-      - name: Stage tested unsigned installers
-        run: node scripts/stage-release.mjs --output .test-artifacts/staged-installers
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: dbcommander-unsigned-${{ matrix.platform }}-${{ matrix.arch }}
-          path: .test-artifacts/staged-installers
-          include-hidden-files: true
-          if-no-files-found: error
-          overwrite: true
-          retention-days: 14
       - uses: ./.github/actions/reports
         if: always()
         with:
@@ -99,6 +130,10 @@ jobs:
 
   drivers:
     name: Driver (${{ matrix.driver }})
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/development') ||
+      (github.event_name == 'pull_request' && github.base_ref == 'development') ||
+      (github.event_name == 'workflow_dispatch' && inputs.create_release)
     # SQL Server containers and release qualification require native x64.
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -141,6 +176,24 @@ jobs:
         if: always()
         with:
           name: driver-${{ matrix.driver }}
+
+  full-ci:
+    name: Full development CI
+    needs: [desktop, drivers]
+    if: >-
+      always() &&
+      ((github.event_name == 'push' && github.ref == 'refs/heads/development') ||
+      (github.event_name == 'pull_request' && github.base_ref == 'development') ||
+      (github.event_name == 'workflow_dispatch' && inputs.create_release))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every desktop and driver target
+        shell: bash
+        env:
+          DESKTOP_RESULT: ${{ needs.desktop.result }}
+          DRIVER_RESULT: ${{ needs.drivers.result }}
+        run: test "$DESKTOP_RESULT" = success && test "$DRIVER_RESULT" = success
 
   release-request:
     name: Validate signed release request
