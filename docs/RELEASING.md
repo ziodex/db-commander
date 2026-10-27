@@ -2,7 +2,7 @@
 
 The [frozen beta plan](PLAN.md#beta-release-checklist) is the single current release checklist. This guide describes the build/signing mechanisms; [beta notes](BETA_NOTES.md) define initial scope, accepted limits and manual updates.
 
-This milestone prepares the release path; it does not declare Db Commander production-ready. Apple/Windows signing resources remain unconfigured. GitHub Actions supplies all four native targets, including Apple Silicon, without an Azure agent pool. Ordinary CI builds unsigned installers without loading signing resources. Signed releases require an explicit main-branch manual run and successful desktop and driver jobs for the same commit and run attempt.
+This milestone prepares the release path; it does not declare Db Commander production-ready. Apple/Windows signing resources remain unconfigured. GitHub Actions supplies all four native targets, including Apple Silicon, without an Azure agent pool. Development CI validates the unpacked app and all drivers; main runs quick build/startup checks. Installer packaging and lifecycle qualification run for explicit releases. Signed releases require a main-branch manual run and successful desktop and driver jobs for the same commit and run attempt.
 
 ## Native targets and installers
 
@@ -62,7 +62,7 @@ Ordinary builds explicitly disable signing and strip credential environment vari
 
 ### Running a release
 
-1. Finish and review the development changes, choose a semantic version in `package.json`, and establish the reviewed source on `main`. Because the fresh `development` history is independent of GitHub's bootstrap `main`, the first main update needs a deliberate maintainer migration; this CI change does not perform it. Workflows must also be on the repository's default branch before GitHub exposes manual dispatch.
+1. Finish and review development changes and choose a semantic version in `package.json`. Require full push CI for the exact development commit to pass, then promote `development` to `main` through the required development gate and quick build/startup checks. Main must already be included in development so the promoted tree matches the tested tree. Workflows must be on the default branch before GitHub exposes manual dispatch.
 2. Configure and protect the `release` environment and its secrets. Ordinary unsigned CI can run before this setup is complete.
 3. In **Actions → CI → Run workflow**, select **main** and enable **create_release**. This run repeats all four desktop jobs and seven driver jobs; a previous green run cannot authorize a different commit.
 4. Every desktop and driver job must succeed. The signed matrix then builds/verifies installers and a different-version upgrade fixture, and runs the installer lifecycle suite against those exact bytes. Failed/skipped validation cannot enable signing.

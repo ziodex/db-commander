@@ -243,6 +243,38 @@ describe('GitHub Actions CI contracts', () => {
     expect(existsSync('.azure-pipelines')).toBe(false)
   })
 
+  it('separates full development validation, quick main checks and release qualification', () => {
+    const applies = (job, event, ref, base = '', create_release = false) => Function('github', 'inputs', 'always', `return (${job.if})`)({ event_name: event, ref, base_ref: base }, { create_release }, () => true)
+    for (const [event, ref, base, release, full, quick, gate] of [
+      ['push', 'refs/heads/development', '', false, true, false, false],
+      ['pull_request', 'refs/pull/1/merge', 'development', false, true, false, false],
+      ['push', 'refs/heads/main', '', false, false, true, false],
+      ['pull_request', 'refs/pull/2/merge', 'main', false, false, true, true],
+      ['workflow_dispatch', 'refs/heads/main', '', true, true, false, false],
+      ['workflow_dispatch', 'refs/heads/main', '', false, false, true, false]
+    ]) {
+      for (const name of ['desktop', 'drivers', 'full-ci']) expect(applies(workflow.jobs[name], event, ref, base, release), `${name} on ${event}/${ref}`).toBe(full)
+      expect(applies(workflow.jobs.quick, event, ref, base, release)).toBe(quick)
+      expect(applies(workflow.jobs['development-gate'], event, ref, base, release)).toBe(gate)
+    }
+    expect(workflow.jobs['full-ci'].needs).toEqual(['desktop', 'drivers'])
+    expect(workflow.jobs['full-ci'].if).toContain('always()')
+    expect(JSON.stringify(workflow.jobs.quick)).toContain('SQLCOMMANDER_STARTUP_ONLY')
+    expect(JSON.stringify(workflow.jobs.quick)).not.toContain('build-release.mjs')
+    expect(JSON.stringify(workflow.jobs.desktop)).not.toContain('./.github/actions/installers')
+    expect(workflow.jobs['development-gate'].permissions).toEqual({ contents: 'read', actions: 'read' })
+    expect(JSON.stringify(workflow.jobs['development-gate'])).toContain('check-development-ci.mjs')
+    for (const [branch, names] of [['development', ['full-ci']], ['main', ['development-gate', 'quick']]]) {
+      const rules = JSON.parse(readFileSync(`.github/branch-rules/${branch}-ci.json`, 'utf8'))
+      expect(rules.enforcement).toBe('active')
+      expect(rules.bypass_actors).toEqual([])
+      expect(rules.conditions.ref_name.include).toEqual([`refs/heads/${branch}`])
+      const parameters = rules.rules[0].parameters
+      expect(parameters.strict_required_status_checks_policy).toBe(true)
+      expect(parameters.required_status_checks).toEqual(names.map(name => ({ context: workflow.jobs[name].name, integration_id: 15368 })))
+    }
+  })
+
   it('keeps signing opt-in, main-only and downstream of all validation, with no fork secrets', () => {
     expect(workflow.permissions).toEqual({ contents: 'read' })
     expect(workflow.on.workflow_dispatch.inputs.create_release.default).toBe(false)
@@ -266,7 +298,7 @@ describe('GitHub Actions CI contracts', () => {
     expect(download.with).not.toHaveProperty('repository')
     const reports = parse(readFileSync('.github/actions/reports/action.yml', 'utf8'))
     expect(reports.runs.steps[0].if).toBe('always()')
-    for (const job of [workflow.jobs.desktop, workflow.jobs.release]) {
+    for (const job of [workflow.jobs.release]) {
       const stage = job.steps.findIndex(step => step.run?.startsWith('node scripts/stage-release.mjs'))
       expect(stage).toBeGreaterThan(job.steps.findIndex(step => step.uses === './.github/actions/installers'))
       const upload = job.steps[stage + 1]
