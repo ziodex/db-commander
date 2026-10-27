@@ -6,6 +6,7 @@ import { hasConfiguredConnection } from '../shared/connection-profiles'
 import type { QueryTabState } from './query-tabs'
 import { ContextMenu, type MenuAnchor } from './ContextMenu'
 import { dropIndex, tabMoveBounds, tabMoveIndex } from '../shared/tab-order'
+import { connectionGroups } from './shared-sessions'
 
 export function QueryTabStrip({ tabs, activeId, states, disabled, closeDisabled, dirty, path, onSelect, onMove, onPin, onClose, onSplit, splitDisabled }: {
   tabs: WorkspaceTab[]; activeId: string; states: Record<string, QueryTabState>; disabled: boolean; closeDisabled: boolean
@@ -14,6 +15,7 @@ export function QueryTabStrip({ tabs, activeId, states, disabled, closeDisabled,
   onSplit(id: string, orientation: 'vertical' | 'horizontal'): void; splitDisabled: boolean
 }) {
   const drag = useRef<string | null>(null)
+  const numbers = new Map(connectionGroups(tabs, states).map(group => [group.session.id, group.number]))
   const [over, setOver] = useState<{ id: string; after: boolean } | null>(null)
   const [menu, setMenu] = useState<(Omit<MenuAnchor, 'items'> & { id: string }) | null>(null)
   const [announcement, setAnnouncement] = useState('')
@@ -72,7 +74,7 @@ export function QueryTabStrip({ tabs, activeId, states, disabled, closeDisabled,
             clearDrag(); if (destination >= 0) move(source, destination)
           }}>
           <button role="tab" id={`tab-${item.id}`} aria-controls="query-panel" aria-selected={item.id === activeId} aria-label={item.title}
-            aria-description={[item.pinned ? 'Pinned. Unpin from the tab menu or Commands before closing.' : '', dirty(item) ? 'Unsaved SQL changes.' : '', activity ? `${activity}.` : '', `Connection: ${connectionName}.`, 'Use the tab menu to reorder or split.'].filter(Boolean).join(' ')}
+            aria-description={[item.pinned ? 'Pinned. Unpin from the tab menu or Commands before closing.' : '', dirty(item) ? 'Unsaved SQL changes.' : '', activity ? `${activity}.` : '', `Connection: ${connectionName}.`, runtime?.session ? `Physical connection ${numbers.get(runtime.session.id)}.` : '', 'Use the tab menu to reorder or split.'].filter(Boolean).join(' ')}
             title={`${path(item.id) ?? item.title}\n${item.pinned ? 'Pinned. Unpin before closing.\n' : ''}Drag to reorder within this group, or use Ctrl/Cmd+Shift+Left/Right while the tab is focused.`} tabIndex={item.id === activeId ? 0 : -1}
             draggable={!disabled && tabs.length > 1} onDragStart={event => { if (disabled) { event.preventDefault(); return }; drag.current = item.id; event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('application/x-dbcommander-tab', item.id); setMenu(null) }} onDragEnd={clearDrag}
             onClick={() => onSelect(item.id)} onContextMenu={event => { event.preventDefault(); setMenu({ id: item.id, owner: event.currentTarget, x: event.clientX, y: event.clientY }) }}
@@ -88,7 +90,7 @@ export function QueryTabStrip({ tabs, activeId, states, disabled, closeDisabled,
                 onSelect(next.id); document.getElementById(`tab-${next.id}`)?.focus()
               }
             }}>
-            {item.pinned ? <Pin className="tab-pin" size={14} aria-hidden="true"/> : <MaterialIcon name="database"/>}{dirty(item) && <span className="sql-dirty" aria-label="Unsaved SQL changes" title="Unsaved SQL changes">●</span>}<span>{item.title}<small>{connectionName}</small></span>{activity && <span className={`tab-activity ${runtime?.running ? 'running' : ''}`} title={activity}>{activity}</span>}
+            {item.pinned ? <Pin className="tab-pin" size={14} aria-hidden="true"/> : <MaterialIcon name="database"/>}{dirty(item) && <span className="sql-dirty" aria-label="Unsaved SQL changes" title="Unsaved SQL changes">●</span>}<span>{item.title}<small>{connectionName}{runtime?.session && ` · Connection ${numbers.get(runtime.session.id)}`}</small></span>{activity && <span className={`tab-activity ${runtime?.running ? 'running' : ''}`} title={activity}>{activity}</span>}
           </button>{!item.pinned && <button className="close-tab" aria-label={`Close ${item.title}`} disabled={closeDisabled || disabled} onClick={() => onClose(item.id)}><X size={12}/></button>}
         </div>
       })}

@@ -63,7 +63,10 @@ import { TableData } from './TableData'
 import type { DatabaseEvent, GridTable, GridQueryOptions, GridSnapshot, SessionInfo } from '../shared/contracts'
 import { ResultGrid } from './ResultGrid'
 import { applyDatabaseEvent, tabOperationBusy, canCloseTab, canSwitchDatabase, emptyTabState, type QueryTabState } from './query-tabs'
-import { patchSessionState, reconcileSessionBusy, sessionOwners } from './shared-sessions'
+import { connectionGroups, patchSessionState, reconcileSessionBusy, sessionOwners } from './shared-sessions'
+import { ConnectionSessionBar } from './ConnectionSessionBar'
+import { ProfileImportDialog } from './ProfileImportDialog'
+import { useProfileLibrary } from './use-profile-library'
 
 const INITIAL_SQL = `SELECT\n  current_database() AS database,\n  current_user AS connected_as,\n  now() AS server_time;\n`
 const INITIAL_PROFILE = DEFAULT_PROFILE
@@ -205,6 +208,8 @@ export function App() {
   }
   const setError = (error: string) => patchState(tabId, { error })
   const setStatus = (status: string) => patchState(tabId, { status })
+  const profileLibrary = useProfileLibrary({ api, workspaceRef, changeWorkspace, persist, report, notice: setStatus,
+    onDraft: profile => { setDialogError(''); setDialogInfo({ tabId: workspaceRef.current.activeTabId, profile, saveOnly: true }) } })
   const setActiveResult = (activeResult: number) => patchState(tabId, { activeResult })
   const setShowMessages = (showMessages: boolean) => patchState(tabId, { showMessages })
   const setTableSearch = (tableSearch: string) => patchState(tabId, { tableSearch })
@@ -469,12 +474,12 @@ export function App() {
     }
     finally { patchState(id, { connecting: false }) }
   }
-  function newTab(savedProfile?: SavedConnectionProfile, definition?: { sql: string; title: string }) {
+  function newTab(savedProfile?: SavedConnectionProfile, definition?: { sql: string; title: string }, mode: 'shared' | 'independent' = 'shared') {
     if (closeId || closeOperation.current || sqlFiles.busy) return
     if (!ready || workspaceRef.current.tabs.length >= MAX_TABS) { report(new Error(`Up to ${MAX_TABS} query tabs can be open.`)); return }
     if (workspaceRef.current.tabs.reduce((size, tab) => size + tab.sql.length, definition?.sql.length ?? 1000) > 5_000_000) { report(new Error('Save and shorten a SQL buffer before opening another tab. Workspace SQL is limited to 5 MB.')); return }
     const current = workspaceRef.current.tabs.find(tab => tab.id === workspaceRef.current.activeTabId)!
-    const existing = savedProfile ? workspaceRef.current.tabs.find(tab => tab.profileId === savedProfile.id && sameConnectionSettings(tab.profile, savedProfile.config) && (statesRef.current[tab.id]?.session || statesRef.current[tab.id]?.connecting)) : current
+    const existing = savedProfile ? [current, ...workspaceRef.current.tabs.filter(tab => tab.id !== current.id)].find(tab => tab.profileId === savedProfile.id && sameConnectionSettings(tab.profile, savedProfile.config) && (statesRef.current[tab.id]?.session || statesRef.current[tab.id]?.connecting)) : current
     const original = existing ? statesRef.current[existing.id] : undefined
     if (original?.closing || original?.connecting || original?.switching) { report(new Error('Wait for this connection operation to finish before opening another tab.')); return }
     const id = crypto.randomUUID(), source = existing && original?.session ? existing.profile : savedProfile?.config ?? current.profile
@@ -483,13 +488,29 @@ export function App() {
     patchState(id, emptyTabState())
     const target = { tabId: id, profile: source, profileId: next.profileId }
     let connected: Promise<SessionInfo | undefined> | undefined
-    if (original?.session) {
+    if (original?.session && mode === 'independent') {
+      connected = openIndependentConnection(id, original.session.id)
+    } else if (original?.session) {
       patchState(id, { session: original.session, connectionDatabase: original.connectionDatabase, schema: original.schema, tables: original.tables, databases: original.databases, status: 'Connected' })
       connected = Promise.resolve(original.session)
     } else if (savedProfile) {
       connected = connect({ ...source, password: '' }, true, { ...target, savedConnection: true })
     }
     return { id, connected }
+  }
+  async function openIndependentConnection(id: string, sourceSession: string) {
+    const epoch = generation.current
+    patchState(id, { connecting: true, status: 'Connecting' })
+    try {
+      // Authentication stays in the main process. A clone opens a physical
+      // connection; it never copies temporary objects, locks or transactions.
+      const connected = await api.cloneSession(sourceSession)
+      if (generation.current !== epoch || !workspaceRef.current.tabs.some(tab => tab.id === id)) { await api.disconnect(connected.id).catch(() => {}); return }
+      patchState(id, { ...emptyTabState(), connecting: true, session: connected, connectionDatabase: connected.database, status: 'Connected' })
+      await refreshDatabases(id, connected.id); await refreshTables(id, connected.id)
+      return connected
+    } catch (error) { report(error, id); patchState(id, { status: 'Connection failed' }) }
+    finally { patchState(id, { connecting: false }) }
   }
   async function savePasswordChoice(id: string, config: ConnectionConfig, choice?: PasswordChoice) {
     if (!choice) return
@@ -811,6 +832,10 @@ export function App() {
     { label: 'Preferences', action: () => setEditorSettingsOpen(true), disabled: !ready }
   ]
   const profileConnections = profileConnectionStates(workspace.profiles, workspace.tabs, states, tabId)
+  const connectionTabTools = [
+    { label: 'New shared query tab', title: 'Shares this connection, transaction and temporary objects.', disabled: !ready || !session || workspace.tabs.length >= MAX_TABS || sqlFiles.busy || Boolean(closeId), action: () => newTab() },
+    { label: 'New independent connection', title: 'Starts a separate transaction and temporary-object scope. In-memory databases start empty.', disabled: !ready || !session || workspace.tabs.length >= MAX_TABS || sqlFiles.busy || Boolean(closeId), action: () => newTab(undefined, undefined, 'independent') }
+  ]
 
   return <div className="app-shell">
     <TitleBar api={api} appearance={theme}><ActionMenu label="Workspace" items={workspaceTools}/><div className="panel-controls" role="group" aria-label="Panel layout"><button id="toggle-sidebar" aria-label="Toggle sidebar" aria-pressed={layout.sidebarVisible} title={`${layout.sidebarVisible ? 'Hide' : 'Show'} sidebar (Cmd/Ctrl+B)`} disabled={!ready} onClick={() => layoutCommand('toggle-sidebar')}><PanelLeft size={16} /></button><button id="toggle-results" aria-label="Toggle results" aria-pressed={layout.resultsVisible} title={`${layout.resultsVisible ? 'Hide' : 'Show'} results (Cmd/Ctrl+J)`} disabled={!ready} onClick={() => layoutCommand('toggle-results')}><PanelBottom size={16} /></button></div><button className="command-button" aria-label="Commands" title="Search commands (Cmd/Ctrl+K)" onClick={() => setPalette(true)}><Search size={13} />Commands<kbd>{shortcutKey} K</kbd></button></TitleBar>
@@ -821,7 +846,9 @@ export function App() {
       <aside id="workspace-sidebar" aria-label="Sidebar" className="sidebar" hidden={!layout.sidebarVisible} style={{ width: sidebarWidth }}>
         <div className="sidebar-title">{historyView ? 'History' : 'Connections'}<button aria-label={historyView ? 'History library settings' : 'New connection'} disabled={connectionBlocked} onClick={() => historyView ? openLibrary() : setDialog(true, true)}>{historyView ? <Settings2 size={15} /> : <Plus size={16} />}</button></div>
         {historyView ? <><button onClick={openLibrary}>Search history &amp; snippets</button><div className="history-list">{history.length ? history.map(item => <button key={item.id} onClick={() => newTab(undefined, { sql: item.sql, title: 'History.sql' })}><span className={`history-dot ${item.status}`} /><span><code>{item.sql.replace(/\s+/g, ' ').slice(0, 70)}</code><small>{item.connection} · <time dateTime={item.startedAt} title={new Date(item.startedAt).toLocaleString()}>{new Date(item.startedAt).toLocaleString([], { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</time></small></span></button>) : <p className="sidebar-description">No query history.</p>}</div></> : <>
-          <ProfileList profiles={workspace.profiles} connections={profileConnections} activeProfileId={tab.profileId} full={workspace.tabs.length >= MAX_TABS} ready={ready} onNew={() => { setDialogError(''); setDialogInfo({ tabId, profile: INITIAL_PROFILE, saveOnly: true }) }} onOpen={newTab}
+          <ProfileList profiles={workspace.profiles} connections={profileConnections} activeProfileId={tab.profileId} full={workspace.tabs.length >= MAX_TABS} ready={ready && !profileLibrary.busy && !profileBusy} onNew={() => { setDialogError(''); setDialogInfo({ tabId, profile: INITIAL_PROFILE, saveOnly: true }) }} onOpen={(profile, independent) => newTab(profile, undefined, independent ? 'independent' : 'shared')}
+            onSwitch={profile => { const ids = profileConnections.get(profile.id)?.tabIds; if (ids?.length) activateEditor(ids.includes(tabId) ? tabId : ids[0]) }}
+            onDuplicate={profileLibrary.duplicate} onImport={() => void profileLibrary.importProfiles()} onExport={profile => void profileLibrary.exportProfiles(profile)}
             onDisconnect={savedProfile => void disconnectTabs(workspaceRef.current.tabs.filter(tab => tab.profileId === savedProfile.id).map(tab => tab.id))}
             onEdit={savedProfile => { setDialogError(''); setDialogInfo({ tabId, profile: savedProfile.config, profileId: savedProfile.id, saveOnly: true }) }}
             onDelete={savedProfile => { setDialogError(''); setDeleteProfileId(savedProfile.id) }}
@@ -837,7 +864,8 @@ export function App() {
           dirty={sqlFiles.dirty} path={id => sqlFiles.files[id]?.path} onSelect={activateEditor} onClose={requestClose} onSplit={splitEditors} splitDisabled={(workspace.editorViews?.tabIds.length ?? 1) >= MAX_EDITOR_VIEWS}
           onPin={pinTab}
           onMove={(id, index) => changeWorkspace(previous => ({ ...previous, tabs: moveTab(previous.tabs, id, index) }))}/>
-        <button aria-label="New query tab" title="New query tab (Cmd/Ctrl+T)" disabled={!ready || workspace.tabs.length >= MAX_TABS} onClick={() => newTab()}><Plus size={16} /></button><ActionMenu label="Editor views" items={editorViewTools}/></div>
+        <button aria-label="New query tab" title="New query tab (Cmd/Ctrl+T) · Shares the current connection" disabled={!ready || workspace.tabs.length >= MAX_TABS} onClick={() => newTab()}><Plus size={16} /></button><ActionMenu label="Connection tabs" items={connectionTabTools}/><ActionMenu label="Editor views" items={editorViewTools}/></div>
+        <ConnectionSessionBar tabs={workspace.tabs} states={states} activeId={tabId} onSwitch={activateEditor}/>
         <div className="query-toolbar"><button className="run-button" title={`Run selected SQL, or the entire script when nothing is selected (${keyHint('run')})`} disabled={!session || operationBusy} onClick={() => void run()}><Play size={13} fill="currentColor" />Run SQL{editorKeys.run !== 'none' && <kbd>{keyHint('run')}</kbd>}</button><button className="stop-button" disabled={!running} onClick={() => { if (session) { setStatus('Cancellation requested'); void api.cancel(session.id).catch(report) } }}><Square size={12} />Stop</button><button aria-label="Format SQL" title={`Format selection or document (${keyHint('format')})`} onClick={() => void formatEditor(editorRef.current)}>Format SQL</button><ActionMenu key={tabId} label="Query tools" items={queryTools}/><span className="toolbar-separator" /><span className="target-label" title={session?.database || 'No database selected'}><Database size={13} /><span>{session ? session.database || 'Server connection' : 'No connection'}</span></span><div className="tabs-spacer" />{session ? <div className="transaction-controls"><span role="status" aria-label="Transaction status" className={`transaction-badge ${session.transaction}`}>{session.transaction === 'idle' ? (session.autocommit === false ? 'Manual commit mode' : 'Autocommit') : session.transaction === 'failed' ? 'Transaction failed' : session.transaction === 'transaction' ? 'In transaction' : 'State unknown'}</span>{inTransaction ? <><button disabled={operationBusy || session.transaction === 'failed' || session.transaction === 'unknown'} onClick={() => void run('COMMIT')}>Commit</button><button disabled={operationBusy} onClick={() => void run('ROLLBACK')}>Rollback</button></> : <button disabled={operationBusy} onClick={() => void run(session.engine === 'oracle' ? 'SAVEPOINT DBCOMMANDER_BEGIN' : ['sqlserver', 'azure-sql'].includes(session.engine) ? 'BEGIN TRANSACTION' : 'BEGIN')}>Begin</button>}<button title="Disconnect" aria-label="Disconnect" disabled={connectionBlocked} onClick={disconnect}><Unplug size={14} /></button></div> : <button className="connect-button" onClick={() => setDialog(true)}><Plus size={13} />Connect database</button>}</div>
         {error && <div className="error-banner" role="alert" aria-label="Application error"><span>{error}</span>{state.execution && state.failure && <button className="sql-error-link" disabled={!errorSource(state.execution, state.failure, sql)} title={state.execution.document !== sql ? 'SQL changed since this execution. Run again to locate the error.' : 'Select the submitted SQL that failed; no SQL will be executed.'} onClick={showSqlError}>{state.execution.document !== sql ? 'SQL changed since execution' : state.failure.scope === 'statement' ? 'Go to failed statement' : state.failure.scope === 'batch' ? 'Go to failed batch' : 'Go to executed SQL'}</button>}<button aria-label="Dismiss error" onClick={() => setError('')}><X size={15} /></button></div>}
         {sqlFiles.notice && <div className="sql-file-notice" role="status">{sqlFiles.notice}</div>}
@@ -890,6 +918,7 @@ export function App() {
     {objectView && objectView.tabId === tabId && objectView.sessionId === session?.id && <ObjectInspector view={objectView} onClose={() => setObjectView(null)} onRefresh={() => void inspectObject(objectView.object)} onOpen={(sql, title) => { if (workspace.tabs.length >= MAX_TABS || workspace.tabs.reduce((size, tab) => size + tab.sql.length, sql.length) > 5_000_000) { setObjectView({ ...objectView, error: 'Close a query tab or save and shorten a SQL buffer before opening this definition. The workspace supports 20 tabs and 5 MB of SQL.' }); return }; setObjectView(null); newTab(undefined, { sql, title }) }} />}
     {backupOpen && <BackupDialog key={session?.id ?? 'disconnected'} session={session} jobs={backupJobs} blocked={!session || tabOperationBusy(state) || Boolean(state.gridChanges.length) || inTransaction || session.engine !== 'oracle' && session.autocommit === false} onClose={() => setBackupOpen(false)} />}
     {dialogInfo && <ConnectionDialog key={`${dialogInfo.tabId}:${dialogInfo.saveOnly}`} profile={dialogInfo.profile} profileId={dialogInfo.profileId} saveOnly={dialogInfo.saveOnly} busy={Boolean(states[dialogInfo.tabId]?.connecting) || profileBusy} error={dialogError} onClose={() => setDialog(false)} onConnect={async (config, save, choice) => { await connect(config, save, undefined, choice) }} onSave={saveProfile} />}
+    {profileLibrary.preview && <ProfileImportDialog preview={profileLibrary.preview} existing={workspace.profiles} busy={profileLibrary.busy} onImport={profileLibrary.apply} onClose={profileLibrary.close}/>}
     {connectionWarning && <ModalDialog className="confirmation-dialog" aria-label="Connection failed" onDismiss={() => setConnectionWarning(null)}>
       <h2>Could not connect to {connectionWarning.name}</h2><p role="alert">{connectionWarning.error}</p>
       <p>Check the saved connection details and credentials, then try again.</p>
@@ -915,6 +944,10 @@ export function App() {
     {editorSettingsOpen && <EditorSettingsDialog settings={editorSettings} onClose={() => setEditorSettingsOpen(false)} onApply={async settings => { await applyPreferences(settings); changeWorkspace(previous => ({ ...previous, editorSettings: settings })) }}/>}
     {palette && <CommandPalette onClose={() => setPalette(false)} commands={[
       { label: 'New query tab', action: () => newTab(), disabled: !ready || workspace.tabs.length >= MAX_TABS },
+      ...connectionTabTools,
+      ...connectionGroups(workspace.tabs, states).flatMap(group => group.tabs.map((tab, index) => ({ label: `Switch to ${group.session.name} · Connection ${group.number} · ${index + 1}. ${tab.title}`, keywords: `${group.session.host} ${group.session.database} ${group.session.user}`, action: () => activateEditor(tab.id) }))),
+      { label: 'Import connections', action: () => void profileLibrary.importProfiles(), disabled: !ready || profileLibrary.busy },
+      { label: 'Export connections without credentials', action: () => void profileLibrary.exportProfiles(), disabled: !ready || profileLibrary.busy || !workspace.profiles.length },
       { label: tab.pinned ? 'Unpin query tab' : 'Pin query tab', keywords: 'keep protect close', action: () => pinTab(tabId, !workspaceRef.current.tabs.find(tab => tab.id === tabId)?.pinned), disabled: !ready || sqlFiles.busy || Boolean(closeId) },
       { label: 'Connect to a database', action: () => setDialog(true), disabled: connectionBlocked },
       { label: 'Run selection or script', action: () => void run(), disabled: !session || operationBusy },

@@ -1,4 +1,16 @@
 import { emptyTabState, type QueryTabState } from './query-tabs'
+import type { WorkspaceTab } from '../shared/contracts'
+
+/** Runtime insertion order keeps connection labels consistent when tabs move. */
+export function connectionGroups(tabs: WorkspaceTab[], states: Record<string, QueryTabState>) {
+  const seen = new Set<string>()
+  return Object.keys(states).flatMap(id => {
+    const session = states[id]?.session
+    if (!session || seen.has(session.id) || !tabs.some(tab => tab.id === id)) return []
+    seen.add(session.id)
+    return [{ session, tabs: tabs.filter(tab => states[tab.id]?.session?.id === session.id), number: seen.size }]
+  })
+}
 
 export function sessionOwners(states: Record<string, QueryTabState>, sessionId: string) {
   return Object.keys(states).filter(id => states[id].session?.id === sessionId)
