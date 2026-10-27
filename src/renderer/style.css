@@ -273,11 +273,12 @@ fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 /* Editable table previews retain the same bounded, virtualized grid layout. */
 .schema-object { display: flex; align-items: center; }
 .schema-list .schema-object > .object-label { flex: 1; min-width: 0; padding-left: 3px; }
-.editable-result { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: auto; }
-/* Preserve the sticky header, two edit rows and a horizontal scrollbar. At
-   compact/zoomed sizes, scroll the surrounding controls instead of collapsing
-   the virtual viewport beneath the footer and making row actions unreachable. */
-.editable-result > .grid-scroll { min-height: 184px; flex-shrink: 0; }
+.editable-result { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
+/* Keep Apply/Close outside the scrolling data. Preserve the sticky header, two
+   edit rows and a horizontal scrollbar even when compact/zoomed chrome reduces
+   the available height; the hint and data scroll without hiding these actions. */
+.editable-result-body { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: auto; }
+.editable-result-body > .grid-scroll { min-height: 184px; flex-shrink: 0; }
 .table-data { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; }
 .page-range { min-width: 85px; }
 .browse-notice { padding: 4px 12px; color: var(--text); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
@@ -288,7 +289,7 @@ fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .browse-filter { display: flex; align-items: center; gap: 10px; }
 .browse-filter label { flex: 1; min-width: 0; }
 .browse-filter button { margin-top: 5px; }
-.grid-edit-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 13px; }
+.grid-edit-toolbar { display: flex; flex-shrink: 0; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 13px; }
 .grid-edit-toolbar strong { min-width: 0; max-width: 230px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .grid-edit-toolbar button { padding: 5px 8px; white-space: nowrap; }
 .grid-edit-hint { padding: 7px 12px; color: var(--text); background: var(--surface-raised); font-size: 13px; }

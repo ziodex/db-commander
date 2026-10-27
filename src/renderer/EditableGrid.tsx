@@ -55,6 +55,7 @@ export function EditableGrid({ grid, changes, busy, disconnected, expired, trans
       <button disabled={busy || disconnected || transaction || Boolean(changes.length)} onClick={onReload}>Reload data</button>
       <button disabled={busy || Boolean(changes.length)} onClick={onClose}>Close data</button>
     </div>
+    <div className="editable-result-body">
     <div className="grid-edit-hint" role="status">{busy ? 'Working with table data…' : disconnected ? 'The connection was lost. Staged edits are kept here for review. Discard them before reconnecting; nothing will be replayed.' : transaction ? 'Edits are in this tab’s transaction. Use Commit to save or Rollback to undo, then reopen the table.' : expired ? 'This snapshot has expired. Discard staged edits and reload the table before editing again.' : 'Edit cells or mark rows for deletion, then Apply edits. Apply starts a transaction; Commit saves it. Keys and generated values are protected.'}</div>
     <div ref={scroll} className="grid-scroll" role="table" tabIndex={0} aria-label="Editable table data" aria-description={`${grid.rows.length} rows loaded; ${inserted.length} new rows staged. Row positions are within this page. Columns follow the displayed order. Scroll to reach other rows. Edits are staged until Apply edits; Commit saves them.`} aria-rowcount={grid.rows.length + inserted.length + 1} aria-colcount={controls.visible.length + 1}>
       <div className="grid-header" role="row" aria-rowindex={1} style={style}><span role="columnheader" aria-colindex={1} className="row-number">Row</span>{controls.visible.map((index, position) => {const column=grid.columns[index]; return <span role="columnheader" aria-colindex={position + 2} aria-label={column.name} aria-description={`Source column ${index + 1}. ${column.type}.${column.primaryKey ? ' Primary key.' : ''}${column.generated ? ' Generated.' : ''}`} key={index} style={controls.cellStyle(index)}><b>{column.name}{column.primaryKey ? ' · key' : ''}</b><small>{column.type}{column.generated ? ' · generated' : ''}</small><ColumnResizer label={`Resize column ${index+1} ${column.name}`} width={controls.size(index)} onResize={width=>controls.setWidths({[index]:width})} onFit={()=>fit([index])} onReset={()=>controls.resetWidth(index)}/></span>})}</div>
@@ -86,6 +87,7 @@ export function EditableGrid({ grid, changes, busy, disconnected, expired, trans
       {!grid.rows.length && !inserted.length && <p className="zero-rows">No rows match this page. Use Insert row to add a record.</p>}
     </div>
     <div className="result-footer"><span>{grid.rows.length} rows loaded{grid.truncated ? ' · More rows available' : ''}</span><span>Staged edits stay in memory until applied</span></div>
+    </div>
     {inspecting&&<ValueInspector cell={inspecting} actions={changes.length||busy||expired||transaction?undefined:actions} onClose={()=>setInspecting(undefined)}/>}
   </div>
 }

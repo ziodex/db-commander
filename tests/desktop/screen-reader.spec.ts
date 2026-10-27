@@ -132,6 +132,8 @@ for (const zoom of [1, 1.25]) test(`screen reader exposes editable cell state, p
     const indices = await table.getByRole('row').evaluateAll(rows => rows.map(row => Number(row.getAttribute('aria-rowindex'))))
     expect(indices[0]).toBe(1); expect(indices[1]).toBeGreaterThan(2); expect(indices.at(-1)).toBe(102)
     await expect(table.locator('.grid-row').last().getByRole('cell').nth(2)).toHaveAttribute('aria-colindex', '3')
+    await expect(page.getByRole('button', { name: 'Apply edits', exact: true })).toBeInViewport()
+    await expect(page.getByRole('button', { name: 'Close data', exact: true })).toBeInViewport()
     // Playwright's CSS-pixel screenshot clips native Electron zoom; capture the full window.
     const capture = await app.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].capturePage()).toPNG().toString('base64'))
     writeFileSync(info.outputPath('editable-grid-compact.png'), Buffer.from(capture, 'base64'))
