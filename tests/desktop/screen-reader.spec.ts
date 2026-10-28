@@ -96,10 +96,10 @@ test('screen reader distinguishes result values, headers and virtual preview pos
   } finally { await close(app, directory) }
 })
 
-test('screen reader exposes editable cell state, protected keys and virtual row indices', async ({}, info) => {
+for (const zoom of [1, 1.25]) test(`screen reader exposes editable cell state, protected keys and virtual row indices${zoom === 1 ? '' : ' at 125% zoom'}`, async ({}, info) => {
   const { app, page, directory, cdp } = await launch()
   try {
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1024, 700))
+    await app.evaluate(({ BrowserWindow }, zoom) => { const window = BrowserWindow.getAllWindows()[0]; window.setSize(1024, 700); window.webContents.setZoomFactor(zoom) }, zoom)
     await connect(page)
     await run(page, "CREATE TABLE accessible_data(id INTEGER PRIMARY KEY, note TEXT DEFAULT 'fallback', computed TEXT GENERATED ALWAYS AS (coalesce(note,'missing')) STORED); WITH RECURSIVE n(i) AS (VALUES(1) UNION ALL SELECT i+1 FROM n WHERE i<100) INSERT INTO accessible_data(id,note) SELECT i, CASE WHEN i=1 THEN NULL ELSE '' END FROM n;")
     await tableAction(page, 'accessible_data', 'Edit data'); await expect(page.locator('.status-text')).toHaveText('Table loaded')
@@ -132,6 +132,11 @@ test('screen reader exposes editable cell state, protected keys and virtual row 
     const indices = await table.getByRole('row').evaluateAll(rows => rows.map(row => Number(row.getAttribute('aria-rowindex'))))
     expect(indices[0]).toBe(1); expect(indices[1]).toBeGreaterThan(2); expect(indices.at(-1)).toBe(102)
     await expect(table.locator('.grid-row').last().getByRole('cell').nth(2)).toHaveAttribute('aria-colindex', '3')
+    await expect(page.getByRole('button', { name: 'Apply edits', exact: true })).toBeInViewport()
+    await expect(page.getByRole('button', { name: 'Close data', exact: true })).toBeInViewport()
+    // Playwright's CSS-pixel screenshot clips native Electron zoom; capture the full window.
+    const capture = await app.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].capturePage()).toPNG().toString('base64'))
+    writeFileSync(info.outputPath('editable-grid-compact.png'), Buffer.from(capture, 'base64'))
     await page.getByRole('button', { name: 'Discard edits', exact: true }).click()
     await page.getByRole('button', { name: 'Close data', exact: true }).click()
     await tableAction(page, 'accessible_data', 'Browse data'); await expect(page.locator('.status-text')).toHaveText('Table loaded')

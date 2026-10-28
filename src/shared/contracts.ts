@@ -171,6 +171,8 @@ export interface DesktopApi {
   lockSession(sessionId: string): Promise<ConnectionSafety>
   chooseSshKey(): Promise<string | null>
   cloneSession(sessionId: string): Promise<SessionInfo>
+  exportConnectionProfiles(ids?: string[]): Promise<string | null>
+  importConnectionProfiles(): Promise<import('./profile-files').ProfileImport | null>
   passwordStatus(profileId?: string): Promise<PasswordStatus>
   saveProfilePassword(profileId: string, password: string): Promise<void>
   removeProfilePassword(profileId: string): Promise<void>

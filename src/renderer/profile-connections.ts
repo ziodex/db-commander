@@ -7,6 +7,8 @@ export interface ProfileConnectionState {
   previousSettings: boolean
   activePreviousSettings: boolean
   busy: boolean
+  tabIds: string[]
+  sessionIds: string[]
   disconnectReason?: string
 }
 
@@ -15,7 +17,11 @@ export function profileConnectionStates(profiles: SavedConnectionProfile[], tabs
   for (const tab of tabs) {
     const profile = profiles.find(profile => profile.id === tab.profileId), state = states[tab.id]
     if (!profile || !state) continue
-    const connection = connections.get(profile.id) ?? { connected: false, previousSettings: false, activePreviousSettings: false, busy: false }
+    const connection = connections.get(profile.id) ?? { connected: false, previousSettings: false, activePreviousSettings: false, busy: false, tabIds: [], sessionIds: [] }
+    if (state.session) {
+      connection.tabIds.push(tab.id)
+      if (!connection.sessionIds.includes(state.session.id)) connection.sessionIds.push(state.session.id)
+    }
     const matches = sameConnectionSettings(tab.profile, profile.config)
     connection.connected ||= Boolean(state.session && matches)
     connection.previousSettings ||= Boolean(state.session && !matches)
