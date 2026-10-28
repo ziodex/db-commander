@@ -60,7 +60,7 @@ Complete the confirmed correctness fixes first, then improve daily navigation an
 
 ## Engineering and open-source delivery — continuous
 
-- Extract connection/profile/session ownership and query-execution controllers from the workspace root as those workflows change. Keep asynchronous lifecycles with their features; avoid unrelated broad refactors.
+- Keep connection/session, query-execution, tab-lifecycle, table-data and schema-tool workflows with their feature controllers (see [renderer ownership](architecture/README.md#renderer-workflow-ownership--28-october-2026)). Extend those owners as workflows change; avoid growing the workspace root or introducing unrelated broad refactors.
 - Maintain a capability matrix by engine, server version, authentication mode and desktop OS. Distinguish implemented, verified, partial and unsupported behavior; record exact source/package identity for validation.
 - Require targeted regressions for correctness fixes, lint/typechecks/unit tests, affected real-engine contracts and native desktop workflows. Improve packaged-test selection using explicit tags/projects instead of duplicated file/regular-expression lists.
 - Keep contribution setup reproducible, dependencies/notices traceable, and feature ownership/contribution areas clear. Public core functionality remains available without proprietary services.
