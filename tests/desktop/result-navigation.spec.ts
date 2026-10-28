@@ -128,11 +128,15 @@ for (const engine of ['sqlite', 'duckdb'] as const) {
             if (channel === 'sql:event' && (args[0] as { type?: string })?.type === 'complete') { held = () => send(channel, ...args); return }
             send(channel, ...args)
           }) as typeof web.send
-          ;(globalThis as any).__finishResultTest = () => { if (!held) throw new Error('No held completion.'); web.send = send; held(); delete (globalThis as any).__finishResultTest }
+          ;(globalThis as any).__resultCompletionHeld = () => Boolean(held)
+          ;(globalThis as any).__finishResultTest = () => { if (!held) throw new Error('No held completion.'); web.send = send; held(); delete (globalThis as any).__finishResultTest; delete (globalThis as any).__resultCompletionHeld }
         })
         await enter(page, 'SELECT 11 AS first; SELECT 12 AS second;'); await page.getByRole('button', { name: /^Run SQL/ }).click()
         await expect(result(page, 2)).toBeVisible(); await result(page, 2).click()
         if (messages) await page.getByRole('button', { name: /^Messages/ }).click()
+        // Result metadata can render before the driver's terminal event arrives.
+        // Wait for that event to be held before explicitly releasing it.
+        await expect.poll(() => app.evaluate(() => (globalThis as any).__resultCompletionHeld())).toBe(true)
         await app.evaluate(() => (globalThis as any).__finishResultTest())
         await expect(page.locator('.status-text')).toHaveText('Completed')
         if (messages) { await expect(page.getByRole('button', { name: /^Messages/ })).toHaveAttribute('aria-pressed', 'true'); await page.getByRole('button', { name: /^Results/ }).click() }
