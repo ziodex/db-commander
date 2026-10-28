@@ -57,7 +57,7 @@ async function killHost(app: ElectronApplication) {
 
 function descendants(parent: number): number[] {
   const records: { pid: number; parent: number }[] = process.platform === 'win32'
-    ? JSON.parse(execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId | ConvertTo-Json -Compress'], { encoding: 'utf8', timeout: 10_000 })).map((item: { ProcessId: number; ParentProcessId: number }) => ({ pid: item.ProcessId, parent: item.ParentProcessId }))
+    ? JSON.parse(execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'Get-CimInstance Win32_Process -Property ProcessId,ParentProcessId -ErrorAction Stop | Select-Object ProcessId,ParentProcessId | ConvertTo-Json -Compress'], { encoding: 'utf8', timeout: 10_000 })).map((item: { ProcessId: number; ParentProcessId: number }) => ({ pid: item.ProcessId, parent: item.ParentProcessId }))
     : execFileSync('ps', ['-axo', 'pid=,ppid='], { encoding: 'utf8', timeout: 10_000 }).trim().split('\n').map(line => { const [pid, parent] = line.trim().split(/\s+/).map(Number); return { pid, parent } })
   const owned = new Set([parent])
   let previous = 0
@@ -122,6 +122,16 @@ for (const engine of ['sqlite', 'duckdb'] as const) test(`application crash ${en
     await run(page, 'CREATE TABLE committed(n INTEGER); INSERT INTO committed VALUES(7);')
     await run(page, 'BEGIN TRANSACTION; UPDATE committed SET n=99;')
     await expect(page.locator('.transaction-badge')).toHaveText('In transaction')
+    // Connections already own their persistent execution worker and guard.
+    // Capture only PID/parent topology before saturating a hosted Windows CPU
+    // with the long native query; retain the existing ten-second probe budget.
+    const processes = await app.evaluate(({ app }) => ({ main: process.pid, hosts: app.getAppMetrics().filter(item => item.name === 'Db Commander database host').map(item => item.pid) }))
+    expect(processes.hosts).toHaveLength(1)
+    const capturedAt = Date.now(), workers = descendants(processes.hosts[0]); owned = [...processes.hosts, ...workers]
+    // Windows also owns one kernel-handle guard; it cannot stand in for the
+    // separate SQLite execution process required by this assertion.
+    if (engine === 'sqlite') expect(workers.length).toBeGreaterThan(process.platform === 'win32' ? 1 : 0)
+    writeFileSync(testInfo.outputPath(`${engine}-process-tree.json`), JSON.stringify({ ...processes, workers, captureMilliseconds: Date.now() - capturedAt }, null, 2))
     const longQuery = engine === 'sqlite'
       ? 'WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<1000000000) SELECT sum(x) FROM n;'
       : 'SELECT sum(sin(i)) FROM range(1000000000000) t(i);'
@@ -130,12 +140,9 @@ for (const engine of ['sqlite', 'duckdb'] as const) test(`application crash ${en
     const saved = `-- Saved but never submitted: ${engine} main-process crash\nINSERT INTO committed VALUES(777);`
     await enter(page, saved); await expect.poll(async () => (await workspace(page))?.tabs[0].sql).toBe(saved)
     const before = await page.evaluate(() => window.dbCommander.history())
-    const processes = await app.evaluate(({ app }) => ({ main: process.pid, hosts: app.getAppMetrics().filter(item => item.name === 'Db Commander database host').map(item => item.pid) }))
-    expect(processes.hosts).toHaveLength(1)
-    const workers = descendants(processes.hosts[0]); owned = [...processes.hosts, ...workers]
-    // Windows also owns one kernel-handle guard; it cannot stand in for the
-    // separate SQLite execution process required by this assertion.
-    if (engine === 'sqlite') expect(workers.length).toBeGreaterThan(process.platform === 'win32' ? 1 : 0)
+    // These same real owners must still be alive while the query is running,
+    // then all exit within the unchanged deadline after the main process dies.
+    expect(owned.filter(pid => alive(pid))).toEqual(owned)
     // Kill only the actual Electron main PID, not its process group or the
     // Windows Playwright command shell. Observe children before test cleanup.
     process.kill(processes.main, 'SIGKILL')
