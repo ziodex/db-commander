@@ -87,7 +87,7 @@ test('column sizing duckdb: pointer, keyboard, sampled fit, pinned columns and i
     // Display order and widths must never change fetched export columns or values.
     const destination = join(directory, 'fetched.csv')
     await app.evaluate(({ dialog }, path) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: path }) }, destination)
-    await page.getByRole('button', { name: 'Export CSV', exact: true }).click(); await expect(page.locator('.status-text')).toHaveText('Fetched rows exported')
+    await page.getByRole('button', { name: 'Export preview', exact: true }).click(); await expect(page.locator('.status-text')).toHaveText('Fetched rows exported')
     const exported = readFileSync(destination, 'utf8').split(/\r?\n/)
     expect(exported[0]).toBe('"duplicate","duplicate","missing"')
     expect(exported[1]).toBe(`"short","${'W'.repeat(70)}",`)

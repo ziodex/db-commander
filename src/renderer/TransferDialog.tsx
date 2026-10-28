@@ -5,9 +5,10 @@ import type { ExportFormat, ImportPreview, TransferJob, TransferRequest } from '
 import { quoteIdentifier } from '../shared/sql/common'
 import { parameterNames } from '../shared/parameters'
 import { ParameterDialog } from './ParameterDialog'
+import { validateExportSql } from '../shared/export-query'
 
-export function TransferDialog({ session, tables, sql, jobs, blocked, onClose }: {
-  session: SessionInfo | null; tables: SchemaTable[]; sql: string; jobs: TransferJob[]; blocked: boolean; onClose(): void
+export function TransferDialog({ session, tables, sql, sourceLabel, jobs, blocked, onClose }: {
+  session: SessionInfo | null; tables: SchemaTable[]; sql: string; sourceLabel?: string; jobs: TransferJob[]; blocked: boolean; onClose(): void
 }) {
   const api = window.dbCommander
   const dialogRef = useRef<HTMLDialogElement>(null)
@@ -22,6 +23,11 @@ export function TransferDialog({ session, tables, sql, jobs, blocked, onClose }:
   const [parameterExport, setParameterExport] = useState<{ request: Extract<TransferRequest, { action: 'export' }>; names: string[] }>()
   useEffect(() => { setParameterExport(undefined) }, [session?.id])
   const job = jobs.find(job => job.id === selected), table = tables[Number(target)]
+  let exportError = ''
+  if (action === 'export' && session) {
+    try { validateExportSql(query, session.engine, session.mysqlSqlMode) }
+    catch (error) { exportError = (error as Error).message }
+  }
   function reset() { setPreview(null); setConfirmed(false); setError('') }
   async function choose() {
     try { const path = await api.chooseTransferFile({ save: action === 'export', format }); if (path) { setFile(path); reset() } }
@@ -48,7 +54,7 @@ export function TransferDialog({ session, tables, sql, jobs, blocked, onClose }:
     } finally { setBusy(false) }
   }
   async function start() {
-    if (!session || blocked || !confirmed || action === 'import' && (!preview || !table)) return
+    if (!session || blocked || !confirmed || action === 'export' && exportError || action === 'import' && (!preview || !table)) return
     setError('')
     try {
       let request: TransferRequest
@@ -66,18 +72,20 @@ export function TransferDialog({ session, tables, sql, jobs, blocked, onClose }:
       await submit(request)
     } catch (error) { setError((error as Error).message) }
   }
-  return <dialog ref={dialogRef} className="connection-dialog transfer-dialog" aria-label="Data import and export" onKeyDown={event => event.stopPropagation()} onCancel={event => { event.preventDefault(); if (!busy) onClose() }}>
-    <div className="dialog-heading"><div><h2>Data import and export</h2><p>{session ? `${session.name} · ${session.host} · ${session.database || 'Server connection'}` : 'Connect a database to transfer data.'}</p></div><button disabled={busy} aria-label="Close data transfer" onClick={onClose}><X size={18} /></button></div>
+  return <dialog ref={dialogRef} className="connection-dialog transfer-dialog" aria-label={sourceLabel ? 'Export all rows' : 'Data import and export'} onKeyDown={event => event.stopPropagation()} onCancel={event => { event.preventDefault(); if (!busy) onClose() }}>
+    <div className="dialog-heading"><div><h2>{sourceLabel ? 'Export all rows' : 'Data import and export'}</h2><p>{session ? `${session.name} · ${session.host} · ${session.database || 'Server connection'}` : 'Connect a database to transfer data.'}</p></div><button disabled={busy} aria-label="Close data transfer" onClick={onClose}><X size={18} /></button></div>
+    {sourceLabel && <p className="transfer-source">Source preview: {sourceLabel}. This export runs the reviewed query again; it does not export the cached preview.</p>}
     {error && <p role="alert" className="backup-error">{error}</p>}
     {job ? <div className="backup-job-detail"><h3>{job.action === 'import' ? 'Import' : 'Full-result export'}</h3><p role="status">{job.status} · {job.rows.toLocaleString()} rows</p><p>{job.phase}</p><p className="backup-path">{job.file}</p>
       {job.status === 'running' && <button disabled={job.cancellationRequested} onClick={() => void api.cancelTransfer(job.id).catch(error => setError(error.message))}>{job.cancellationRequested ? 'Cancellation requested' : 'Cancel transfer'}</button>}
       <button disabled={job.status === 'running'} onClick={() => { setSelected(null); reset() }}>Configure another transfer</button>
     </div> : session && <>
       <fieldset disabled={busy}>
-        <div className="form-row"><label>Transfer operation<select value={action} onChange={event => { setAction(event.target.value as typeof action); setFormat('csv'); setFile(''); reset() }}><option value="export">Export full query result</option><option value="import">Import into a table</option></select></label>
+        <div className="form-row">{!sourceLabel && <label>Transfer operation<select value={action} onChange={event => { setAction(event.target.value as typeof action); setFormat('csv'); setFile(''); reset() }}><option value="export">Export full query result</option><option value="import">Import into a table</option></select></label>}
         <label>Data format<select value={format} onChange={event => { setFormat(event.target.value as typeof format); setFile(''); reset() }}><option value="csv">CSV (UTF-8)</option><option value="tsv">TSV (UTF-8)</option><option value="json">JSON (columns and rows)</option>{action === 'export' && <option value="sql">SQL INSERT script</option>}</select></label></div>
         <label>{action === 'export' ? 'New export file' : 'Import file'}<input value={file} onChange={event => { setFile(event.target.value); reset() }} /></label><button onClick={() => void choose()}>{action === 'export' ? 'Choose export destination' : 'Choose import file'}</button>
         {action === 'export' ? <><label>SQL to execute for export<textarea className="transfer-sql" spellCheck={false} value={query} onChange={event => { setQuery(event.target.value); setConfirmed(false) }} /></label><p>Runs this SELECT again in this tab and exports every returned row, beyond the preview limit. Current data may differ from the preview. SQL functions can have side effects. Existing files are never replaced.</p><p>Use :name placeholders to enter bound values before export. Values are used once and are not saved; exported rows may contain those values.</p>
+          {exportError && <p role="alert" className="backup-error">{exportError} Review one read query here, or select it explicitly in the editor.</p>}
           {format === 'sql' ? <>
             <div className="form-row"><label>INSERT export schema or database (optional)<input maxLength={255} value={insertSchema} onChange={event => { setInsertSchema(event.target.value); setConfirmed(false) }} /></label><label>INSERT export table<input maxLength={255} value={insertTable} onChange={event => { setInsertTable(event.target.value); setConfirmed(false) }} /></label></div>
             <p>Enter identifier names without SQL quoting. Result column names become INSERT columns; alias duplicates and omit generated or identity columns in the SELECT.</p>
@@ -96,7 +104,7 @@ export function TransferDialog({ session, tables, sql, jobs, blocked, onClose }:
         </>}
         {blocked && <p>Finish this tab’s query or transaction and apply or discard staged edits first.</p>}
         <label className="save-profile-option"><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />{action === 'export' ? 'I have reviewed the SQL and new destination.' : 'I have reviewed the file, target and column mapping.'}</label>
-        <div className="dialog-actions"><button className="primary-button" disabled={blocked || !file || !confirmed || action === 'import' && !preview || action === 'export' && (!query.trim() || format === 'sql' && !insertTable.trim())} onClick={() => void start()}>{action === 'export' ? 'Run and export' : 'Import into transaction'}</button></div>
+        <div className="dialog-actions"><button className="primary-button" disabled={blocked || !file || !confirmed || action === 'import' && !preview || action === 'export' && (Boolean(exportError) || !query.trim() || format === 'sql' && !insertTable.trim())} onClick={() => void start()}>{action === 'export' ? 'Run and export' : 'Import into transaction'}</button></div>
       </fieldset>
     </>}
     {jobs.some(job => job.sessionId === session?.id) && <div className="backup-job-list"><h3>This tab’s transfers</h3>{[...jobs].reverse().filter(job => job.sessionId === session?.id).map(item => <button key={item.id} disabled={busy} onClick={() => setSelected(item.id)}><span>{item.action} · {item.rows.toLocaleString()} rows</span><span>{item.status}</span></button>)}</div>}

@@ -59,7 +59,7 @@ for (const engine of ['sqlite', 'duckdb'] as const) test(`${engine}: tabs share 
     await select('orders'); await expect(page.getByRole('cell', { name: 'Order result', exact: true })).toBeVisible()
     const exported = join(directory, 'orders.csv')
     await app.evaluate(({ dialog }, path) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: path }) }, exported)
-    await page.getByRole('button', { name: 'Export CSV', exact: true }).click()
+    await page.getByRole('button', { name: 'Export preview', exact: true }).click()
     await expect(page.locator('.status-text')).toHaveText('Fetched rows exported')
     expect(readFileSync(exported, 'utf8')).toContain('Order result')
     expect(readFileSync(exported, 'utf8')).not.toContain('Customer result')

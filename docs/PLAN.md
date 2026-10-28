@@ -1,6 +1,6 @@
 # Db Commander product roadmap
 
-Updated **27 October 2026** after reviewing the current implementation and running the app with disposable data.
+Updated **28 October 2026** after reviewing the current implementation and running the app with disposable data.
 
 ## Product goal
 
@@ -28,7 +28,7 @@ Complete the confirmed correctness fixes first, then improve daily navigation an
 | R2 | Make protection scope explicit | Confirmation names all tabs sharing the connection, including subsequently opened tabs. Shared unlock/relock propagates; separate physical connections stay locked; reconnects start locked. | Complete · local validation |
 | R3 | Report edited-profile connection status truthfully | A live connection using previous settings is identified. The updated profile can connect independently, old tabs retain their actual engine/context, and disconnect remains available subject to transaction safeguards. Cosmetic profile edits do not imply an endpoint change. | Complete · local validation |
 | W1 | Clarify sessions and connection navigation | Expose shared versus independent connection choices, visible session ownership, connection search/quick switching, duplication, and secret-free profile import/export. Verify temporary objects, transactions and closing behavior. | Complete · local validation |
-| W2 | Improve result navigation and exports | Select a row-bearing result after a script; label result sets with statement/count context. Distinguish Export preview from Export all rows, preserving the existing explicit re-execution review. | Planned |
+| W2 | Improve result navigation and exports | Select a row-bearing result after a script; label result sets with statement/count context. Distinguish Export preview from Export all rows, preserving the existing explicit re-execution review. | Complete · local validation |
 | W3 | Add result exploration | Find/filter/sort loaded query results with explicit preview scope; add useful copy formats, pinned result snapshots and independent result panes. Existing server-side table filters/sorting remain available. | Planned |
 
 ## Milestone 2 — Complete schema and data workflows
@@ -79,6 +79,8 @@ This is a delivery checklist alongside the product roadmap, not a feature freeze
 Release qualification stays tied to its exact candidate and tested scope. Updates are currently manual. This roadmap does not schedule a release, long-running soak, publication or branch merge.
 
 ## Review and completion
+
+W2 passed local macOS Apple Silicon validation on 28 October 2026: lint, both TypeScript projects, production/unpacked packaging, **932 unit/controller tests passed / three platform skips**, **91 embedded-engine contracts** (44 SQLite; 47 DuckDB in UTC), **eight W2 Electron scenarios**, and **17 existing grid/accessibility/export/session regressions**. The packaged app passed **143 desktop workflows and three startup/recovery checks**. [Result navigation tests](../tests/desktop/result-navigation.spec.ts) verify mixed and empty results, affected/preview counts, preserved manual choices, partial failure/native Stop, 1,000-row cached versus 1,205-row reviewed export, no script/editor-mutation replay, fresh parameters, and compact/125% layouts. A separate UI review resolved selected-tab visibility and truthful source excerpts while preserving the existing dark/light system. Cross-platform CI and release qualification remain separate.
 
 W1 passed local Windows x64 validation on 27 October 2026: lint, both TypeScript projects, production/native packaging, 911 unit/controller tests with 17 platform skips, and 11 targeted desktop scenarios. The packaged 0.2.2 app also passed native startup smoke checks and seven startup, connection-navigation and About scenarios. [Connection-navigation tests](../tests/desktop/connection-navigation.spec.ts) cover shared defaults, independent temporary objects/transactions, owner closing, switching, duplication and reviewed credential-free files. Dark/light and minimum-window layouts were inspected. Cross-platform CI and release qualification remain separate.
 
