@@ -11,7 +11,7 @@ const modifier = process.platform === 'darwin' ? 'Meta' : 'Control'
 async function launch() {
   const directory = mkdtempSync(join(tmpdir(), 'dbcommander-selection-'))
   const env: Record<string, string | undefined> = { ...process.env, SQLCOMMANDER_USER_DATA: directory }; delete env.ELECTRON_RUN_AS_NODE
-  const app = await electron.launch({ args: [resolve('.')], env: env as Record<string, string> })
+  const app = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: resolve(process.env.SQLCOMMANDER_TEST_EXECUTABLE) } : { args: [resolve('.')] }), env: env as Record<string, string> })
   const page = await app.firstWindow()
   await waitForWorkspaceReady(page)
   return { app, page, directory }
@@ -171,8 +171,36 @@ test('compact browse controls and active saved connection follow tab changes', a
       const config = { engine: 'sqlite' as const, host: 'local', port: 1, user: 'local', database: 'sqlite', tls: 'disable' as const, sqliteMode: 'memory' as const }
       await window.dbCommander.saveWorkspace({ version: 2, tabs: workspace.tabs, activeTabId: workspace.activeTabId, profiles: ['Sales', 'Reporting'].map(name => ({ id: crypto.randomUUID(), config: { ...config, name } })) })
     })
-    await page.reload()
+    // Recovery has a second phase after the workspace loads. Hold the real
+    // SQL-file restoration so connection actions cannot race that phase.
+    await app.evaluate(({ ipcMain }) => {
+      const original = (ipcMain as any)._invokeHandlers.get('sql:restoreSqlFiles')
+      const control = { pending: false, release: () => {} }
+      const held = new Promise<void>(resolve => { control.release = resolve })
+      ;(globalThis as any).__selectionRestore = control
+      ipcMain.removeHandler('sql:restoreSqlFiles')
+      ipcMain.handle('sql:restoreSqlFiles', async (event, request) => {
+        control.pending = true
+        await held
+        ipcMain.removeHandler('sql:restoreSqlFiles'); ipcMain.handle('sql:restoreSqlFiles', original)
+        return original(event, request)
+      })
+    })
+    await page.reload(); await page.bringToFront()
+    await expect.poll(() => app.evaluate(() => (globalThis as any).__selectionRestore.pending)).toBe(true)
+    await waitForWorkspaceReady(page)
     const profile = (name: string) => page.getByRole('button', { name: `Open ${name} in new tab`, exact: true })
+    await expect(profile('Sales')).toBeDisabled()
+    await expect(page.getByRole('button', { name: 'New query tab', exact: true })).toBeDisabled()
+    await profile('Sales').focus(); await page.keyboard.press('Enter')
+    await expect(page.getByRole('tab')).toHaveCount(1)
+    await expect(page.locator('.status-text')).toHaveText('Ready')
+    writeFileSync(info.outputPath('connection-recovery-pending.png'), await app.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].webContents.capturePage()).toPNG()))
+    await app.evaluate(() => (globalThis as any).__selectionRestore.release())
+    await expect(page.locator('.monaco-editor textarea.inputarea')).toBeEditable()
+    await expect(profile('Sales')).toBeEnabled()
+    await expect(page.getByRole('button', { name: 'New query tab', exact: true })).toBeEnabled()
+    writeFileSync(info.outputPath('connection-recovery-ready.png'), await app.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].webContents.capturePage()).toPNG()))
     await profile('Sales').click(); await expect(page.locator('.status-text')).toHaveText('Connected')
     await expect(profile('Sales')).toHaveAttribute('aria-current', 'true')
     await run(page, "CREATE TABLE orders(id INTEGER PRIMARY KEY, customer TEXT); WITH RECURSIVE n(i) AS (VALUES(1) UNION ALL SELECT i+1 FROM n WHERE i<205) INSERT INTO orders SELECT i,'Customer '||i FROM n;")
