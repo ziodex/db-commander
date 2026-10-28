@@ -13,6 +13,7 @@ async function launch(directory: string) {
     const page = await app.firstWindow()
     await waitForWorkspaceReady(page)
     await expect(page.locator('.monaco-editor')).toBeVisible()
+    await page.bringToFront()
     return { app, page }
   } catch (error) { await forceClose(app); throw error }
 }
@@ -36,7 +37,12 @@ async function settingsTransfer(form: Locator, name: string) {
   await form.getByRole('button', { name, exact: true }).click()
 }
 async function enter(page: Page, sql: string) {
-  await page.locator('.monaco-editor').click(); await page.keyboard.press(`${modifier}+A`); if (sql) await page.keyboard.insertText(sql); else await page.keyboard.press('Backspace'); await page.keyboard.press('Escape')
+  const editor = page.locator('.monaco-editor'), input = editor.locator('textarea.inputarea')
+  // The mounted editor can precede input readiness on a cold native window.
+  await expect(input).toBeEditable()
+  await editor.click(); await expect(input).toBeFocused()
+  await page.keyboard.press(`${modifier}+A`); if (sql) await page.keyboard.insertText(sql); else await page.keyboard.press('Backspace'); await page.keyboard.press('Escape')
+  await expect.poll(() => text(page)).toBe(sql)
 }
 async function workspace(page: Page) { return page.evaluate(() => window.dbCommander.loadWorkspace()) }
 async function text(page: Page) { const value = await workspace(page); return value?.tabs.find(tab => tab.id === value.activeTabId)?.sql }

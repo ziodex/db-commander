@@ -42,6 +42,8 @@ import type { SchemaChange, ApplySchemaChange } from '../shared/schema-changes'
 import type { CatalogObject } from '../shared/catalog'
 import { BackupDialog } from './BackupDialog'
 import { TransferDialog } from './TransferDialog'
+import { ResultTabs } from './ResultTabs'
+import { resultCommand, resultCount } from './result-navigation'
 import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from 'react'
 import type * as Monaco from 'monaco-editor'
 import { PanelLeft, PanelBottom, Maximize2, Minimize2, Search, Activity, ArrowDownToLine, Check, Database, FolderOpen, History, LockKeyhole, Play, Plus, Settings2, Square, Table2, Terminal, Unplug, X } from './WorkbenchIcons'
@@ -125,7 +127,7 @@ export function App() {
   const [explainText, setExplainText] = useState<string | null>(null)
   const activeSessionId = states[workspace.activeTabId]?.session?.id
   useEffect(() => { setExplainText(null) }, [workspace.activeTabId, activeSessionId])
-  const [transferSql, setTransferSql] = useState<string | null>(null)
+  const [transfer, setTransfer] = useState<{ tabId: string; sessionId?: string; sql: string; sourceLabel?: string } | null>(null)
   const transferJobs = useJobFeed(api.onTransferJob, api.transferJobs, job => {
     const owner = Object.keys(statesRef.current).find(id => statesRef.current[id]?.session?.id === job.sessionId)
     if (owner) patchState(owner, { transferBusy: job.status === 'running', gridExpired: true, ...(job.session ? { session: job.session } : {}) })
@@ -210,8 +212,8 @@ export function App() {
   const setStatus = (status: string) => patchState(tabId, { status })
   const profileLibrary = useProfileLibrary({ api, workspaceRef, changeWorkspace, persist, report, notice: setStatus,
     onDraft: profile => { setDialogError(''); setDialogInfo({ tabId: workspaceRef.current.activeTabId, profile, saveOnly: true }) } })
-  const setActiveResult = (activeResult: number) => patchState(tabId, { activeResult })
-  const setShowMessages = (showMessages: boolean) => patchState(tabId, { showMessages })
+  const setActiveResult = (activeResult: number) => patchState(tabId, { activeResult, resultSelectionChanged: true })
+  const setShowMessages = (showMessages: boolean) => patchState(tabId, { showMessages, resultSelectionChanged: true })
   const setTableSearch = (tableSearch: string) => patchState(tabId, { tableSearch })
   function setDialog(open: boolean, newConnection = false) {
     if (open && !readyRef.current) return
@@ -407,7 +409,7 @@ export function App() {
     if(!parameters&&names.length){setParameterRun({tabId,sessionId:current.session.id,sql:query,names,source});return}
     const id = crypto.randomUUID(), sessionId = current.session.id
     const retainedGrid = text && /^(COMMIT|ROLLBACK)$/.test(text) ? current.grid : null
-    patchState(tabId, { execution: source, failure: undefined, grid: retainedGrid, gridChanges: [], gridExpired: Boolean(retainedGrid), error: '', running: true, queryId: id, results: [], activeResult: 0, messages: [], duration: null, status: 'Running', showMessages: false, schemaStale: current.schemaStale || changesSchema(query, current.session.engine) })
+    patchState(tabId, { execution: source, failure: undefined, grid: retainedGrid, gridChanges: [], gridExpired: Boolean(retainedGrid), error: '', running: true, queryId: id, results: [], activeResult: 0, resultSelectionChanged: false, messages: [], duration: null, status: 'Running', showMessages: false, schemaStale: current.schemaStale || changesSchema(query, current.session.engine) })
     try { await api.run({ sessionId, viewId: tabId, queryId: id, sql: query, parameters, singleUnit: source?.singleUnit, maxRows: 1000 }) }
     catch (error) { if (statesRef.current[tabId]?.queryId === id) patchState(tabId, { running: false, status: 'Failed', error: message(error), failure: { start: 0, end: query.length, scope: 'script' } }) }
   }
@@ -817,7 +819,11 @@ export function App() {
   const connectionBlocked = operationBusy || Boolean(state.gridChanges.length) || inTransaction
   function openTransfer() {
     const editor = editorRef.current, selection = editor?.getSelection()
-    setTransferSql(selection && !selection.isEmpty() ? editor!.getModel()!.getValueInRange(selection) : sql)
+    setTransfer({ tabId, sessionId: session?.id, sql: selection && !selection.isEmpty() ? editor!.getModel()!.getValueInRange(selection) : sql })
+  }
+  function exportAllRows() {
+    if (!session || operationBusy || !result?.columns.length) return
+    setTransfer({ tabId, sessionId: session.id, sql: result.statement.trim(), sourceLabel: `Result ${result.index + 1} · ${resultCommand(result)} · ${resultCount(result)}` })
   }
   const queryTools = [
     { group: 'Run', label: session && ['sqlserver', 'azure-sql'].includes(session.engine) ? 'Run current batch' : 'Run current statement', action: runCurrent, disabled: !session || operationBusy },
@@ -879,10 +885,10 @@ export function App() {
           onError={(id, error) => patchState(id, { error, failure: undefined })} onChange={(id, sql) => patchTab(id, { sql })} /></section>
         {layout.resultsVisible && !layout.resultsMaximized && <Splitter orientation="horizontal" label="Resize results" controls="execution-output" value={resultsHeight} preferredValue={layout.resultsHeight} min={bounds.resultsMin} max={bounds.resultsMax} disabled={!ready}
           onChange={resultsHeight => changeLayout(layout => ({ ...layout, resultsHeight }))} onToggle={() => layoutCommand('toggle-results')} onReset={() => changeLayout(layout => ({ ...layout, resultsHeight: DEFAULT_LAYOUT.resultsHeight }))} />}
-        <section id="execution-output" tabIndex={-1} hidden={!layout.resultsVisible} className={`results-region ${layout.resultsMaximized ? 'maximized' : ''}`} style={layout.resultsMaximized ? undefined : { height: resultsHeight }} aria-label="Execution output"><div className="results-toolbar"><button aria-pressed={!showMessages} className={!showMessages ? 'selected' : ''} onClick={() => setShowMessages(false)}><Table2 size={14} />Results{(state.grid || result) && <span className="count">{state.grid?.rows.length ?? result?.rows.length}</span>}</button><button aria-pressed={showMessages} className={showMessages ? 'selected' : ''} onClick={() => setShowMessages(true)}><Terminal size={14} />Messages{messages.length > 0 && <span className="count">{messages.length}</span>}</button><div className="tabs-spacer" />{duration !== null && <span className="execution-time"><Activity size={12} />{duration} ms</span>}{!state.grid && !showMessages && <button disabled={operationBusy || !result?.columns.length || !queryId} onClick={() => void exportCsv()}><ArrowDownToLine size={14} />Export CSV</button>}<button aria-label={layout.resultsMaximized ? 'Restore editor and results' : 'Maximize results'} title="Maximize / restore results (Cmd/Ctrl+Shift+J)" disabled={!ready} onClick={() => layoutCommand('maximize-results')}>{layout.resultsMaximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}</button><button aria-label="Hide results" title="Hide results (Cmd/Ctrl+J)" disabled={!ready} onClick={() => layoutCommand('toggle-results')}><X size={14} /></button></div>
-          {results.length > 1 && !state.grid && !showMessages && <div className="result-tabs">{results.map(item => <button key={item.index} aria-pressed={activeResult === item.index} className={activeResult === item.index ? 'selected' : ''} onClick={() => setActiveResult(item.index)}>Result {item.index + 1}</button>)}</div>}
+        <section id="execution-output" tabIndex={-1} hidden={!layout.resultsVisible} className={`results-region ${layout.resultsMaximized ? 'maximized' : ''}`} style={layout.resultsMaximized ? undefined : { height: resultsHeight }} aria-label="Execution output"><div className="results-toolbar"><button aria-pressed={!showMessages} className={!showMessages ? 'selected' : ''} onClick={() => setShowMessages(false)}><Table2 size={14} />Results{(state.grid || result) && <span className="count">{state.grid?.rows.length ?? result?.rows.length}</span>}</button><button aria-pressed={showMessages} className={showMessages ? 'selected' : ''} onClick={() => setShowMessages(true)}><Terminal size={14} />Messages{messages.length > 0 && <span className="count">{messages.length}</span>}</button><div className="tabs-spacer" />{duration !== null && <span className="execution-time"><Activity size={12} />{duration} ms</span>}{!state.grid && !showMessages && <><button disabled={operationBusy || !result?.columns.length || !queryId} title="Export fetched preview rows to CSV without running SQL again" onClick={() => void exportCsv()}><ArrowDownToLine size={14} />Export preview</button><button disabled={operationBusy || !session || !result?.columns.length} title="Review a single query before running it again to export all rows" onClick={exportAllRows}>Export all rows</button></>}<button aria-label={layout.resultsMaximized ? 'Restore editor and results' : 'Maximize results'} title="Maximize / restore results (Cmd/Ctrl+Shift+J)" disabled={!ready} onClick={() => layoutCommand('maximize-results')}>{layout.resultsMaximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}</button><button aria-label="Hide results" title="Hide results (Cmd/Ctrl+J)" disabled={!ready} onClick={() => layoutCommand('toggle-results')}><X size={14} /></button></div>
+          {!state.grid && !showMessages && <ResultTabs results={results} selected={activeResult} onSelect={setActiveResult} />}
           {showMessages ? <div className="messages-panel"><div className="message-status" data-status={status}>{status}{duration !== null ? ` in ${duration} ms` : ''}</div>{messages.map((message, index) => <pre key={index}>{message}</pre>)}</div> : state.grid ? <TableData key={`${tabId}:${JSON.stringify(state.grid.table)}`} grid={state.grid} changes={state.gridChanges} disconnected={!session} busy={operationBusy} expired={state.gridExpired} transaction={inTransaction} onChange={gridChanges => patchState(tabId, { gridChanges })} onApply={() => void applyGrid()} onLoad={(query, mode) => void openGrid(state.grid!.table, mode, query)} onClose={() => patchState(tabId, { grid: null, gridBack: [] })} view={state.columnViews?.[tableViewKey]} savedColumns={savedTableColumns()} onView={view=>saveColumnView(tableViewKey,view)} onBack={state.gridBack?.length?()=>void backGrid():undefined} actions={{load:async(row,column)=>(await inspectGrid('inspect-cell',row,column)).inspection!,references:async()=>(await inspectGrid('foreign-keys')).references!,follow:async(row,id)=>{await inspectGrid('follow-reference',row,0,id)}}} /> : result ? <ResultGrid key={`${tabId}:${queryId}:${activeResult}`} result={result} view={state.columnViews?.[resultViewKey]} onView={view=>saveColumnView(resultViewKey,view)}/> : <div className="results-empty"><h2>{running ? 'Running…' : 'No results'}</h2><p>{running ? 'Use Stop to cancel.' : session ? `Run SQL${editorKeys.run === 'none' ? '' : ` (${keyHint('run')})`} or browse a table.` : 'Connect to a database to run SQL.'}</p></div>}
-          {result && !state.grid && <div className="result-footer"><span>{result.rows.length.toLocaleString()} rows fetched{result.truncated ? ' · Preview limit reached; result is incomplete' : ''}</span><span title="Right-click a table in the sidebar and choose Edit data to make changes.">Read-only result</span></div>}
+          {result && !state.grid && !showMessages && <div className="result-footer"><span title={result.statement}>{resultCommand(result)} · {resultCount(result)}</span><span title="Right-click a table in the sidebar and choose Edit data to make changes.">Read-only result</span></div>}
         </section>
         </div>
       </main>
@@ -897,7 +903,7 @@ export function App() {
       <span className="dialect-label" title={session ? `${session.name} / ${session.database || 'Server connection'}` : 'Not connected'}>{hasConfiguredConnection(tab, session) ? engineNames[session?.engine ?? profile.engine] : 'SQL'}</span>
     </footer>
     {explainText !== null && session && <ExplainDialog key={session.id} session={session} sql={explainText} previous={state.plan} onRun={explainQuery} onClose={() => setExplainText(null)} />}
-    {transferSql !== null && <TransferDialog key={tabId} session={session} tables={state.tables.filter(table => table.kind === 'table')} sql={transferSql} jobs={transferJobs} blocked={!session || tabOperationBusy(state) || Boolean(state.gridChanges.length) || inTransaction || session.engine !== 'oracle' && session.autocommit === false} onClose={() => setTransferSql(null)} />}
+    {transfer?.tabId === tabId && transfer.sessionId === session?.id && <TransferDialog key={`${tabId}:${transfer.sourceLabel ?? 'editor'}`} session={session} tables={state.tables.filter(table => table.kind === 'table')} sql={transfer.sql} sourceLabel={transfer.sourceLabel} jobs={transferJobs} blocked={!session || tabOperationBusy(state) || Boolean(state.gridChanges.length) || inTransaction || session.engine !== 'oracle' && session.autocommit === false} onClose={() => setTransfer(null)} />}
     {schemaEditor?.tabId === tabId && schemaEditor.sessionId === session?.id && session && <SchemaChangeDialog key={`${tabId}:${session.id}`} session={session} snapshot={state.schema} initialTarget={schemaEditor.target} blocked={schemaChangeBlocked()} onClose={() => setSchemaEditor(null)} onPrepare={prepareSchemaChange} onApply={applySchemaChange} />}
     {activityOpen?.tabId===tabId && activityOpen.sessionId===session?.id && <ActivityDialog key={session.id} session={session} onClose={()=>setActivityOpen(null)}/>}
     {builderOpen?.tabId===tabId && builderOpen.sessionId===session?.id && <QueryBuilderDialog key={session.id} session={session} snapshot={state.schema} initialTable={builderOpen.table} blocked={schemaChangeBlocked() ?? (!session.database ? 'Select a database before reviewing builder SQL.' : undefined)} onClose={()=>setBuilderOpen(null)} onRefresh={async()=>{await refreshTables(tabId,session.id);const error=statesRef.current[tabId]?.schemaError;if(error)throw new Error(error)}} onReview={async query=>{

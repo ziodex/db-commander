@@ -44,7 +44,7 @@ test('Oracle desktop service connection, SQL, PL/SQL, transactions, cancellation
     await expect(page.getByRole('cell', { name: 'Ada Lovelace', exact: true })).toBeVisible()
     const csvPath = join(directory, 'oracle.csv')
     await application.evaluate(({ dialog }, path) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: path }) }, csvPath)
-    await page.getByRole('button', { name: 'Export CSV', exact: true }).click()
+    await page.getByRole('button', { name: 'Export preview', exact: true }).click()
     await expect(page.locator('.status-text')).toHaveText('Fetched rows exported')
     expect(readFileSync(csvPath, 'utf8')).toContain('"Ada Lovelace"')
     async function enter(sql: string) {

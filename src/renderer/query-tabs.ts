@@ -1,4 +1,5 @@
 import type { DatabaseCatalog, DatabaseEvent, ResultSet, SchemaTable, SchemaSnapshot, SessionInfo, GridSnapshot, GridChange } from '../shared/contracts'
+import { preferredResult } from './result-navigation'
 
 export interface QueryTabState {
   sharedSessionBusy?: boolean
@@ -27,6 +28,7 @@ export interface QueryTabState {
   tableSearch: string
   results: ResultSet[]
   activeResult: number
+  resultSelectionChanged: boolean
   queryId: string
   running: boolean
   connecting: boolean
@@ -39,7 +41,7 @@ export interface QueryTabState {
 }
 export function emptyTabState(): QueryTabState {
   return { execution: undefined, failure: undefined, columnViews: {}, connectionDatabase: undefined, gridBack: [], databases: null, databasesLoading: false, databasesError: '', switching: false, grid: null, gridChanges: [], gridBusy: false, backupBusy: false, transferBusy: false, gridExpired: false, session: null, tables: [], schema: null, schemaLoading: false, schemaError: '', schemaStale: false, tableSearch: '', results: [], activeResult: 0, queryId: '', running: false, connecting: false, closing: false,
-    error: '', messages: [], showMessages: false, status: 'Ready', duration: null }
+    resultSelectionChanged: false, error: '', messages: [], showMessages: false, status: 'Ready', duration: null }
 }
 /** Shared operation availability; transaction and staged-edit policies stay explicit. */
 export function tabOperationBusy(state: QueryTabState): boolean {
@@ -66,17 +68,18 @@ export function applyDatabaseEvent(state: QueryTabState, event: DatabaseEvent): 
   if (event.type === 'result') {
     const results = [...state.results]
     results[event.result.index] = { ...event.result, rows: results[event.result.index]?.rows ?? [] }
-    return { ...state, results }
+    return { ...state, results, activeResult: state.resultSelectionChanged ? state.activeResult : preferredResult(results, state.activeResult) }
   }
   if (event.type === 'rows') {
     if (!state.results[event.index]) return state
     const results = [...state.results], result = results[event.index]
     results[event.index] = { ...result, rows: [...result.rows, ...event.rows] }
-    return { ...state, results }
+    return { ...state, results, activeResult: state.resultSelectionChanged ? state.activeResult : preferredResult(results, state.activeResult) }
   }
   if (event.type === 'notice') return { ...state, messages: [...state.messages.slice(-99), event.message] }
   return { ...state, failure: event.status === 'failed' ? event.failure ?? (state.execution ? { start: 0, end: state.execution.sql.length, scope: 'script' } : undefined) : undefined, running: false, duration: event.durationMs,
-    showMessages: state.showMessages || !state.results.length && (state.messages.length > 0 || Boolean(event.error)),
+    activeResult: state.resultSelectionChanged ? state.activeResult : preferredResult(state.results, state.activeResult),
+    showMessages: state.showMessages || !state.resultSelectionChanged && !state.results.some(Boolean) && (state.messages.length > 0 || Boolean(event.error)),
     status: event.status === 'completed' ? 'Completed' : event.status === 'cancelled' ? 'Cancelled' : event.status === 'unknown' ? 'Outcome unknown' : 'Failed',
     session: { ...state.session!, transaction: event.transaction, autocommit: event.autocommit, database: event.database ?? state.session!.database, mysqlSqlMode: event.mysqlSqlMode ?? state.session!.mysqlSqlMode },
     messages: event.error ? [...state.messages.slice(-99), event.error] : state.messages,

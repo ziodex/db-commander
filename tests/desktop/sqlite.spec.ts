@@ -60,7 +60,7 @@ test('SQLite file dialog, local SQL, transactions, read-only mode, Stop and cras
     await page.screenshot({ path: testInfo.outputPath('sqlite-workbench.png') })
     const csv = join(directory, 'export.csv')
     await application!.evaluate(({ dialog }, path) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: path }) }, csv)
-    await page.getByRole('button', { name: 'Export CSV', exact: true }).click()
+    await page.getByRole('button', { name: 'Export preview', exact: true }).click()
     await expect(page.locator('.status-text')).toHaveText('Fetched rows exported')
     expect(readFileSync(csv, 'utf8')).toContain('"1250.50000000"')
     await page.getByRole('button', { name: 'Begin', exact: true }).click()

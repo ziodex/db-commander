@@ -150,7 +150,7 @@ test('compact browse controls and active saved connection follow tab changes', a
     await expect(profile('Sales')).toHaveAttribute('aria-current', 'true')
     await expect(page.locator('.table-data .data-toolbar')).toHaveCount(1)
     await expect(page.locator('.table-data .grid-edit-toolbar')).toHaveCount(0)
-    await expect(page.getByRole('button', { name: 'Export CSV', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Export preview', exact: true })).toHaveCount(0)
     await page.getByRole('button', { name: 'Next page', exact: true }).click()
     await expect(page.locator('.page-range')).toHaveText('Rows 201–205')
     await expect(page.getByRole('button', { name: 'Copy', exact: true })).toBeDisabled()

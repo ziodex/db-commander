@@ -100,7 +100,7 @@ export class PostgresDriver implements DatabaseDriver {
     if (!statements.length) throw new Error('There is no SQL statement to execute.')
     if (statements.length > 200) throw new Error('A script may contain up to 200 statements in this preview.')
     // COPY protocol needs its own importer/exporter. It cannot run through Cursor.
-    if (statements.some(sql => firstKeyword(sql) === 'COPY')) throw new Error('COPY is not supported in the query console yet. Use SELECT and Export CSV.')
+    if (statements.some(sql => firstKeyword(sql) === 'COPY')) throw new Error('COPY is not supported in the query console yet. Use SELECT with Export preview or Export all rows.')
     session.editor?.invalidate()
     const operation: Operation = { id: request.queryId ?? randomUUID(), cancelled: false }
     session.busy = operation

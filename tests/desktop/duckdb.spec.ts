@@ -59,7 +59,7 @@ test('DuckDB file dialog, analytics, transactions, cancellation, export and pers
     await page.screenshot({ path: testInfo.outputPath('duckdb-workbench.png') })
     const csv = join(directory, 'export.csv')
     await application!.evaluate(({ dialog }, path) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: path }) }, csv)
-    await page.getByRole('button', { name: 'Export CSV', exact: true }).click()
+    await page.getByRole('button', { name: 'Export preview', exact: true }).click()
     await expect(page.locator('.status-text')).toHaveText('Fetched rows exported')
     expect(readFileSync(csv, 'utf8')).toContain('"12345678901234567890.123456789"')
     await page.getByRole('button', { name: 'Begin', exact: true }).click()
