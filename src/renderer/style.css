@@ -133,7 +133,7 @@ kbd { font: 12px -apple-system, BlinkMacSystemFont, sans-serif; color: var(--mut
 .editor-region { flex: 1.05; min-height: 180px; background: var(--surface); }
 .editor-loading { padding: 30px; color: var(--muted); }
 .results-region { flex: 1; min-height: 220px; display: flex; flex-direction: column; background: var(--surface); border-top: 1px solid var(--border); }
-.results-toolbar { min-height: 44px; display: flex; align-items: center; gap: 7px; padding: 0 12px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.results-toolbar { min-height: 44px; display: flex; align-items: center; gap: 7px; padding: 0 12px; scroll-padding-inline: 4px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .results-toolbar button { font-size: 13px; color: var(--muted); height: 42px; border-radius: 0; }
 .results-toolbar button.selected { border-bottom: 2px solid var(--success-border); color: var(--text); }
 .execution-time { display: flex; gap: 5px; align-items: center; color: var(--muted); font-size: 12px; margin-right: 12px; }

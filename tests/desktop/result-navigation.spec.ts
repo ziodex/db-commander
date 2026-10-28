@@ -5,10 +5,10 @@ import { join, resolve } from 'node:path'
 import { waitForWorkspaceReady } from './workspace-ready'
 
 const key = process.platform === 'darwin' ? 'Meta' : 'Control'
-async function launch() {
+async function launch(args: string[] = []) {
   const directory = mkdtempSync(join(tmpdir(), 'dbcommander-result-workflow-'))
   const env: Record<string, string | undefined> = { ...process.env, SQLCOMMANDER_USER_DATA: directory }; delete env.ELECTRON_RUN_AS_NODE
-  const app = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: resolve(process.env.SQLCOMMANDER_TEST_EXECUTABLE) } : { args: [resolve('.')] }), env: env as Record<string, string> })
+  const app = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: resolve(process.env.SQLCOMMANDER_TEST_EXECUTABLE) } : {}), args: [...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? [] : [resolve('.')]), ...args], env: env as Record<string, string> })
   const page = await app.firstWindow()
   await waitForWorkspaceReady(page)
   return { app, page, directory, close: async () => {
@@ -34,6 +34,32 @@ async function run(page: Page, sql: string, status = 'Completed') {
   await expect(page.locator('.status-text')).toHaveText(status)
 }
 const result = (page: Page, number: number) => page.getByRole('button', { name: `Result ${number}`, exact: true })
+
+test('result navigation: export actions clear fractional viewport edges at 125% zoom', async ({}, info) => {
+  const { app, page, close } = await launch(['--force-device-scale-factor=1'])
+  try {
+    await connect(page, 'sqlite')
+    // Native execution stays real. Fix only the displayed timing width to
+    // reproduce the two-digit label that exposed rounded scrolling on Intel.
+    await app.evaluate(({ BrowserWindow }) => {
+      const web = BrowserWindow.getAllWindows()[0].webContents, send = web.send.bind(web)
+      web.send = ((channel: string, ...args: unknown[]) => {
+        const event = args[0] as { type?: string }
+        if (channel === 'sql:event' && event?.type === 'complete') { web.send = send; send(channel, { ...event, durationMs: 54 }, ...args.slice(1)); return }
+        send(channel, ...args)
+      }) as typeof web.send
+    })
+    await run(page, 'SELECT 11 AS first; SELECT 12 AS second;')
+    await expect(page.locator('.execution-time')).toContainText('54 ms')
+    const contentWidth = await app.evaluate(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows()[0]; w.setSize(1024, 700); w.webContents.setZoomFactor(1.25); return w.getContentSize()[0] })
+    await expect.poll(() => page.evaluate(expected => Math.abs(innerWidth - expected) < 2, contentWidth / 1.25)).toBe(true)
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+    await page.getByRole('button', { name: 'Export all rows', exact: true }).scrollIntoViewIfNeeded()
+    await expect(page.getByRole('button', { name: 'Export all rows', exact: true })).toBeInViewport({ ratio: 1 })
+    await expect(page.getByRole('button', { name: 'Export preview', exact: true })).toBeInViewport({ ratio: 1 })
+    writeFileSync(info.outputPath('fractional-export-controls.png'), await app.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].webContents.capturePage()).toPNG()))
+  } finally { await close() }
+})
 
 for (const engine of ['sqlite', 'duckdb'] as const) {
   test(`result navigation ${engine}: selects rows, preserves empty results and affected counts`, async ({}, info) => {
