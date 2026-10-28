@@ -1,4 +1,4 @@
-import { _electron as electron, expect, test, type Locator, type Page } from '@playwright/test'
+import { _electron as electron, expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -6,10 +6,10 @@ import { waitForWorkspaceReady } from './workspace-ready'
 import { withClipboard } from './clipboard-fixture'
 
 const key = process.platform === 'darwin' ? 'Meta' : 'Control'
-async function launch() {
+async function launch(args: string[] = []) {
   const directory = mkdtempSync(join(tmpdir(), 'dbcommander-exploration-'))
   const env: Record<string, string | undefined> = { ...process.env, SQLCOMMANDER_USER_DATA: directory }; delete env.ELECTRON_RUN_AS_NODE
-  const app = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: resolve(process.env.SQLCOMMANDER_TEST_EXECUTABLE) } : { args: [resolve('.')] }), env: env as Record<string, string> })
+  const app = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: resolve(process.env.SQLCOMMANDER_TEST_EXECUTABLE) } : {}), args: [...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? [] : [resolve('.')]), ...args], env: env as Record<string, string> })
   try {
     const page = await app.firstWindow(); await waitForWorkspaceReady(page); await page.bringToFront()
     return { app, page, directory, close: async () => { await app.evaluate(({ app }) => app.exit(0)).catch(() => {}); await app.close().catch(() => {}); rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) } }
@@ -24,7 +24,9 @@ async function enter(page: Page, sql: string) {
   const editor = page.locator('.monaco-editor'), input = editor.locator('textarea.inputarea')
   await expect(input).toBeEditable(); await editor.click(); await expect(input).toBeFocused()
   await page.keyboard.press(`${key}+A`); await page.keyboard.insertText(sql); await page.keyboard.press('Escape')
-  await expect(editor.locator('.view-lines')).toContainText(sql)
+  // Monaco virtualizes wrapped lines; the native keystrokes must reach the
+  // complete persisted buffer, including lines outside its current viewport.
+  await expect.poll(async () => { const value = await page.evaluate(() => window.dbCommander.loadWorkspace()); return value?.tabs.find(tab => tab.id === value.activeTabId)?.sql }).toBe(sql)
 }
 async function run(page: Page, sql: string) {
   await enter(page, sql); await page.getByRole('button', { name: /^Run SQL/ }).click(); await expect(page.locator('.status-text')).toHaveText('Completed')
@@ -38,6 +40,11 @@ async function copyAs(page: Page, pane: Locator, format: string) {
 }
 async function viewEditor(pane: Locator) { await pane.getByRole('button', { name: /^Filter \/ sort/ }).click() }
 async function settle(page: Page) { await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))) }
+async function resize(app: ElectronApplication, page: Page, width: number, height: number, zoom: number) {
+  const content = await app.evaluate(({ BrowserWindow }, { width, height, zoom }) => { const w = BrowserWindow.getAllWindows()[0]; w.setSize(width, height); w.webContents.setZoomFactor(zoom); return w.getContentSize() }, { width, height, zoom })
+  await expect.poll(() => page.evaluate(([width, height]) => Math.abs(innerWidth - width) < 2 && Math.abs(innerHeight - height) < 2, content.map(value => value / zoom))).toBe(true)
+  await settle(page)
+}
 
 for (const engine of ['sqlite', 'duckdb'] as const) {
   test(`result exploration ${engine}: find, exact filters/sort and copy use shown rows without replay`, async ({}, info) => {
@@ -105,6 +112,7 @@ for (const engine of ['sqlite', 'duckdb'] as const) {
     const { page, close } = await launch()
     try {
       await connect(page, engine); await run(page, "SELECT 'retained before change' AS label; SELECT 'other result' AS label;")
+      await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
       const before = await page.evaluate(() => window.dbCommander.loadWorkspace()), history = await page.evaluate(() => window.dbCommander.history())
       await live(page).getByRole('button', { name: 'Pin result snapshot', exact: true }).click()
       await pinned(page).getByRole('textbox', { name: 'Snapshot name', exact: true }).fill('Private capture')
@@ -211,29 +219,31 @@ test('result exploration snapshots refuse capacity overflow without eviction or 
   } finally { await close() }
 })
 
-test('result exploration layouts keep pinned and live panes reachable in dark, light and compact zoom', async ({}, info) => {
-  const { app, page, close } = await launch()
+for (const density of [undefined, 1] as const) test(`result exploration layouts keep pinned and live panes reachable in dark, light and compact zoom${density ? ' at density 1' : ''}`, async ({}, info) => {
+  const { app, page, close } = await launch(density ? ['--force-device-scale-factor=1'] : [])
   try {
     await connect(page, 'sqlite'); await run(page, "SELECT 42 AS customer_id,'Sample customer' AS customer, NULL AS note;")
     for (const [name, width, height, zoom] of [['desktop', 1440, 940, 1], ['compact', 1024, 700, 1], ['compact-125', 1024, 700, 1.25]] as const) {
-      const contentWidth = await app.evaluate(({ BrowserWindow }, { width, height, zoom }) => { const w = BrowserWindow.getAllWindows()[0]; w.setSize(width,height); w.webContents.setZoomFactor(zoom); return w.getContentSize()[0] }, { width,height,zoom })
-      await expect.poll(() => page.evaluate(expected => Math.abs(innerWidth - expected) < 2, contentWidth / zoom)).toBe(true)
-      await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+      await resize(app, page, width, height, zoom)
       await live(page).getByRole('button', { name: 'Pin result snapshot', exact: true }).scrollIntoViewIfNeeded(); await expect(live(page).getByRole('button', { name: 'Pin result snapshot', exact: true })).toBeInViewport({ ratio: 1 })
       await cell(live(page), 0, 0).scrollIntoViewIfNeeded(); await expect(cell(live(page), 0, 0)).toBeInViewport({ ratio: 1 }); await settle(page)
       writeFileSync(info.outputPath(`${name}.png`), await app.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].webContents.capturePage()).toPNG()))
     }
-    await app.evaluate(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows()[0]; w.webContents.setZoomFactor(1);w.setSize(1440,940) })
+    await resize(app, page, 1440, 940, 1)
     await live(page).getByRole('button', { name: 'Pin result snapshot', exact: true }).click(); await pinned(page).getByRole('textbox', { name: 'Snapshot name', exact: true }).fill('Before changes')
     await live(page).getByRole('button', { name: 'Find', exact: true }).click(); await live(page).getByRole('searchbox', { name: 'Find in loaded rows', exact: true }).fill('customer')
     await page.locator('.main-workspace').evaluate(e => { e.scrollTop=e.scrollHeight }); await page.locator('.result-workspace').evaluate(e => { e.scrollTop=0 }); await settle(page)
     writeFileSync(info.outputPath('split-dark.png'), await app.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].webContents.capturePage()).toPNG()))
-    await app.evaluate(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows()[0]; w.setSize(1024,700); w.webContents.setZoomFactor(1.25) })
-    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+    await resize(app, page, 1024, 700, 1.25)
     await pinned(page).getByRole('textbox', { name: 'Snapshot name', exact: true }).scrollIntoViewIfNeeded(); await expect(pinned(page).getByRole('textbox', { name: 'Snapshot name', exact: true })).toBeInViewport({ ratio: 1 })
-    await cell(pinned(page), 0, 0).scrollIntoViewIfNeeded(); await expect(cell(pinned(page), 0, 0)).toBeInViewport({ ratio: 1 }); await settle(page)
+    await cell(pinned(page), 0, 0).scrollIntoViewIfNeeded(); await expect(cell(pinned(page), 0, 0)).toBeInViewport({ ratio: 1 }).catch(async error => {
+      const geometry = await cell(pinned(page), 0, 0).evaluate(target => ({ viewport: { width: innerWidth, height: innerHeight, scale: devicePixelRatio }, ancestors: [target, ...Array.from((function* () { let parent = target.parentElement; while (parent) { yield parent; parent = parent.parentElement } })())].map(e => ({ class: e.className, rect: e.getBoundingClientRect().toJSON(), clientHeight: e.clientHeight, scrollHeight: e.scrollHeight, scrollTop: e.scrollTop, overflow: getComputedStyle(e).overflow })) }))
+      writeFileSync(info.outputPath('clipped-cell-geometry.json'), JSON.stringify(geometry, null, 2))
+      writeFileSync(info.outputPath('clipped-cell.png'), await app.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].webContents.capturePage()).toPNG()))
+      throw error
+    }); await settle(page)
     writeFileSync(info.outputPath('split-compact-125.png'), await app.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].webContents.capturePage()).toPNG()))
-    await app.evaluate(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows()[0]; w.webContents.setZoomFactor(1); w.setSize(1440,940) })
+    await resize(app, page, 1440, 940, 1)
     await page.getByRole('button', { name: 'Application preferences', exact: true }).click(); const preferences=page.getByRole('dialog', { name: 'Preferences', exact: true });await preferences.getByLabel('Appearance', { exact: true }).selectOption('light');await preferences.getByRole('button', { name: 'Apply settings', exact: true }).click()
     await expect(page.locator('html')).toHaveAttribute('data-theme','light'); await page.locator('.main-workspace').evaluate(e => { e.scrollTop=e.scrollHeight }); await page.locator('.result-workspace').evaluate(e => { e.scrollTop=0 }); await settle(page);writeFileSync(info.outputPath('split-light.png'), await app.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].webContents.capturePage()).toPNG()))
   } finally { await close() }

@@ -473,6 +473,9 @@ body[data-resizing=horizontal], body[data-resizing=horizontal] * { cursor: row-r
 /* Keep the header and at least one full row below wrapped controls. The result
    workspace scrolls when this intrinsic pane minimum exceeds available space. */
 .result-pane .grid-scroll { contain:size; height:100px; min-height:100px; }
+/* Native scroll positions round at fractional zoom. Keep revealed cells away
+   from the clipping edge without changing pane, row or editable-grid sizes. */
+.result-pane .grid-row > span { scroll-margin-block:4px; }
 .result-pane-empty { align-items:center; justify-content:center; padding:8px; }
 .result-panes.split { min-height:300px; }
 .result-panes.split > .result-pane { min-width:320px; min-height:300px; }
