@@ -9,6 +9,8 @@ import { prepareBuilderSchema } from '../shared/query-builder'
 import { prepareMigrationSchema, saveMigrationSchema, type MigrationPreview } from '../shared/migrations'
 import { writeMigrationFile } from './migration-file'
 import { readSnippetFile, writeSnippetFile } from '../files/snippet-files'
+import { readProfileFile, writeProfileFile } from './profile-files'
+import { profileDocument } from '../shared/profile-files'
 import { readEditorSettingsFile, writeEditorSettingsFile } from '../files/editor-settings-files'
 import { editorSettingsSchema } from '../shared/editor-settings'
 import { snippetExportSchema, snippetImportSchema, type SnippetDocument, type SnippetImportPreview } from '../shared/snippet-files'
@@ -361,6 +363,22 @@ function registerIpc(): void {
     if (!config || !sessions.has(id)) throw new Error('Source session is no longer connected.')
     return openSession({ ...config })
   })
+  handle('exportConnectionProfiles', value => fileOperation(async () => {
+    const ids = z.array(idSchema).min(1).max(100).optional().parse(value)
+    const workspace: Workspace | null = await rpc('loadWorkspace')
+    const profiles = (workspace?.profiles ?? []).filter(profile => !ids || ids.includes(profile.id))
+    if (ids && profiles.length !== new Set(ids).size) throw new Error('A selected profile no longer exists. Choose it again.')
+    const document = profileDocument(profiles)
+    const chosen = await dialog.showSaveDialog(window!, { title: 'Export connections without credentials to a new file', defaultPath: 'dbcommander-connections.json', filters: [{ name: 'Db Commander connections', extensions: ['json'] }] })
+    if (chosen.canceled || !chosen.filePath) return null
+    await writeProfileFile(chosen.filePath, document)
+    return chosen.filePath
+  }))
+  handle('importConnectionProfiles', () => fileOperation(async () => {
+    const chosen = await dialog.showOpenDialog(window!, { title: 'Import Db Commander connections', properties: ['openFile'], filters: [{ name: 'Db Commander connections', extensions: ['json'] }] })
+    if (chosen.canceled || !chosen.filePaths[0]) return null
+    return { sourceName: basename(chosen.filePaths[0]), document: await readProfileFile(chosen.filePaths[0]) }
+  }))
   handle('connectSavedPassword', async value => {
     const request = z.object({ profileId: idSchema, config: profileSchema, sshSecrets: sshSecretsSchema.optional() }).strict().parse(value)
     const config = await credentialOperation(async () => {

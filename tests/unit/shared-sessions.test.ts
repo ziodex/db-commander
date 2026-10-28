@@ -1,10 +1,18 @@
 import { expect, it } from 'vitest'
-import { type SessionInfo } from '../../src/shared/contracts'
+import { DEFAULT_PROFILE, type SessionInfo } from '../../src/shared/contracts'
 import { canCloseTab, emptyTabState, tabOperationBusy } from '../../src/renderer/query-tabs'
-import { patchSessionState, reconcileSessionBusy, sessionOwners } from '../../src/renderer/shared-sessions'
+import { connectionGroups, patchSessionState, reconcileSessionBusy, sessionOwners } from '../../src/renderer/shared-sessions'
 
 const session: SessionInfo = { id: 'memory', engine: 'sqlite', name: 'Memory', database: ':memory:', host: ':memory:', port: 0, user: 'local', tls: false, version: '', transaction: 'idle' }
 const tab = () => ({ ...emptyTabState(), session })
+
+it('groups physical owners independently of saved profile or tab order and excludes stale owners', () => {
+  const states = { source: tab(), browse: tab(), separate: { ...tab(), session: { ...session, id: 'other' } }, stale: { ...tab(), session: { ...session, id: 'stale' } } }
+  const tabs = ['source', 'browse', 'separate'].map(id => ({ id, title: id, sql: '', profile: DEFAULT_PROFILE }))
+  expect(connectionGroups(tabs, states).map(group => [group.session.id, group.number, group.tabs.map(tab => tab.id)])).toEqual([['memory', 1, ['source', 'browse']], ['other', 2, ['separate']]])
+  expect(connectionGroups([...tabs].reverse(), states).map(group => [group.session.id, group.number])).toEqual([['memory', 1], ['other', 2]])
+  expect(connectionGroups([], states)).toEqual([])
+})
 
 it('locks only peers sharing a busy connection and releases them when it settles', () => {
   const states = { source: tab(), browse: tab(), separate: { ...tab(), session: { ...session, id: 'other' } } }

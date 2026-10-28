@@ -1,6 +1,6 @@
 # Db Commander product roadmap
 
-Updated **26 October 2026** after reviewing the current implementation and running the app with disposable data.
+Updated **27 October 2026** after reviewing the current implementation and running the app with disposable data.
 
 ## Product goal
 
@@ -12,7 +12,7 @@ This roadmap replaces the frozen beta backlog. The [previous beta plan](PLAN_BET
 
 ## Current foundation
 
-Version 0.2.1 is a developer preview. The implementation includes saved profiles and OS-stored passwords, TLS/SSH, SQL Server Windows Authentication on Windows, query tabs sharing connections, transactions/cancellation, SQL files and recovery, snippets/history/parameters, completion/formatting, split editors, themes, paginated table browsing and conservative editing, object inspection and basic schema changes, diagrams/comparisons, migration export, import/full-result export, backup/restore, plans, and session/lock tools.
+Version 0.2.2 is a developer preview. The implementation includes saved profiles and OS-stored passwords, TLS/SSH, SQL Server Windows Authentication on Windows, query tabs sharing connections, transactions/cancellation, SQL files and recovery, snippets/history/parameters, completion/formatting, split editors, themes, paginated table browsing and conservative editing, object inspection and basic schema changes, diagrams/comparisons, migration export, import/full-result export, backup/restore, plans, and session/lock tools.
 
 Adapters exist for PostgreSQL, MySQL, MariaDB, SQL Server, Azure SQL, SQLite, DuckDB and Oracle Thin mode. Capability, authentication and qualification differ by engine. Azure SQL remains experimental; local TDS coverage does not qualify the cloud service.
 
@@ -27,7 +27,7 @@ Complete the confirmed correctness fixes first, then improve daily navigation an
 | R1 | Preserve passwords when profile persistence fails | Rejected profile edits, deletions and password removals leave existing credentials usable. Successful saves record cleanup durably before deleting credentials; interrupted cleanup is retryable without deleting a replacement password. | Complete · local validation |
 | R2 | Make protection scope explicit | Confirmation names all tabs sharing the connection, including subsequently opened tabs. Shared unlock/relock propagates; separate physical connections stay locked; reconnects start locked. | Complete · local validation |
 | R3 | Report edited-profile connection status truthfully | A live connection using previous settings is identified. The updated profile can connect independently, old tabs retain their actual engine/context, and disconnect remains available subject to transaction safeguards. Cosmetic profile edits do not imply an endpoint change. | Complete · local validation |
-| W1 | Clarify sessions and connection navigation | Expose shared versus independent connection choices, visible session ownership, connection search/quick switching, duplication, and secret-free profile import/export. Verify temporary objects, transactions and closing behavior. | Planned |
+| W1 | Clarify sessions and connection navigation | Expose shared versus independent connection choices, visible session ownership, connection search/quick switching, duplication, and secret-free profile import/export. Verify temporary objects, transactions and closing behavior. | Complete · local validation |
 | W2 | Improve result navigation and exports | Select a row-bearing result after a script; label result sets with statement/count context. Distinguish Export preview from Export all rows, preserving the existing explicit re-execution review. | Planned |
 | W3 | Add result exploration | Find/filter/sort loaded query results with explicit preview scope; add useful copy formats, pinned result snapshots and independent result panes. Existing server-side table filters/sorting remain available. | Planned |
 
@@ -79,6 +79,8 @@ This is a delivery checklist alongside the product roadmap, not a feature freeze
 Release qualification stays tied to its exact candidate and tested scope. Updates are currently manual. This roadmap does not schedule a release, long-running soak, publication or branch merge.
 
 ## Review and completion
+
+W1 passed local Windows x64 validation on 27 October 2026: lint, both TypeScript projects, production/native packaging, 911 unit/controller tests with 17 platform skips, and 11 targeted desktop scenarios. The packaged 0.2.2 app also passed native startup smoke checks and seven startup, connection-navigation and About scenarios. [Connection-navigation tests](../tests/desktop/connection-navigation.spec.ts) cover shared defaults, independent temporary objects/transactions, owner closing, switching, duplication and reviewed credential-free files. Dark/light and minimum-window layouts were inspected. Cross-platform CI and release qualification remain separate.
 
 R1–R3 passed validation on the 26 October 2026 development worktree on macOS Apple Silicon: lint, both TypeScript projects, production build, **899 unit tests passed / three platform skips**, and **12 targeted Electron workflows passed**. Regression coverage includes rejected workspace writes, durable credential cleanup/reopening/replacement, edited-profile engine identity, and shared unlock/relock with independently locked connections. See [credential persistence tests](../tests/unit/credential-workspace.test.ts), [profile-state tests](../tests/unit/profile-connections.test.ts), [native credential workflows](../tests/desktop/credentials.spec.ts), [saved-connection workflows](../tests/desktop/saved-connections.spec.ts) and [protected-profile workflows](../tests/desktop/profiles.spec.ts). These results cover the local worktree; Windows/Linux and release qualification remain separate.
 

@@ -8,6 +8,13 @@ const tab: WorkspaceTab = { id: 'tab', title: 'Query', sql: '', profileId: profi
 const session: SessionInfo = { ...profile.config, id: 'session', tls: true, transaction: 'idle', version: '' }
 const connected = { ...emptyTabState(), session }
 
+it('lists physical connections and tab owners separately for navigation', () => {
+  const tabs = [tab, { ...tab, id: 'shared' }, { ...tab, id: 'independent' }]
+  const result = profileConnectionStates([profile], tabs, { tab: connected, shared: connected, independent: { ...connected, session: { ...session, id: 'other-session' } } }, tab.id).get(profile.id)
+  expect(result?.tabIds).toEqual(['tab', 'shared', 'independent'])
+  expect(result?.sessionIds).toEqual(['session', 'other-session'])
+})
+
 it('distinguishes a connection using previous settings from the current saved profile', () => {
   const edited = { ...profile, config: { ...profile.config, engine: 'sqlite' as const, sqliteMode: 'memory' as const } }
   expect(profileConnectionStates([edited], [tab], { tab: connected }, tab.id).get(profile.id)).toMatchObject({
