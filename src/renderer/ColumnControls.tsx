@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { columnWidth, DEFAULT_COLUMN_WIDTH, MIN_COLUMN_WIDTH, MAX_COLUMN_WIDTH } from './column-sizing'
-import { defaultColumns, type ColumnLayout } from '../shared/column-layout'
+import { defaultColumns, resolveColumnLayout, visibleColumnIndices, type ColumnLayout } from '../shared/column-layout'
 export { defaultColumns, type ColumnLayout } from '../shared/column-layout'
 export interface SavedColumnControls {
   notice: string; disabled: boolean; exists: boolean; layout?: ColumnLayout
@@ -10,12 +10,12 @@ export function useColumns(columns: {name:string}[], width: number, rowWidth: nu
   const [local,setLocal] = useState(() => defaultColumns(columns.length))
   const signature = JSON.stringify(columns.map(c => c.name))
   useEffect(() => { setLocal(defaultColumns(columns.length)) },[signature, columns.length])
-  const stored = view ?? local, layout = stored.order.length === columns.length && new Set(stored.order).size === columns.length && stored.order.every(i => i>=0 && i<columns.length) ? stored : defaultColumns(columns.length)
+  const stored = view ?? local, layout = resolveColumnLayout(columns.length, stored)
   const latest = useRef(layout); latest.current = layout
   const set = (next: ColumnLayout) => { latest.current = next; setLocal(next); onView?.(next) }
   const setWidths = (widths: Record<number, number>) => set({ ...latest.current, widths: { ...latest.current.widths, ...widths } })
   const resetWidth = (index: number) => { const widths = { ...latest.current.widths }; delete widths[index]; set({ ...latest.current, widths }) }
-  const visible = layout.order.filter(i => !layout.hidden.includes(i)).sort((a,b)=>Number(layout.pinned.includes(b))-Number(layout.pinned.includes(a)))
+  const visible = visibleColumnIndices(layout)
   const size = (i: number) => columnWidth(layout.widths[i] ?? width, width)
   const style = { gridTemplateColumns: `${rowWidth}px ${visible.map(i=>`${size(i)}px`).join(' ')}`, minWidth:rowWidth+visible.reduce((sum,i)=>sum+size(i),0) }
   const cellStyle = (i: number): CSSProperties => layout.pinned.includes(i) ? { position:'sticky', left:rowWidth+visible.slice(0,visible.indexOf(i)).filter(j=>layout.pinned.includes(j)).reduce((sum,j)=>sum+size(j),0), zIndex:2, background:'var(--surface-raised)' } : {}
@@ -36,7 +36,7 @@ function ColumnDialog({columns,layout,onChange,onClose,onFit,saved}: {columns:{n
   function move(index:number,delta:number) {const order=[...layout.order];[order[index],order[index+delta]]=[order[index+delta],order[index]];onChange({...layout,order})}
   return <dialog ref={dialog} className="connection-dialog column-dialog" aria-label="Column controls" onKeyDown={e=>e.stopPropagation()} onCancel={onClose}>
     <div className="dialog-heading"><h2>Columns</h2><button aria-label="Close column controls" onClick={onClose}>×</button></div>
-    <p>Display only. Exports retain every fetched column in its original order. {saved ? 'Changes stay in this tab unless you save a table layout for future sessions.' : 'Settings stay in this tab until its session ends.'} Pinned columns appear first.</p>
+    <p>Display only. Copy follows displayed columns; file exports retain their source’s fetched columns in original order. {saved ? 'Changes stay in this tab unless you save a table layout for future sessions.' : 'Settings apply only to this result view.'} Pinned columns appear first.</p>
     <p>Drag a header edge to resize. Double-click an edge or press Enter on it to fit the header and up to 200 loaded rows. No additional data is fetched.</p>
     {saved && <div className="saved-column-layout" role="group" aria-label="Saved table layout">
       <p>{saved.notice}</p>
