@@ -1604,3 +1604,10 @@ The fresh endurance attempt exposed a missing metadata-readiness wait in its scr
 ## Dependency README license retention — 20 October 2026
 
 A packaged notice audit found upstream MIT/CC0 text lost when builder removed three dependency READMEs. Version-checked copies now ship under `resources/licenses/`, participate in inventory hashes and fail packaging/verification when absent or modified. The 650-test suite passes under both development and bundled Node, and actual package creation preserves the exact source bytes. Both revised DMG/ZIP payloads pass offline installed hash checks. All 428 existing bundle entries match the live eight-hour snapshot, with only three legal READMEs added; full GUI lifecycle qualification remains queued after that run. See [audit and evidence](DRIVER_TESTING.md#dependency-readme-notice-retention--20-october-2026).
+
+
+## W3 CI: saved-connection startup readiness — 28 October 2026
+
+The W3 PostgreSQL CI job exposed a saved-connection click being ignored just after renderer reload. Workspace recovery had already displayed saved profiles, while SQL-file recovery still made `newTab` refuse the action. The saved-profile controls now include the same SQL-file and pending-close readiness guards. The workflow stays unavailable until its tab-creation path can accept the action.
+
+A native regression holds SQL-file recovery across reload, requires the saved connection to remain disabled with one query tab, releases recovery, then opens exactly one connected tab through the native click path. It fails on the prior W3 build and passes with the correction. The originally failing compact browse/active-profile workflow also passes. Lint, both type checks, the build, 950 Windows unit tests (17 platform/optional skips) and seven focused native result-selection/shared-connection/tab-close workflows passed. Cross-platform CI remains required before merging W3.

@@ -127,6 +127,42 @@ test('selection includes virtual rows, autoscrolls during drag and resets for a 
   } finally { await close(app, directory) }
 })
 
+test('saved connection opening waits for SQL file recovery after reload', async () => {
+  const { app, page, directory } = await launch()
+  try {
+    await page.evaluate(async () => {
+      const workspace = (await window.dbCommander.loadWorkspace())!
+      const config = { engine: 'sqlite' as const, name: 'Recovered connection', host: 'local', port: 1, user: 'local', database: 'sqlite', tls: 'disable' as const, sqliteMode: 'memory' as const }
+      await window.dbCommander.saveWorkspace({ version: 2, tabs: workspace.tabs, activeTabId: workspace.activeTabId, profiles: [{ id: crypto.randomUUID(), config }] })
+    })
+    await app.evaluate(({ ipcMain }) => {
+      const original = (ipcMain as any)._invokeHandlers.get('sql:restoreSqlFiles')
+      ipcMain.removeHandler('sql:restoreSqlFiles')
+      ipcMain.handle('sql:restoreSqlFiles', async (event, request) => {
+        await new Promise<void>(resolve => { (globalThis as any).releaseProfileFileRecovery = resolve })
+        return original(event, request)
+      })
+    })
+    await page.reload()
+    const profile = page.getByRole('button', { name: 'Open Recovered connection in new tab', exact: true })
+    await expect(profile).toBeVisible()
+    await expect.poll(() => app.evaluate(() => Boolean((globalThis as any).releaseProfileFileRecovery))).toBe(true)
+    // Workspace recovery can expose profiles while SQL-file recovery is still
+    // pending. The opener must reflect the guard used by tab creation.
+    await expect(profile).toBeDisabled()
+    await expect(page.getByRole('tablist', { name: 'Query tabs' }).getByRole('tab')).toHaveCount(1)
+    await app.evaluate(() => (globalThis as any).releaseProfileFileRecovery())
+    await expect(profile).toBeEnabled()
+    await profile.click()
+    await expect(page.locator('.status-text')).toHaveText('Connected')
+    await expect(profile).toHaveAttribute('aria-current', 'true')
+    await expect(page.getByRole('tablist', { name: 'Query tabs' }).getByRole('tab')).toHaveCount(2)
+  } finally {
+    await app.evaluate(() => (globalThis as any).releaseProfileFileRecovery?.()).catch(() => {})
+    await close(app, directory)
+  }
+})
+
 test('compact browse controls and active saved connection follow tab changes', async ({}, info) => {
   const { app, page, directory } = await launch()
   try {
