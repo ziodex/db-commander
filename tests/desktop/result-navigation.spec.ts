@@ -52,8 +52,10 @@ for (const engine of ['sqlite', 'duckdb'] as const) {
       await expect(page.getByRole('button', { name: 'Export all rows', exact: true })).toBeDisabled()
       await result(page, 4).click()
       for (const [width, height, zoom] of [[1440, 940, 1], [1024, 700, 1], [1024, 700, 1.25]]) {
-        await app.evaluate(({ BrowserWindow }, { width, height, zoom }) => { const w = BrowserWindow.getAllWindows()[0]; w.setSize(width, height); w.webContents.setZoomFactor(zoom) }, { width, height, zoom })
-        await expect.poll(() => page.evaluate(expected => Math.abs(innerWidth - expected) < 2, width / zoom)).toBe(true)
+        const contentWidth = await app.evaluate(({ BrowserWindow }, { width, height, zoom }) => { const w = BrowserWindow.getAllWindows()[0]; w.setSize(width, height); w.webContents.setZoomFactor(zoom); return w.getContentSize()[0] }, { width, height, zoom })
+        // Native frame borders differ by OS; compare the renderer with the
+        // actual content area rather than assuming the outer window width.
+        await expect.poll(() => page.evaluate(expected => Math.abs(innerWidth - expected) < 2, contentWidth / zoom)).toBe(true)
         await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
         await page.getByRole('button', { name: 'Export all rows', exact: true }).scrollIntoViewIfNeeded()
         await expect(page.getByRole('button', { name: 'Export all rows', exact: true })).toBeInViewport({ ratio: 1 })
