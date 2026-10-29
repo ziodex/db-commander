@@ -276,11 +276,20 @@ for (const engine of engineSchema.options) test(`schema changes ${engine}: revie
     await editor.getByLabel('Schema operation').selectOption('create-index')
     await editor.getByLabel('New object name').fill(name+'_ix')
     await editor.getByLabel('Index column id', { exact: true }).check()
+    if (['mysql','mariadb'].includes(engine)) {
+      await editor.getByLabel('Index column native_value', { exact: true }).check()
+      await editor.getByLabel('Index prefix length native_value').fill('4')
+    }
     if (engine !== 'duckdb') await editor.getByLabel('Descending id', { exact: true }).check()
     if (['postgres','sqlserver','azure-sql'].includes(engine)) await editor.getByLabel('Include new_value', { exact: true }).check()
     if (['postgres','sqlite','sqlserver','azure-sql'].includes(engine)) await editor.getByLabel('Index predicate').fill(`${q('id')} > 0`)
     if (engine === 'postgres') await editor.getByLabel('Index method').selectOption('btree')
     await review()
+    if (['mysql','mariadb'].includes(engine)) {
+      await expect(editor.getByLabel('Schema SQL preview')).toHaveValue(/`native_value`\(4\)/)
+      await editor.getByLabel('Index prefix length native_value').fill('6'); await expect(editor.getByLabel('Schema SQL preview')).toHaveCount(0)
+      await review(); await expect(editor.getByLabel('Schema SQL preview')).toHaveValue(/`native_value`\(6\)/)
+    }
     if (engine !== 'duckdb') {
       await expect(editor.getByLabel('Schema SQL preview')).toHaveValue(/DESC/)
       await editor.getByLabel('Descending id', { exact: true }).uncheck(); await expect(editor.getByLabel('Schema SQL preview')).toHaveCount(0)

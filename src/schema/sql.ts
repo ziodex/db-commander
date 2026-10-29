@@ -388,9 +388,11 @@ export function schemaSql(change: SchemaChange, session: SessionInfo, detail?: O
       commands.push(mssql ? `EXEC sys.sp_rename @objname=${literal(full)}, @newname=${literal(change.name)}, @objtype=N'OBJECT'` : `ALTER TABLE ${full} RENAME TO ${mysql ? qualified(change.name) : q(change.name)}`); break
     case 'drop-table': commands.push(`DROP TABLE ${full}`); break
     case 'create-index': {
-      const descending = change.descending ?? [], include = change.include ?? []
-      unique(change.columns); unique(descending); unique(include)
+      const descending = change.descending ?? [], include = change.include ?? [], prefixes = change.prefixes ?? []
+      unique(change.columns); unique(descending); unique(include); unique(prefixes.map(prefix => prefix.column))
       change.columns.forEach(requireColumn); include.forEach(requireColumn)
+      if (prefixes.length && !mysql) throw new Error('Index key prefixes are supported here only by MySQL and MariaDB.')
+      if (prefixes.some(prefix => !change.columns.includes(prefix.column) || !Number.isInteger(prefix.length) || prefix.length < 1 || prefix.length > 65535)) throw new Error('Each index prefix must belong to a selected key and have a length from 1 to 65535.')
       if (descending.some(name => !change.columns.includes(name))) throw new Error('Descending order can only be selected for an index key column.')
       if (descending.length && engine === 'duckdb') throw new Error('DuckDB does not retain descending index order. Use ordinary index keys instead.')
       if (descending.length && mysql) {
@@ -407,7 +409,8 @@ export function schemaSql(change: SchemaChange, session: SessionInfo, detail?: O
       if (change.method === 'gist' && include.length && Number(/^PostgreSQL\s+(\d+)/i.exec(session.version)?.[1] ?? 0) < 12) throw new Error('Included columns in GiST indexes require PostgreSQL 12 or later.')
       if (change.method && !['btree', 'gist'].includes(change.method) && include.length) throw new Error('Included columns require PostgreSQL B-tree or GiST indexes here.')
       if (change.method && change.method !== 'btree' && descending.length) throw new Error('Descending keys require the PostgreSQL B-tree method.')
-      const keys = change.columns.map(name => `${q(name)}${descending.includes(name) ? ' DESC' : ''}`).join(', ')
+      const prefixLengths = new Map(prefixes.map(prefix => [prefix.column, prefix.length]))
+      const keys = change.columns.map(name => `${q(name)}${prefixLengths.has(name) ? `(${prefixLengths.get(name)})` : ''}${descending.includes(name) ? ' DESC' : ''}`).join(', ')
       commands.push(`CREATE ${change.unique ? 'UNIQUE ' : ''}INDEX ${engine === 'sqlite' || engine === 'oracle' ? qualified(change.name) : q(change.name)} ON ${engine === 'sqlite' ? q(target!.name) : full}${change.method ? ` USING ${change.method.toUpperCase()}` : ''} (${keys})${include.length ? ` INCLUDE (${include.map(q).join(', ')})` : ''}${change.predicate ? ` WHERE ${schemaExpression(change.predicate, engine)}` : ''}`); break
     }
     case 'drop-index':
@@ -454,6 +457,7 @@ export function schemaSql(change: SchemaChange, session: SessionInfo, detail?: O
       ...(['drop-constraint','replace-constraint'].includes(change.action) ? ['Removing a constraint removes a database safeguard and may remove its supporting index.'] : []),
       ...(change.action === 'replace-constraint' && engine === 'oracle' ? ['Oracle commits each DDL statement. If the replacement fails after the drop, the old constraint is gone; inspect and repair it explicitly.'] : []),
       ...(change.action === 'create-index' && mysql && change.descending?.length ? ['Descending index behavior depends on the table storage engine; confirm that it supports descending key parts.'] : []),
+      ...(change.action === 'create-index' && change.prefixes?.length ? ['Prefix lengths use characters for nonbinary text and bytes for binary data; limits depend on character set and storage engine. In a unique index, prefix keys compare only the specified prefixes alongside any other keys.'] : []),
       ...(change.action === 'create-index' && change.predicate ? ['The index predicate is SQL evaluated by the database. Review its scope, dependencies and function effects before applying.'] : []),
       ...(['rename-table','rename-column'].includes(change.action) ? ['Renaming may leave views, routines or application SQL referring to the old name. Review dependencies separately.'] : []),
       ...(['drop-table','drop-column'].includes(change.action) ? ['This removes data. Related objects or data can also be affected according to the engine’s dependency and foreign-key rules.'] : []),

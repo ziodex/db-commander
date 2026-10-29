@@ -579,6 +579,25 @@ export async function verifySchemaChanges(config: ConnectionConfig) {
       await change({ action: 'drop-table', target: await object(methodTable) })
     }
     const optionsIndex = prefix+'_options'
+    if (['mysql','mariadb'].includes(engine)) {
+      await run(`CREATE TABLE ${full(alterTable)} (${q('id')} INT NOT NULL PRIMARY KEY, ${q('body')} TEXT NOT NULL)`)
+      await run(`INSERT INTO ${full(alterTable)} (${q('id')},${q('body')}) VALUES (1,'alpha-one'),(2,'alpha-two')`)
+      const prefixIndex: SchemaChange = { action: 'create-index', target: await object(alterTable), name: prefix+'_str_prefix', columns: ['body','id'], prefixes: [{ column: 'body', length: 5 }], unique: false }
+      const uniquePrefix = await prepare({ ...prefixIndex, name: prefix+'_unique_prefix', columns: ['body'], unique: true })
+      expect(uniquePrefix.warnings.join(' ')).toMatch(/compare only the specified prefixes/)
+      const rejected = await apply(uniquePrefix); expect(rejected.status).toBe('failed'); expect(rejected.message).toMatch(/duplicate/i)
+      expect((await run(`SELECT ${q('body')} FROM ${full(alterTable)} ORDER BY ${q('id')}`)).rows).toEqual([['alpha-one'],['alpha-two']])
+      const plan = await prepare(prefixIndex); expect(plan.sql).toContain(`${q('body')}(5), ${q('id')}`)
+      expect((await apply(plan)).status).toBe('completed')
+      const compoundUnique = await prepare({ ...prefixIndex, name: prefix+'_compound_prefix', unique: true })
+      expect((await apply(compoundUnique)).status).toBe('completed')
+      const indexes = (await driver.inspectObject({ sessionId: session.id, object: await object(alterTable) })).sections.find(section => section.title === 'Indexes')!
+      const key = indexes.rows.find(row => row[indexes.columns.indexOf('Name')] === prefix+'_str_prefix' && row[indexes.columns.indexOf('Column')] === 'body')!
+      expect(key[indexes.columns.indexOf('Prefix length')]).toBe('5')
+      const uniqueKey = indexes.rows.find(row => row[indexes.columns.indexOf('Name')] === prefix+'_compound_prefix' && row[indexes.columns.indexOf('Column')] === 'body')!
+      expect(uniqueKey[indexes.columns.indexOf('Unique')]).toBe('1'); expect(uniqueKey[indexes.columns.indexOf('Prefix length')]).toBe('5')
+      await change({ action: 'drop-table', target: await object(alterTable) })
+    }
     const partial = ['postgres','sqlite','sqlserver','azure-sql'].includes(engine)
     const included = ['postgres','sqlserver','azure-sql'].includes(engine)
     const optionsPlan = await prepare({ action: 'create-index', target: await object(name), name: optionsIndex, columns: ['label'], unique: false, ...(engine === 'duckdb' ? {} : { descending: ['label'] }), ...(included ? { include: ['id'] } : {}), ...(partial ? { predicate: `${q('id')} > 0` } : {}), ...(engine === 'postgres' ? { method: 'btree' as const } : {}) })

@@ -284,6 +284,19 @@ describe('schema change plans', () => {
     expect(plan.destructive).toBe(true); expect(plan.warnings.join(' ')).toMatch(/existing zero values/)
     expect(() => schemaSql({ ...change, alteration: { ...change.alteration, mode: 'always' } }, mysql, mysqlDetail)).toThrow(/AUTO_INCREMENT identity mode/)
   })
+  it('renders bounded MySQL index prefixes only for selected keys', () => {
+    const columns: ObjectDetail = { ...detail, sections: [{ title: 'Columns', columns: ['Name'], rows: [['id'],['label']] }] }
+    const mysql = { ...session, engine: 'mysql' as const, version: '8.4.0' }
+    const change: Extract<SchemaChange,{ action: 'create-index' }> = { action: 'create-index', target, name: 'prefix_idx', columns: ['label','id'], unique: true, prefixes: [{ column: 'label', length: 5 }] }
+    const plan = schemaSql(change, mysql, columns)
+    expect(plan.commands[0]).toBe('CREATE UNIQUE INDEX `prefix_idx` ON `test`.`t` (`label`(5), `id`)')
+    expect(plan.warnings.join(' ')).toMatch(/compare only the specified prefixes/)
+    expect(() => schemaSql(change, session, columns)).toThrow(/only by MySQL and MariaDB/)
+    expect(() => schemaSql({ ...change, prefixes: [{ column: 'missing', length: 5 }] }, mysql, columns)).toThrow(/selected key/)
+    expect(() => schemaSql({ ...change, prefixes: [{ column: 'label', length: 0 }] }, mysql, columns)).toThrow(/length from 1/)
+    expect(() => schemaSql({ ...change, prefixes: [{ column: 'label', length: 5 }, { column: 'label', length: 6 }] }, mysql, columns)).toThrow()
+    expect(prepareSchemaChangeSchema.safeParse({ sessionId: session.id, change: { ...change, prefixes: [{ column: 'label', length: 1.5 }] } }).success).toBe(false)
+  })
   it('gates SQLite native NOT NULL changes by version and rejects redundant clauses', () => {
     const sqliteTarget = { ...target, schema: 'main' }
     const sqlite: ObjectDetail = { ...detail, object: sqliteTarget, sections: [{ title: 'Columns', columns: ['Name','Not null','Hidden / generated'], rows: [['id','0','0']] }], definition: { sql: 'CREATE TABLE t (id INTEGER)', source: 'native' } }
