@@ -27,7 +27,12 @@ export type SchemaColumnType = z.infer<typeof columnTypeSchema>
 const columnAlterationSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('type'), type: columnTypeSchema, using: z.string().min(1).max(4000).optional() }).strict(),
   z.object({ kind: z.literal('nullability'), nullable: z.boolean() }).strict(),
-  z.object({ kind: z.literal('default'), default: defaultSchema }).strict()
+  z.object({ kind: z.literal('default'), default: defaultSchema }).strict(),
+  z.object({ kind: z.literal('identity-add'), mode: z.enum(['always', 'by-default']) }).strict(),
+  z.object({ kind: z.literal('identity-mode'), mode: z.enum(['always', 'by-default']) }).strict(),
+  z.object({ kind: z.literal('identity-drop') }).strict(),
+  z.object({ kind: z.literal('generated-expression'), expression: z.string().min(1).max(4000) }).strict(),
+  z.object({ kind: z.literal('generated-drop') }).strict()
 ])
 export type ColumnAlteration = z.infer<typeof columnAlterationSchema>
 const referenceAction = z.enum(['no-action', 'restrict', 'cascade', 'set-null', 'set-default'])

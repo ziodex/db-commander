@@ -200,6 +200,35 @@ export function schemaSql(change: SchemaChange, session: SessionInfo, detail?: O
         if (extra == null) throw new Error('Identity or generated-column metadata is incomplete. Inspect the column before changing it.')
         identity = /auto_increment/i.test(extra); generated = /(?:virtual|stored) generated/i.test(extra)
       }
+      if (alter.kind !== 'type' && alter.kind !== 'nullability' && alter.kind !== 'default') {
+        if (engine !== 'postgres') throw new Error('This generation change requires a separately reviewed migration for this engine.')
+        const id = metadata.get('Identity'), gen = metadata.get('Generated')
+        if (!['', 'a', 'd'].includes(id ?? '?') || !['', 's', 'v'].includes(gen ?? '?')) throw new Error('Generation metadata is incomplete or unsupported. Inspect the column before changing it.')
+        if (alter.kind === 'identity-add') {
+          if (identity || generated) throw new Error('This column is already an identity or generated column.')
+          const currentDefault = metadata.get('Default / expression')
+          if (currentDefault === undefined) throw new Error('Column default metadata is incomplete. Inspect its definition and use explicit SQL.')
+          if (currentDefault) throw new Error('An identity column needs no existing default; review its removal separately.')
+          if (nullableValue(metadata.get('Nullable'))) throw new Error('An identity column must be NOT NULL; review that change separately.')
+          commands.push(`ALTER TABLE ${full} ALTER COLUMN ${col} ADD GENERATED ${alter.mode === 'always' ? 'ALWAYS' : 'BY DEFAULT'} AS IDENTITY`)
+        } else if (alter.kind === 'identity-mode') {
+          if (!identity) throw new Error('This column is not an identity column.')
+          if (id === (alter.mode === 'always' ? 'a' : 'd')) throw new Error('The column already has this identity mode.')
+          commands.push(`ALTER TABLE ${full} ALTER COLUMN ${col} SET GENERATED ${alter.mode === 'always' ? 'ALWAYS' : 'BY DEFAULT'}`)
+        } else if (alter.kind === 'identity-drop') {
+          if (!identity) throw new Error('This column is not an identity column.')
+          commands.push(`ALTER TABLE ${full} ALTER COLUMN ${col} DROP IDENTITY`)
+        } else if (alter.kind === 'generated-expression') {
+          const major = Number(/^PostgreSQL\s+(\d+)/i.exec(session.version)?.[1] ?? 0)
+          if (!generated) throw new Error('This column is not generated.')
+          if (major < 17) throw new Error('Changing a generated expression requires PostgreSQL 17 or later.')
+          commands.push(`ALTER TABLE ${full} ALTER COLUMN ${col} SET EXPRESSION AS (${schemaExpression(alter.expression, engine)})`)
+        } else if (alter.kind === 'generated-drop') {
+          if (gen !== 's') throw new Error('Only a stored generated column can drop its expression here.')
+          commands.push(`ALTER TABLE ${full} ALTER COLUMN ${col} DROP EXPRESSION`)
+        }
+        break
+      }
       if (generated) throw new Error('Generated columns need a separately reviewed expression change; this editor will not replace their definition.')
       if (alter.kind === 'default') {
         if (identity) throw new Error('Identity columns cannot have their defaults changed here.')
@@ -323,7 +352,7 @@ export function schemaSql(change: SchemaChange, session: SessionInfo, detail?: O
   const constraints = change.action === 'create-table' ? change.constraints ?? [] : change.action === 'add-constraint' || change.action === 'replace-constraint' ? [change.constraint] : []
   const cascading = constraints.some(c => c.kind === 'foreign' && [c.onDelete, c.onUpdate].some(action => ['cascade','set-null','set-default'].includes(action)))
   return { commands, begin: transactional ? begin : undefined, sql,
-    transaction: transactional ? 'transactional' as const : 'implicit-commit' as const, destructive: cascading || change.action === 'alter-column' && (change.alteration.kind === 'type' || change.alteration.kind === 'nullability') || ['drop-table','drop-column','drop-index','drop-constraint','replace-constraint'].includes(change.action),
+    transaction: transactional ? 'transactional' as const : 'implicit-commit' as const, destructive: cascading || change.action === 'alter-column' && change.alteration.kind !== 'default' || ['drop-table','drop-column','drop-index','drop-constraint','replace-constraint'].includes(change.action),
     warnings: [transactional ? 'Starts a new transaction and leaves successful changes uncommitted. Close this dialog, then Commit or Rollback in this tab. Failure or cancellation rolls back this change when the connection remains usable.' : 'DDL commits implicitly and cannot be rolled back. Existing transactions and manual-commit mode must be resolved first. An error or cancellation does not prove that the DDL was undone.',
       'DDL can lock tables and affect dependent objects. Database permissions and dependency rules still apply; no automatic CASCADE or table rebuild is added.',
       ...((change.action === 'create-table' && change.columns.some(c => c.nativeType?.kind === 'named') || change.action === 'add-column' && change.column.nativeType?.kind === 'named') ? ['User-defined types are resolved by the database when the change runs. Review their definitions and permissions separately; their definitions are not locked by this plan.'] : []),
@@ -337,6 +366,11 @@ export function schemaSql(change: SchemaChange, session: SessionInfo, detail?: O
       ...(change.action === 'alter-column' && mysql && change.alteration.kind === 'type' ? ['MySQL/MariaDB may truncate values in non-strict SQL mode and may automatically shorten affected index prefixes. Review session mode and indexes.'] : []),
       ...(change.action === 'alter-column' && change.alteration.kind === 'type' ? ['Type conversion can rewrite data, lose precision or change collation where the new type does not support it. Review conversions and dependencies before applying.'] : []),
       ...(change.action === 'alter-column' && change.alteration.kind === 'type' && mssql ? ['SQL Server can reject a type change when a default constraint or other object depends on the column. Dependencies are not removed automatically.'] : []),
+      ...(change.action === 'alter-column' && change.alteration.kind === 'identity-add' ? ['The new identity sequence starts independently of existing values. Review its starting value and uniqueness before inserting; existing rows are not changed.'] : []),
+      ...(change.action === 'alter-column' && change.alteration.kind === 'identity-drop' ? ['Dropping identity removes its sequence. Existing values remain, but future inserts must supply values or use a separately reviewed default.'] : []),
+      ...(change.action === 'alter-column' && change.alteration.kind === 'identity-mode' ? ['Changing identity mode changes whether future inserts may provide explicit values. Existing rows are not changed.'] : []),
+      ...(change.action === 'alter-column' && change.alteration.kind === 'generated-expression' ? ['The new SQL expression is evaluated by the database; stored values are rewritten and statistics are removed. Review dependencies and function effects.'] : []),
+      ...(change.action === 'alter-column' && change.alteration.kind === 'generated-drop' ? ['Existing stored values remain, but future changes will no longer recompute this column.'] : []),
       ...(change.action === 'alter-column' && change.alteration.kind === 'type' && engine === 'duckdb' ? ['DuckDB can reject a conversion because of previously deleted or updated values. No automatic cleanup or retry is performed.'] : []),
       ...(change.action === 'alter-column' && change.alteration.kind === 'type' && change.alteration.using ? ['The conversion expression is SQL evaluated by the database; review functions and side effects.'] : []),
       ...(change.action === 'alter-column' && change.alteration.kind === 'nullability' && engine === 'sqlite' ? ['SQLite validates the existing table definition and data. Implicit or redundant NOT NULL constraints require separate review.'] : []),

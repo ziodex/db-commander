@@ -140,6 +140,22 @@ for (const engine of engineSchema.options) test(`schema changes ${engine}: revie
     await expect(editor.getByRole('button', { name: 'Review SQL', exact: true })).toBeDisabled(); await expect(editor.getByRole('alert')).toContainText('Commit or roll back')
     await editor.getByRole('button', { name: 'Close schema changes', exact: true }).click()
     await page.getByRole('button', { name: 'Rollback', exact: true }).click(); await expect(page.locator('.status-text')).toHaveText('Completed')
+    if (engine === 'postgres') {
+      await tableAction(page, `${name}`, 'Alter table')
+      await editor.getByLabel('Schema operation').selectOption('alter-column'); await editor.getByLabel('Existing column').selectOption('computed_value')
+      await editor.getByLabel('Column change').selectOption('generated-expression'); await editor.getByLabel('New generated expression').fill(`${q('id')} + 2`)
+      await review(); await expect(editor.getByLabel('Schema SQL preview')).toHaveValue(/SET EXPRESSION AS/)
+      await editor.getByLabel('New generated expression').fill(`${q('id')} + 3`); await expect(editor.getByLabel('Schema SQL preview')).toHaveCount(0)
+      await review(); await approve(); await expect(editor.getByRole('button', { name: 'Apply reviewed SQL', exact: true })).toBeDisabled()
+      await editor.getByLabel('I understand this can remove data or database safeguards.', { exact: true }).check()
+      await page.screenshot({ path: testInfo.outputPath('postgres-generated-alter-review.png') })
+      await apply(); await settle()
+      await tableAction(page, `${name}`, 'Alter table')
+      await editor.getByLabel('Schema operation').selectOption('alter-column'); await editor.getByLabel('Existing column').selectOption('id')
+      await editor.getByLabel('Column change').selectOption('identity-mode'); await editor.getByLabel('New identity mode').selectOption('always')
+      await review(); await expect(editor.getByLabel('Schema SQL preview')).toHaveValue(/SET GENERATED ALWAYS/); await approve()
+      await editor.getByLabel('I understand this can remove data or database safeguards.', { exact: true }).check(); await apply(); await settle()
+    }
     await tableAction(page, `${name}`, 'Alter table')
     await editor.getByLabel('Column 1 name').fill('new_value'); await editor.getByLabel('Column 1 nullable').check()
     if (engine === 'sqlite') {

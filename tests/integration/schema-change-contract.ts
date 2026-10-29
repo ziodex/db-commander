@@ -283,7 +283,33 @@ export async function verifySchemaChanges(config: ConnectionConfig) {
     await run(`UPDATE ${full(generatedName)} SET ${q('quantity')}=5`)
     if (engine === 'oracle') await run('COMMIT')
     expect((await run(`SELECT ${q('calculated')} FROM ${full(generatedName)}`)).rows).toEqual([['6']])
+    if (engine === 'postgres') {
+      const generated = async (alteration: Extract<SchemaChange,{ action: 'alter-column' }>['alteration']) => change({ action: 'alter-column', target: await object(generatedName), column: 'calculated', alteration })
+      await generated({ kind: 'generated-expression', expression: `${q('quantity')} + 10` })
+      expect((await run(`SELECT ${q('calculated')} FROM ${full(generatedName)}`)).rows).toEqual([['15']])
+      await generated({ kind: 'generated-drop' })
+      await run(`UPDATE ${full(generatedName)} SET ${q('quantity')}=7`)
+      expect((await run(`SELECT ${q('calculated')} FROM ${full(generatedName)}`)).rows).toEqual([['15']])
+    }
     await change({ action: 'drop-table', target: await object(generatedName) })
+    if (engine === 'postgres') {
+      await change({ action: 'create-table', location, name: alterTable, columns: [{ ...column('id', false), primaryKey: true }] })
+      await run(`INSERT INTO ${full(alterTable)} (${q('id')}) VALUES (42)`)
+      const identity = async (alteration: Extract<SchemaChange,{ action: 'alter-column' }>['alteration']) => change({ action: 'alter-column', target: await object(alterTable), column: 'id', alteration })
+      const add = await prepare({ action: 'alter-column', target: await object(alterTable), column: 'id', alteration: { kind: 'identity-add', mode: 'by-default' } })
+      expect(add.destructive).toBe(true); expect(add.warnings.join(' ')).toMatch(/independently of existing values/)
+      await expect(apply(add, { destructiveApproved: false })).rejects.toThrow(/destructive/)
+      expect((await apply(add)).status).toBe('completed'); await run('COMMIT')
+      await run(`INSERT INTO ${full(alterTable)} DEFAULT VALUES`)
+      expect((await run(`SELECT ${q('id')} FROM ${full(alterTable)} ORDER BY ${q('id')}`)).rows).toEqual([['1'],['42']])
+      await identity({ kind: 'identity-mode', mode: 'always' })
+      const rejected = driver.start({ sessionId: session.id, sql: `INSERT INTO ${full(alterTable)} (${q('id')}) VALUES (99)`, maxRows: 100 }); await driver.wait(session.id)
+      expect(events.find(event => event.type === 'complete' && event.queryId === rejected)).toMatchObject({ status: 'failed' })
+      await identity({ kind: 'identity-drop' })
+      await run(`INSERT INTO ${full(alterTable)} (${q('id')}) VALUES (99)`)
+      expect((await run(`SELECT ${q('id')} FROM ${full(alterTable)} ORDER BY ${q('id')}`)).rows).toEqual([['1'],['42'],['99']])
+      await change({ action: 'drop-table', target: await object(alterTable) })
+    }
     if (['postgres','mysql','sqlserver','azure-sql','oracle'].includes(engine)) {
       const generatedKey = { ...computed('calculated_key', 1), nullable: false, primaryKey: true }
       await change({ action: 'create-table', location, name: generatedKeyName, columns: [column('quantity', false), generatedKey] })
