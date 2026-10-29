@@ -62,6 +62,7 @@ export class SchemaChanges {
     if (!plan || plan.review.sessionId !== session.id || plan.review.database !== session.database || Date.parse(plan.review.expiresAt) <= Date.now()) throw new Error('This review expired or belongs to another session. Review the SQL again.')
     if (plan.review.destructive && !request.destructiveApproved) throw new Error('Acknowledge the destructive change before applying it.')
     if (plan.review.transaction === 'implicit-commit' && !request.implicitCommitApproved) throw new Error('Acknowledge the implicit commit before applying this change.')
+    if (plan.review.transaction === 'nontransactional' && !request.nontransactionalApproved) throw new Error('Acknowledge the nontransactional operation before applying this change.')
     this.plans.delete(request.planId) // A consumed plan is never replayed, including after failure.
     const controller = new AbortController(), started = performance.now(), executed: string[] = []
     this.controllers.set(session.id, controller)
@@ -94,7 +95,8 @@ export class SchemaChanges {
         if (driver.getSession(session.id).transaction !== 'transaction') return response('unknown', 'The transaction ended unexpectedly. Inspect the database before retrying; nothing will be replayed.')
         return response('completed', 'Schema change applied in this tab’s transaction. Close this dialog, then Commit or Rollback. Other connections see it after commit.')
       }
-      return response('completed', 'Schema change completed and committed by the database. It cannot be rolled back.')
+      if (plan.review.transaction === 'nontransactional' && driver.getSession(session.id).transaction !== 'idle') return response('unknown', 'The connection did not return to idle after concurrent index creation. Inspect the index and connection before retrying; nothing will be replayed.')
+      return response('completed', plan.review.transaction === 'nontransactional' ? 'Concurrent index creation completed outside a transaction. It cannot be rolled back.' : 'Schema change completed and committed by the database. It cannot be rolled back.')
     } catch (error) {
       const failure = error as Error & { status?: string }, cancelled = controller.signal.aborted || failure.status === 'cancelled'
       let unknown = failure.status === 'unknown'
@@ -110,8 +112,9 @@ export class SchemaChanges {
         } catch { unknown = true }
       }
       if (!dispatched) return response(cancelled ? 'cancelled' : 'failed', `${failure.message} No schema SQL was executed.`)
-      if (unknown || !plan.generated.begin && cancelled) return response('unknown', `${failure.message} The outcome is unknown. Reconnect if needed and inspect the target before retrying; nothing will be replayed.`)
-      return response(cancelled ? 'cancelled' : 'failed', `${failure.message}${plan.generated.begin ? '' : ' DDL can commit implicitly even on error. Inspect the target before retrying.'}`)
+      const concurrentNotice = plan.review.transaction === 'nontransactional' ? ' A failed or cancelled concurrent build can leave an invalid index; inspect it before any retry.' : ''
+      if (unknown || !plan.generated.begin && cancelled) return response('unknown', `${failure.message} The outcome is unknown. Reconnect if needed and inspect the target before retrying; nothing will be replayed.${concurrentNotice}`)
+      return response(cancelled ? 'cancelled' : 'failed', `${failure.message}${plan.generated.begin ? '' : plan.review.transaction === 'nontransactional' ? concurrentNotice : ' DDL can commit implicitly even on error. Inspect the target before retrying.'}`)
     } finally { this.controllers.delete(session.id) }
   }
 }

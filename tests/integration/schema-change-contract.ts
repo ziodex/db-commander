@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { expect } from 'vitest'
+import { expect, vi } from 'vitest'
 import { DriverRegistry } from '../../src/driver/registry'
 import { quoteIdentifier } from '../../src/shared/sql/common'
 import type { ConnectionConfig, DatabaseEvent } from '../../src/shared/contracts'
@@ -250,6 +250,18 @@ export async function verifySchemaChanges(config: ConnectionConfig) {
         expect((await run(orderSql)).rows[0][0]).toMatch(engine === 'mysql' ? /^D$/ : /DESC/i)
       }
       await change({ action: 'drop-index', target: await object(mixed, 'index') })
+      if (engine === 'postgres') {
+        const concurrentName = prefix+'_concurrent', concurrent = await prepare({ ...expressionOnly, name: concurrentName, concurrent: true })
+        expect(concurrent.transaction).toBe('nontransactional'); expect(concurrent.sql).toMatch(/^CREATE INDEX CONCURRENTLY/); expect(concurrent.sql).not.toMatch(/^BEGIN/)
+        const migration = { sourceId: concurrent.migrationSourceId!, name: 'concurrent', selected: ['change'], includeDestructive: false, transaction: 'caller' as const }
+        expect(() => driver.prepareMigration({ ...migration, transaction: 'transaction' })).toThrow(/outside a transaction/)
+        expect(driver.prepareMigration(migration).sql).not.toMatch(/^BEGIN|^COMMIT/m)
+        await expect(apply(concurrent)).rejects.toThrow(/nontransactional/)
+        const completed = await apply(concurrent, { nontransactionalApproved: true })
+        expect(completed.status, completed.message).toBe('completed'); expect(completed.session.transaction).toBe('idle'); expect(completed.executedSql).not.toMatch(/^BEGIN/)
+        expect((await run(`SELECT i.indisvalid FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE c.relname='${concurrentName}'`)).rows).toEqual([['t']])
+        await change({ action: 'drop-index', target: await object(concurrentName, 'index') })
+      }
       await run(`CREATE TABLE ${full(alterTable)} (${q('id')} INTEGER, ${q('value')} ${engine === 'oracle' ? 'VARCHAR2(40)' : 'VARCHAR(40)'})`)
       await run(`INSERT INTO ${full(alterTable)} (${q('id')},${q('value')}) VALUES (1,'Alice')`)
       await run(`INSERT INTO ${full(alterTable)} (${q('id')},${q('value')}) VALUES (2,'alice')`); if (engine === 'oracle') await run('COMMIT')
@@ -257,6 +269,15 @@ export async function verifySchemaChanges(config: ConnectionConfig) {
       const rejectedExpression = await apply(uniqueExpression)
       expect(['failed','unknown']).toContain(rejectedExpression.status); expect(rejectedExpression.message).toMatch(/unique|duplicate/i)
       expect((await run(`SELECT ${q('value')} FROM ${full(alterTable)} ORDER BY ${q('id')}`)).rows).toEqual([['Alice'],['alice']])
+      if (engine === 'postgres') {
+        const failedName = prefix+'_failed_concurrent', failedPlan = await prepare({ ...expressionOnly, target: await object(alterTable), name: failedName, expressions: [{ expression: `lower(${q('value')})`, after: null, descending: false }], unique: true, concurrent: true })
+        const failed = await apply(failedPlan, { nontransactionalApproved: true })
+        expect(failed.status).toBe('failed'); expect(failed.message).toMatch(/invalid index/)
+        expect((await run(`SELECT i.indisvalid FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE c.relname='${failedName}'`)).rows).toEqual([['f']])
+        expect((await run(`SELECT ${q('value')} FROM ${full(alterTable)} ORDER BY ${q('id')}`)).rows).toEqual([['Alice'],['alice']])
+        await expect(apply(failedPlan, { nontransactionalApproved: true })).rejects.toThrow(/expired/)
+        await change({ action: 'drop-index', target: await object(failedName, 'index') })
+      }
       await change({ action: 'drop-table', target: await object(alterTable) })
     }
     if (['postgres','sqlserver','azure-sql'].includes(engine)) {
@@ -684,6 +705,24 @@ export async function verifySchemaChanges(config: ConnectionConfig) {
         const cancelled = await pending
         expect(cancelled.status, cancelled.message).toBe('cancelled'); expect(cancelled.session.transaction).toBe('idle'); expect(cancelled.executedSql).toContain('ALTER TABLE')
       } finally { await run('ROLLBACK', other.id) }
+      const concurrentName = prefix+'_cancelled_concurrent', concurrentPlan = await prepare({ action: 'create-index', target: await object(name), name: concurrentName, columns: ['id'], unique: false, concurrent: true }), secondId = other.id
+      await run(`BEGIN; LOCK TABLE ${full(name)} IN SHARE MODE`, secondId)
+      const concurrentPending = apply(concurrentPlan, { nontransactionalApproved: true })
+      try {
+        await vi.waitFor(async () => {
+          await run('SELECT pg_stat_clear_snapshot()', secondId)
+          const waiting = await run(`SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND query LIKE '%${concurrentName}%' AND wait_event_type='Lock'`, secondId)
+          expect(waiting.rows).toEqual([['1']])
+        }, { timeout: 10000, interval: 100 })
+        expect(driver.cancelSchemaChange(session.id).requested).toBe(true)
+        const cancelled = await concurrentPending
+        expect(cancelled.status, cancelled.message).toBe('unknown'); expect(cancelled.message).toMatch(/invalid index/); expect(cancelled.executedSql).toContain('CREATE INDEX CONCURRENTLY')
+      } finally { await run('ROLLBACK', secondId) }
+      const remaining = (await driver.schema(session.id)).catalog?.objects.find(o => o.name === concurrentName && o.kind === 'index')
+      if (remaining) {
+        expect((await run(`SELECT i.indisvalid FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE c.relname='${concurrentName}'`)).rows).toEqual([['f']])
+        await change({ action: 'drop-index', target: remaining })
+      }
       const restricted = await driver.connect({ ...config, user: 'browser_user', password: 'local-test-only' })
       const denied = await driver.prepareSchemaChange({ sessionId: restricted.id, change: { ...create, name: prefix+'_denied' } })
       const failed = await driver.applySchemaChange({ sessionId: restricted.id, planId: denied.id, confirmed: true, implicitCommitApproved: false, destructiveApproved: false })

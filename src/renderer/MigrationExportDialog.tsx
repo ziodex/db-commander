@@ -3,8 +3,8 @@ import type { DatabaseEngine } from '../shared/contracts'
 import type { MigrationPreview } from '../shared/migrations'
 import { transactionalDdl } from '../shared/schema-changes'
 
-export function MigrationExportDialog({ sourceId, engine, selected, includeDestructive, onClose }: {
-  sourceId: string; engine: DatabaseEngine; selected: string[]; includeDestructive: boolean; onClose(): void
+export function MigrationExportDialog({ sourceId, engine, selected, includeDestructive, requiresAutocommit = false, onClose }: {
+  sourceId: string; engine: DatabaseEngine; selected: string[]; includeDestructive: boolean; requiresAutocommit?: boolean; onClose(): void
 }) {
   const dialog = useRef<HTMLDialogElement>(null), pending = useRef(false)
   const [name, setName] = useState('schema_change'), [transaction, setTransaction] = useState<'caller'|'transaction'>('caller')
@@ -31,8 +31,9 @@ export function MigrationExportDialog({ sourceId, engine, selected, includeDestr
       <label>Migration name<input aria-label="Migration name" maxLength={80} value={name} onChange={e => { invalidate(); setName(e.target.value) }}/></label>
       <label>Transaction handling<select aria-label="Migration transaction handling" value={transaction} onChange={e => { invalidate(); setTransaction(e.target.value as typeof transaction) }}>
         <option value="caller">Managed by the runner — no transaction commands</option>
-        {transactionalDdl(engine) && <option value="transaction">Include BEGIN and COMMIT</option>}
+        {transactionalDdl(engine) && !requiresAutocommit && <option value="transaction">Include BEGIN and COMMIT</option>}
       </select></label>
+      {requiresAutocommit && <p>This change requires an idle autocommit connection and cannot be wrapped in a transaction.</p>}
       {!transactionalDdl(engine) && <p>DDL on this engine commits implicitly and can partially succeed.</p>}
       <button disabled={!name.trim()} onClick={() => void prepare()}>Prepare migration preview</button>
     </fieldset>

@@ -389,6 +389,7 @@ export function schemaSql(change: SchemaChange, session: SessionInfo, detail?: O
     case 'drop-table': commands.push(`DROP TABLE ${full}`); break
     case 'create-index': {
       const descending = change.descending ?? [], include = change.include ?? [], prefixes = change.prefixes ?? [], expressions = change.expressions ?? []
+      if (change.concurrent && engine !== 'postgres') throw new Error('Concurrent index creation is supported here only for PostgreSQL.')
       unique(change.columns); unique(descending); unique(include); unique(prefixes.map(prefix => prefix.column))
       if (change.columns.length + expressions.length < 1 || change.columns.length + expressions.length > 16) throw new Error('Select between one and sixteen index keys.')
       change.columns.forEach(requireColumn); include.forEach(requireColumn)
@@ -423,20 +424,20 @@ export function schemaSql(change: SchemaChange, session: SessionInfo, detail?: O
       const prefixLengths = new Map(prefixes.map(prefix => [prefix.column, prefix.length]))
       const expressionKeys = (after: string | null) => expressions.filter(key => key.after === after).map(key => `(${schemaExpression(key.expression, engine)})${key.descending ? ' DESC' : ''}`)
       const keys = [...expressionKeys(null), ...change.columns.flatMap(name => [`${q(name)}${prefixLengths.has(name) ? `(${prefixLengths.get(name)})` : ''}${descending.includes(name) ? ' DESC' : ''}`, ...expressionKeys(name)])].join(', ')
-      commands.push(`CREATE ${change.unique ? 'UNIQUE ' : ''}INDEX ${engine === 'sqlite' || engine === 'oracle' ? qualified(change.name) : q(change.name)} ON ${engine === 'sqlite' ? q(target!.name) : full}${change.method ? ` USING ${change.method.toUpperCase()}` : ''} (${keys})${include.length ? ` INCLUDE (${include.map(q).join(', ')})` : ''}${change.predicate ? ` WHERE ${schemaExpression(change.predicate, engine)}` : ''}`); break
+      commands.push(`CREATE ${change.unique ? 'UNIQUE ' : ''}INDEX ${change.concurrent ? 'CONCURRENTLY ' : ''}${engine === 'sqlite' || engine === 'oracle' ? qualified(change.name) : q(change.name)} ON ${engine === 'sqlite' ? q(target!.name) : full}${change.method ? ` USING ${change.method.toUpperCase()}` : ''} (${keys})${include.length ? ` INCLUDE (${include.map(q).join(', ')})` : ''}${change.predicate ? ` WHERE ${schemaExpression(change.predicate, engine)}` : ''}`); break
     }
     case 'drop-index':
       if (!detail?.definition.sql) throw new Error('This index has no standalone definition. Inspect its parent constraint instead.')
       commands.push(mysql || mssql ? `DROP INDEX ${q(target!.name)} ON ${qualified(target!.parent!)}` : `DROP INDEX ${full}`); break
   }
-  const transactional = transactionalDdl(engine), begin = mssql ? 'BEGIN TRANSACTION' : engine === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN'
+  const concurrent = change.action === 'create-index' && Boolean(change.concurrent), transactional = transactionalDdl(engine) && !concurrent, begin = mssql ? 'BEGIN TRANSACTION' : engine === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN'
   const sql = [...(transactional ? [begin] : []), ...commands].map(sql => sql + ';').join('\n\n')
   if (sql.length > 1_000_000) throw new Error('The generated SQL exceeds the one-million-character limit. Use fewer or shorter column defaults.')
   const constraints = change.action === 'create-table' ? change.constraints ?? [] : change.action === 'add-constraint' || change.action === 'replace-constraint' ? [change.constraint] : []
   const cascading = constraints.some(c => c.kind === 'foreign' && [c.onDelete, c.onUpdate].some(action => ['cascade','set-null','set-default'].includes(action)))
   return { commands, begin: transactional ? begin : undefined, sql,
-    transaction: transactional ? 'transactional' as const : 'implicit-commit' as const, destructive: cascading || change.action === 'alter-column' && change.alteration.kind !== 'default' || ['drop-table','drop-column','drop-index','drop-constraint','replace-constraint'].includes(change.action),
-    warnings: [transactional ? 'Starts a new transaction and leaves successful changes uncommitted. Close this dialog, then Commit or Rollback in this tab. Failure or cancellation rolls back this change when the connection remains usable.' : 'DDL commits implicitly and cannot be rolled back. Existing transactions and manual-commit mode must be resolved first. An error or cancellation does not prove that the DDL was undone.',
+    transaction: transactional ? 'transactional' as const : concurrent ? 'nontransactional' as const : 'implicit-commit' as const, destructive: cascading || change.action === 'alter-column' && change.alteration.kind !== 'default' || ['drop-table','drop-column','drop-index','drop-constraint','replace-constraint'].includes(change.action),
+    warnings: [transactional ? 'Starts a new transaction and leaves successful changes uncommitted. Close this dialog, then Commit or Rollback in this tab. Failure or cancellation rolls back this change when the connection remains usable.' : concurrent ? 'Runs outside a transaction on an idle connection; it cannot be rolled back. Failure or cancellation can leave an invalid index that must be inspected.' : 'DDL commits implicitly and cannot be rolled back. Existing transactions and manual-commit mode must be resolved first. An error or cancellation does not prove that the DDL was undone.',
       'DDL can lock tables and affect dependent objects. Database permissions and dependency rules still apply; no automatic CASCADE or table rebuild is added.',
       ...((change.action === 'create-table' && change.columns.some(c => c.nativeType?.kind === 'named') || change.action === 'add-column' && change.column.nativeType?.kind === 'named') ? ['User-defined types are resolved by the database when the change runs. Review their definitions and permissions separately; their definitions are not locked by this plan.'] : []),
       ...((change.action === 'create-table' && change.columns.some(c => c.default.kind === 'expression') || change.action === 'add-column' && change.column.default.kind === 'expression' || change.action === 'alter-column' && change.alteration.kind === 'default' && change.alteration.default.kind === 'expression') ? ['Default expressions are SQL evaluated by the database and can call functions. Review their behavior and side effects before applying.'] : []),
@@ -472,6 +473,8 @@ export function schemaSql(change: SchemaChange, session: SessionInfo, detail?: O
       ...(change.action === 'create-index' && change.prefixes?.length ? ['Prefix lengths use characters for nonbinary text and bytes for binary data; limits depend on character set and storage engine. In a unique index, prefix keys compare only the specified prefixes alongside any other keys.'] : []),
       ...(change.action === 'create-index' && change.expressions?.length ? ['Index expressions are evaluated by the database during index creation and later writes. Review functions, determinism, dependencies and their effects; function definitions are not locked by this plan.'] : []),
       ...(change.action === 'create-index' && engine === 'mysql' && change.expressions?.length ? ['MySQL implements functional keys using hidden generated columns; engine and expression restrictions apply.'] : []),
+      ...(concurrent ? ['A failed concurrent build can leave an invalid index. A unique build can begin enforcing uniqueness before completion, and an invalid unique index may continue enforcing it. Inspect and remove or repair it explicitly.'] : []),
+      ...(concurrent ? ['PostgreSQL restricts concurrent builds on partitioned tables and permits only one concurrent index build per table at a time.'] : []),
       ...(change.action === 'create-index' && change.predicate ? ['The index predicate is SQL evaluated by the database. Review its scope, dependencies and function effects before applying.'] : []),
       ...(['rename-table','rename-column'].includes(change.action) ? ['Renaming may leave views, routines or application SQL referring to the old name. Review dependencies separately.'] : []),
       ...(['drop-table','drop-column'].includes(change.action) ? ['This removes data. Related objects or data can also be affected according to the engine’s dependency and foreign-key rules.'] : []),

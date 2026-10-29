@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeAll, expect, it, vi } from 'vitest'
 import { SchemaChangeDialog } from '../../src/renderer/SchemaChangeDialog'
+import { MigrationExportDialog } from '../../src/renderer/MigrationExportDialog'
 import type { SessionInfo, SchemaSnapshot } from '../../src/shared/contracts'
 import type { SchemaChange, SchemaChangePlan } from '../../src/shared/schema-changes'
 
@@ -39,4 +40,26 @@ it('keeps expression positions explicit, invalidates review, and handles removed
   fireEvent.click(screen.getByRole('button', { name: 'Review SQL' }))
   await waitFor(() => expect(onPrepare).toHaveBeenCalledTimes(2))
   expect(onPrepare.mock.calls[1][0]).toMatchObject({ columns: ['label'], expressions: [{ expression: 'lower(label)', after: null }, { expression: 'id + 1', after: null }] })
+})
+
+it('requires specific consent before applying a concurrent index', async () => {
+  const concurrentPlan: SchemaChangePlan = { ...plan, transaction: 'nontransactional', sql: 'CREATE INDEX CONCURRENTLY idx ON t(id);' }
+  const onPrepare = vi.fn(async (_change: SchemaChange) => concurrentPlan)
+  const onApply = vi.fn(async () => ({ status: 'completed' as const, message: 'Created outside a transaction.', session, executedSql: concurrentPlan.sql, durationMs: 1 }))
+  render(<SchemaChangeDialog session={session} snapshot={snapshot} initialTarget={table} onClose={vi.fn()} onPrepare={onPrepare} onApply={onApply}/>)
+  fireEvent.change(screen.getByLabelText('Schema operation'), { target: { value: 'create-index' } })
+  fireEvent.change(screen.getByLabelText('New object name'), { target: { value: 'idx' } })
+  fireEvent.click(screen.getByLabelText('Index column id')); fireEvent.click(screen.getByLabelText('Create concurrently'))
+  fireEvent.click(screen.getByRole('button', { name: 'Review SQL' })); await screen.findByLabelText('Schema SQL preview')
+  expect(onPrepare.mock.calls[0][0]).toMatchObject({ concurrent: true })
+  fireEvent.click(screen.getByLabelText('I reviewed this SQL and its target.'))
+  expect((screen.getByRole('button', { name: 'Apply reviewed SQL' }) as HTMLButtonElement).disabled).toBe(true)
+  fireEvent.click(screen.getByLabelText('I understand this runs outside a transaction and can leave an invalid index.'))
+  fireEvent.click(screen.getByRole('button', { name: 'Apply reviewed SQL' }))
+  await waitFor(() => expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ nontransactionalApproved: true })))
+})
+it('does not offer a transaction wrapper when exporting a concurrent index', () => {
+  render(<MigrationExportDialog sourceId={plan.id} engine="postgres" selected={['change']} includeDestructive={false} requiresAutocommit onClose={vi.fn()}/>)
+  expect(screen.queryByRole('option', { name: 'Include BEGIN and COMMIT' })).toBeNull()
+  expect(screen.getByText(/requires an idle autocommit connection/)).toBeTruthy()
 })

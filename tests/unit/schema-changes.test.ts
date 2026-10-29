@@ -315,6 +315,24 @@ describe('schema change plans', () => {
     expect(prepareSchemaChangeSchema.safeParse({ sessionId: session.id, change: expressionOnly }).success).toBe(true)
     expect(schemaSql(expressionOnly, pg, columns).commands[0]).toContain('((lower(label)))')
   })
+  it('requires separate consent for one-use concurrent indexes and reports failure or cancellation', async () => {
+    const s = { ...session, version: 'PostgreSQL 17.0' }, driver = catalogSession(s), manager = new SchemaChanges()
+    const change: SchemaChange = { action: 'create-index', target, name: 'ix', columns: ['id'], unique: true, concurrent: true }
+    const review = await manager.prepare({ sessionId: s.id, change }, driver)
+    expect(review.transaction).toBe('nontransactional'); expect(review.sql).toBe('CREATE UNIQUE INDEX CONCURRENTLY "ix" ON "test"."t" ("id");')
+    expect(review.warnings.join(' ')).toMatch(/invalid unique index may continue enforcing/)
+    const input = { sessionId: s.id, planId: review.id, confirmed: true as const, implicitCommitApproved: false, destructiveApproved: false }
+    const executed: string[] = []
+    await expect(manager.apply(input, driver, async () => ({ status: 'completed' } as Completion))).rejects.toThrow(/nontransactional/)
+    const result = await manager.apply({ ...input, nontransactionalApproved: true }, driver, async sql => { executed.push(sql); return { status: 'failed', error: 'duplicate' } as Completion })
+    expect(executed).toEqual(['CREATE UNIQUE INDEX CONCURRENTLY "ix" ON "test"."t" ("id")'])
+    expect(result.status).toBe('failed'); expect(result.message).toMatch(/invalid index/)
+    await expect(manager.apply({ ...input, nontransactionalApproved: true }, driver, async () => ({ status: 'completed' } as Completion))).rejects.toThrow(/expired/)
+    const cancelled = await manager.prepare({ sessionId: s.id, change }, driver)
+    const result2 = await manager.apply({ ...input, planId: cancelled.id, nontransactionalApproved: true }, driver, async () => { manager.cancel(s.id); return { status: 'cancelled', error: 'cancelled' } as Completion })
+    expect(result2.status).toBe('unknown'); expect(result2.message).toMatch(/invalid index/)
+    expect(() => schemaSql(change, { ...s, engine: 'mysql' }, detail)).toThrow(/only for PostgreSQL/)
+  })
   it('gates SQLite native NOT NULL changes by version and rejects redundant clauses', () => {
     const sqliteTarget = { ...target, schema: 'main' }
     const sqlite: ObjectDetail = { ...detail, object: sqliteTarget, sections: [{ title: 'Columns', columns: ['Name','Not null','Hidden / generated'], rows: [['id','0','0']] }], definition: { sql: 'CREATE TABLE t (id INTEGER)', source: 'native' } }
