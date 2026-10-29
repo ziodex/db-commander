@@ -63,6 +63,10 @@ export function oracleCatalog(query: CatalogQuery, definitionQuery?: CatalogQuer
         }
         if (o.kind === 'index') sections.push(section('Index columns', ['Table','Column','Position','Order'], await query('SELECT table_name,column_name,column_position,descend FROM user_ind_columns WHERE USER=:1 AND index_name=:2 ORDER BY column_position FETCH FIRST 501 ROWS ONLY', [o.schema,o.name])))
         if (['function','procedure','package'].includes(o.kind)) sections.push(section('Arguments', ['Routine','Overload','Argument','Mode','Type','Position'], await query('SELECT object_name,overload,argument_name,in_out,data_type,position FROM user_arguments WHERE USER=:1 AND NVL(package_name,object_name)=:2 ORDER BY subprogram_id,sequence FETCH FIRST 501 ROWS ONLY', [o.schema,o.name])))
+        if (['view','function','procedure','trigger'].includes(o.kind)) {
+          sections.push(section('Compilation status', ['Status'], await query('SELECT status FROM user_objects WHERE USER=:1 AND object_id=TO_NUMBER(:2)', [o.schema,o.identity])))
+          sections.push(section('Compilation diagnostics', ['Line','Position','Message','Kind'], await query('SELECT line,position,text,attribute FROM user_errors WHERE USER=:1 AND name=:2 AND type=:3 ORDER BY sequence FETCH FIRST 501 ROWS ONLY', [o.schema,o.name,o.kind.toUpperCase()])))
+        }
         if (o.kind === 'sequence') sections.push(section('Sequence', ['Minimum','Maximum','Increment','Cycle','Cache'], await query('SELECT min_value,max_value,increment_by,cycle_flag,cache_size FROM user_sequences WHERE USER=:1 AND sequence_name=:2', [o.schema,o.name])))
         try {
           if (o.kind === 'materialized view') {

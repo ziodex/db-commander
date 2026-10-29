@@ -55,7 +55,8 @@ const schemaChangeSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('rename-table'), target: catalogObjectSchema, name }).strict(),
   z.object({ action: z.literal('drop-table'), target: catalogObjectSchema }).strict(),
   z.object({ action: z.literal('create-index'), target: catalogObjectSchema, name, columns: z.array(name).max(16), unique: z.boolean(), concurrent: z.boolean().optional(), descending: z.array(name).max(16).optional(), prefixes: z.array(z.object({ column: name, length: z.number().int().min(1).max(65535) }).strict()).max(16).optional(), expressions: z.array(z.object({ expression: z.string().min(1).max(4000), after: name.nullable(), descending: z.boolean() }).strict()).max(16).optional(), include: z.array(name).max(16).optional(), predicate: z.string().min(1).max(4000).optional(), method: z.enum(['btree', 'hash', 'gist', 'gin', 'brin']).optional() }).strict(),
-  z.object({ action: z.literal('drop-index'), target: catalogObjectSchema }).strict()
+  z.object({ action: z.literal('drop-index'), target: catalogObjectSchema }).strict(),
+  z.object({ action: z.literal('edit-source'), target: catalogObjectSchema, baseDefinition: z.string().min(1).max(1000000), sql: z.string().trim().min(1).max(1000000) }).strict()
 ]).superRefine((change, context) => {
   if (change.action === 'create-index' && (change.columns.length + (change.expressions?.length ?? 0) < 1 || change.columns.length + (change.expressions?.length ?? 0) > 16)) context.addIssue({ code: 'custom', message: 'Select between one and sixteen index keys.' })
 })
@@ -78,7 +79,7 @@ export const schemaActions: Record<SchemaChange['action'], string> = {
   'create-schema': 'Create schema', 'create-table': 'Create table', 'add-column': 'Add column', 'alter-column': 'Alter column',
   'add-constraint': 'Add constraint', 'drop-constraint': 'Drop constraint', 'replace-constraint': 'Replace constraint',
   'rename-column': 'Rename column', 'drop-column': 'Drop column', 'rename-table': 'Rename table',
-  'drop-table': 'Drop table', 'create-index': 'Create index', 'drop-index': 'Drop index'
+  'drop-table': 'Drop table', 'create-index': 'Create index', 'drop-index': 'Drop index', 'edit-source': 'Edit object source'
 }
 export function transactionalDdl(engine: DatabaseEngine) { return !['mysql', 'mariadb', 'oracle'].includes(engine) }
 export function supportsCreateSchema(engine: DatabaseEngine) { return ['postgres', 'sqlserver', 'azure-sql', 'duckdb'].includes(engine) }

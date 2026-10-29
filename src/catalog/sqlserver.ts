@@ -40,7 +40,10 @@ export function sqlServerCatalog(query: CatalogQuery): CatalogAdapter {
         const r = rows[0]
         return { sections, definition: definition(r && `CREATE SEQUENCE ${q(o.schema)}.${q(o.name)} AS ${r[1]} START WITH ${r[2]} INCREMENT BY ${r[5]} MINVALUE ${r[3]} MAXVALUE ${r[4]} ${r[6] === '1' ? 'CYCLE' : 'NO CYCLE'} ${r[7] === '1' ? `CACHE ${r[8] ?? ''}` : 'NO CACHE'};`, 'generated', 'Configuration only; reading does not advance the sequence. Current value and grants are omitted.') }
       }
-      if (['function','procedure'].includes(o.kind)) sections.push(section('Parameters', ['Name','Type','Length','Output','Position'], await query('SELECT TOP (501) name,TYPE_NAME(user_type_id),max_length,is_output,parameter_id FROM sys.parameters WHERE object_id=CONVERT(int,@p1) ORDER BY parameter_id', [o.identity])))
+      if (['function','procedure'].includes(o.kind)) {
+        sections.push(section('Routine', ['Kind','Description'], await query('SELECT type,type_desc FROM sys.objects WHERE object_id=CONVERT(int,@p1)', [o.identity])))
+        sections.push(section('Parameters', ['Name','Type','Length','Output','Position'], await query('SELECT TOP (501) name,TYPE_NAME(user_type_id),max_length,is_output,parameter_id FROM sys.parameters WHERE object_id=CONVERT(int,@p1) ORDER BY parameter_id', [o.identity])))
+      }
       if (o.kind === 'constraint') {
         const prefix = `ALTER TABLE ${q(o.schema)}.${q(table)} ADD CONSTRAINT ${q(o.name)} `
         const key = await query('SELECT TOP (501) k.type,i.type_desc,c.name,ic.is_descending_key FROM sys.key_constraints k JOIN sys.indexes i ON i.object_id=k.parent_object_id AND i.index_id=k.unique_index_id JOIN sys.index_columns ic ON ic.object_id=i.object_id AND ic.index_id=i.index_id JOIN sys.columns c ON c.object_id=ic.object_id AND c.column_id=ic.column_id WHERE k.object_id=CONVERT(int,@p1) AND ic.key_ordinal>0 ORDER BY ic.key_ordinal', [o.identity])
