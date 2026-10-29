@@ -7,12 +7,14 @@ import { nativeIdentityCompatible, nativeTypeSql } from './native-types'
 import { sqlServerCurrentType } from './sqlserver-column'
 import { mysqlModifiedColumn } from './mysql-column'
 import { sqliteExplicitNotNullCount } from './sqlite-column'
+import { objectSourceSql } from './object-source'
 
 function columnNames(detail?: ObjectDetail): string[] {
   const section = detail?.sections.find(section => section.title === 'Columns'), position = section?.columns.indexOf('Name') ?? -1
   return position < 0 ? [] : section!.rows.map(row => row[position]!).filter(Boolean)
 }
 export function schemaSql(change: SchemaChange, session: SessionInfo, detail?: ObjectDetail, references: ReadonlyMap<string, ObjectDetail> = new Map()) {
+  if (change.action === 'edit-source') return objectSourceSql(change, session, detail)
   const engine = session.engine, mssql = ['sqlserver','azure-sql'].includes(engine), mysql = ['mysql','mariadb'].includes(engine)
   const q = (name: string) => {
     const limit = engine === 'postgres' ? 63 : mysql ? 64 : engine === 'oracle' || mssql ? 128 : 255

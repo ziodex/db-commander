@@ -30,8 +30,8 @@ export function duckdbCatalog(query: CatalogQuery): CatalogAdapter {
         return { sections, definition: definition(sql, 'native', 'Constraint clause supplied by DuckDB; not a standalone executable statement.') }
       }
       if (o.kind === 'macro') {
-        const rows = await query('SELECT macro_definition,parameters,function_type,return_type FROM system.main.duckdb_functions() WHERE database_name=? AND schema_name=? AND function_name=? AND CAST(function_oid AS VARCHAR)=? LIMIT 1', [o.catalog!,o.schema,o.name,o.identity])
-        sections.push(section('Macro', ['Body','Parameters','Kind','Return type'], rows))
+        const rows = await query('SELECT macro_definition,parameters,function_type,return_type,to_json(parameters) FROM system.main.duckdb_functions() WHERE database_name=? AND schema_name=? AND function_name=? AND CAST(function_oid AS VARCHAR)=? LIMIT 1', [o.catalog!,o.schema,o.name,o.identity])
+        sections.push(section('Macro', ['Body','Parameters','Kind','Return type','Parameter names (JSON)'], rows))
         return { sections, definition: definition(rows[0]?.[0], 'native', 'Macro body supplied by DuckDB; inspect its parameters above. Not a standalone CREATE statement.') }
       }
       const fn = o.kind === 'table' ? 'tables' : o.kind === 'view' ? 'views' : o.kind === 'index' ? 'indexes' : 'sequences'

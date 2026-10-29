@@ -6,7 +6,7 @@ import { applySchemaChangeSchema, prepareSchemaChangeSchema, type ApplySchemaCha
 import { schemaSql } from './sql'
 
 interface RetainedPlan { request: PrepareSchemaChange; review: SchemaChangePlan; generated: ReturnType<typeof schemaSql>; fingerprint?: string; referenceFingerprints: Record<string, string> }
-type Execute = (sql: string, signal?: AbortSignal) => Promise<Completion>
+type Execute = (sql: string, signal?: AbortSignal, singleUnit?: boolean) => Promise<Completion>
 type CatalogSession = Pick<DatabaseDriver, 'getSession' | 'explore'>
 function ready(session: SessionInfo) {
   if (session.transaction !== 'idle' || session.engine !== 'oracle' && session.autocommit === false) throw new Error('Commit or roll back and enable autocommit before reviewing or applying schema changes.')
@@ -63,6 +63,7 @@ export class SchemaChanges {
     if (plan.review.destructive && !request.destructiveApproved) throw new Error('Acknowledge the destructive change before applying it.')
     if (plan.review.transaction === 'implicit-commit' && !request.implicitCommitApproved) throw new Error('Acknowledge the implicit commit before applying this change.')
     if (plan.review.transaction === 'nontransactional' && !request.nontransactionalApproved) throw new Error('Acknowledge the nontransactional operation before applying this change.')
+    const sourceEdit = plan.request.change.action === 'edit-source'
     this.plans.delete(request.planId) // A consumed plan is never replayed, including after failure.
     const controller = new AbortController(), started = performance.now(), executed: string[] = []
     this.controllers.set(session.id, controller)
@@ -70,12 +71,12 @@ export class SchemaChanges {
     const response = (status: SchemaChangeResult['status'], message: string): SchemaChangeResult => {
       let current: SessionInfo
       try { current = driver.getSession(session.id) } catch { current = { ...session, transaction: 'unknown' } }
-      return { status, message, session: current, executedSql: executed.map(sql => sql + ';').join('\n\n'), durationMs: Math.round(performance.now() - started) }
+      return { status, message, session: current, executedSql: (sourceEdit ? executed : executed.map(sql => sql + ';')).join('\n\n'), durationMs: Math.round(performance.now() - started) }
     }
     async function run(sql: string, rollback = false) {
       if (!rollback) controller.signal.throwIfAborted()
       executed.push(sql); dispatched = true
-      const event = await execute(sql, rollback ? undefined : controller.signal)
+      const event = await execute(sql, rollback ? undefined : controller.signal, sourceEdit)
       if (event.status !== 'completed') throw Object.assign(new Error(event.error ?? `Schema statement ${event.status}.`), { status: event.status })
     }
     try {
@@ -95,6 +96,13 @@ export class SchemaChanges {
         if (driver.getSession(session.id).transaction !== 'transaction') return response('unknown', 'The transaction ended unexpectedly. Inspect the database before retrying; nothing will be replayed.')
         return response('completed', 'Schema change applied in this tab’s transaction. Close this dialog, then Commit or Rollback. Other connections see it after commit.')
       }
+      if (sourceEdit && session.engine === 'oracle' && plan.request.change.action === 'edit-source') {
+        try {
+          const updated = (await driver.explore(session.id, plan.request.change.target)).detail
+          const status = updated?.sections.find(section => section.title === 'Compilation status')?.rows[0]?.[0]
+          if (status !== 'VALID') return response(status === 'INVALID' ? 'failed' : 'unknown', status === 'INVALID' ? 'Oracle committed the declaration but the object is invalid. Refresh its compilation diagnostics and repair it explicitly; the previous definition was not restored.' : 'Oracle accepted the declaration but its compilation status could not be confirmed. Inspect the object before retrying; nothing will be replayed.')
+        } catch { return response('unknown', 'Oracle accepted the declaration but its compilation status could not be confirmed. Inspect the object before retrying; nothing will be replayed.') }
+      }
       if (plan.review.transaction === 'nontransactional' && driver.getSession(session.id).transaction !== 'idle') return response('unknown', 'The connection did not return to idle after concurrent index creation. Inspect the index and connection before retrying; nothing will be replayed.')
       return response('completed', plan.review.transaction === 'nontransactional' ? 'Concurrent index creation completed outside a transaction. It cannot be rolled back.' : 'Schema change completed and committed by the database. It cannot be rolled back.')
     } catch (error) {
@@ -113,8 +121,9 @@ export class SchemaChanges {
       }
       if (!dispatched) return response(cancelled ? 'cancelled' : 'failed', `${failure.message} No schema SQL was executed.`)
       const concurrentNotice = plan.review.transaction === 'nontransactional' ? ' A failed or cancelled concurrent build can leave an invalid index; inspect it before any retry.' : ''
-      if (unknown || !plan.generated.begin && cancelled) return response('unknown', `${failure.message} The outcome is unknown. Reconnect if needed and inspect the target before retrying; nothing will be replayed.${concurrentNotice}`)
-      return response(cancelled ? 'cancelled' : 'failed', `${failure.message}${plan.generated.begin ? '' : plan.review.transaction === 'nontransactional' ? concurrentNotice : ' DDL can commit implicitly even on error. Inspect the target before retrying.'}`)
+      const sourceNotice = sourceEdit && ['mysql', 'mariadb'].includes(session.engine) && plan.generated.commands.length > 1 ? ' The original object may have been dropped before recreation failed or was interrupted.' : sourceEdit && session.engine === 'oracle' && plan.generated.commands.length > 1 ? ' The declaration or trigger state may have changed; inspect both before retrying.' : ''
+      if (unknown || !plan.generated.begin && cancelled) return response('unknown', `${failure.message} The outcome is unknown. Reconnect if needed and inspect the target before retrying; nothing will be replayed.${concurrentNotice}${sourceNotice}`)
+      return response(cancelled ? 'cancelled' : 'failed', `${failure.message}${plan.generated.begin ? '' : plan.review.transaction === 'nontransactional' ? concurrentNotice : ' DDL can commit implicitly even on error. Inspect the target before retrying.'}${sourceNotice}`)
     } finally { this.controllers.delete(session.id) }
   }
 }

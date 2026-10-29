@@ -34,6 +34,14 @@ export function postgresCatalog(query: CatalogQuery): CatalogAdapter {
         const r = rows[0]
         return { sections, definition: definition(r && `CREATE SEQUENCE ${full} AS ${r[0]} INCREMENT BY ${r[4]} MINVALUE ${r[2]} MAXVALUE ${r[3]} START WITH ${r[1]} CACHE ${r[6]} ${r[5] === 'true' ? 'CYCLE' : 'NO CYCLE'};`, 'generated', 'Sequence configuration only; current value, ownership and grants are omitted. Inspecting does not advance the sequence.') }
       }
+      if (o.kind === 'function' || o.kind === 'procedure') {
+        // Resolve arguments by OID, not by name: PostgreSQL routines can be
+        // overloaded, and output/table arguments are absent from proargtypes.
+        const args = await query(`SELECT p.proargnames[a.ordinal::int],COALESCE(p.proargmodes[a.ordinal::int],'i'),pg_catalog.format_type(a.type_oid,NULL),a.ordinal
+          FROM pg_catalog.pg_proc p CROSS JOIN LATERAL unnest(COALESCE(p.proallargtypes,p.proargtypes::oid[])) WITH ORDINALITY AS a(type_oid,ordinal)
+          WHERE p.oid=$1::oid ORDER BY a.ordinal LIMIT 501`, id)
+        sections.push(section('Parameters', ['Name','Mode','Type','Position'], args))
+      }
       const fn = o.kind === 'index' ? 'pg_get_indexdef' : o.kind === 'trigger' ? 'pg_get_triggerdef' : o.kind === 'constraint' ? 'pg_get_constraintdef' : 'pg_get_functiondef'
       let sql = (await query(`SELECT pg_catalog.${fn}($1::oid)`, id))[0]?.[0]
       if (o.kind === 'constraint' && sql) sql = `ALTER TABLE ${q(o.schema)}.${q(o.parent!)} ADD CONSTRAINT ${q(o.name)} ${sql};`

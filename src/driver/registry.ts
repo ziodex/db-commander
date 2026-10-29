@@ -251,7 +251,9 @@ export class DriverRegistry {
     return this.operation(request.sessionId, async () => {
       const plan = await this.schemaChanges.prepare(request, driver)
       const session = driver.getSession(request.sessionId)
-      plan.migrationSourceId = this.migrations.retainChange(plan, this.schemaChanges.migrationStatements(plan.id), `${session.name} / ${session.host}${session.port ? ':' + session.port : ''} / ${session.database}`)
+      // Migration exports retain host-generated SQL only. Authored source is
+      // reviewed and executed here, but is not a generated migration source.
+      if (request.change.action !== 'edit-source') plan.migrationSourceId = this.migrations.retainChange(plan, this.schemaChanges.migrationStatements(plan.id), `${session.name} / ${session.host}${session.port ? ':' + session.port : ''} / ${session.database}`)
       return plan
     })
   }
@@ -361,7 +363,7 @@ export class DriverRegistry {
     const request = applySchemaChangeSchema.parse(input), driver = this.driver(request.sessionId)
     this.protection.assert(request.sessionId)
     if (this.running.has(request.sessionId)) throw new Error('Stop the running query before applying schema changes.')
-    return this.operation(request.sessionId, () => this.schemaChanges.apply(request, driver, async (sql, signal) => {
+    return this.operation(request.sessionId, () => this.schemaChanges.apply(request, driver, async (sql, signal, singleUnit) => {
       const queryId = randomUUID()
       let completion: Completion | undefined, timedOut = false
       // Host-only streaming mode preserves the user's fetched result cache.
@@ -372,7 +374,7 @@ export class DriverRegistry {
       signal?.addEventListener('abort', cancel, { once: true })
       try {
         signal?.throwIfAborted()
-        driver.start({ sessionId: request.sessionId, queryId, sql, maxRows: 1, fullExport: true }, event => { completion = event })
+        driver.start({ sessionId: request.sessionId, queryId, sql, maxRows: 1, fullExport: true, singleUnit }, event => { completion = event })
         await driver.wait(request.sessionId)
         if (!completion) throw Object.assign(new Error('Schema execution ended without a confirmed outcome.'), { status: 'unknown' })
         if (timedOut) { completion.error = 'The schema statement exceeded 60 seconds; cancellation was requested.'; if (completion.status === 'completed') completion.status = 'cancelled' }

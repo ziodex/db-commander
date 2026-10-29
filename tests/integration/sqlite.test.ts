@@ -20,6 +20,7 @@ import { verifyExplain } from './explain-contract'
 import { verifyConnectionSafeguards } from './connection-contract'
 import { verifySchemaChanges } from './schema-change-contract'
 import { verifyCatalog } from './catalog-contract'
+import { verifyObjectSource, verifyTriggerSource } from './object-source-contract'
 import { verifyDataTransfer } from './transfer-contract'
 import { verifyTableBrowsing } from './browsing-contract'
 import { verifyBackups } from './backup-contract'
@@ -79,6 +80,8 @@ describe('Docker SQLite driver contracts', () => {
   it('exports reviewed migration files with native DDL semantics', async () => { await verifyMigrations(config) }, 180000)
   it('reviews and applies schema changes with native transaction handling', async () => { await verifySchemaChanges(config) }, 300000)
   it('explores rich catalog objects and definitions without changing session state', async () => { await verifyCatalog(config) }, 180000)
+  it('reviews source edits and refuses stale definitions', async () => { await verifyObjectSource(config) }, 180000)
+  it('reviews and applies a trigger source edit', async () => { await verifyTriggerSource(config) }, 180000)
   it('exports SQL INSERT scripts with exact values and explicit replay', async () => { await verifyInsertExport(config) }, 240000)
   it('imports JSON exports with exact values, source validation and atomic rollback', async () => { await verifyJsonImport(config) }, 240000)
   it('imports data atomically and streams full-result exports', async () => { await verifyDataTransfer(config) }, 240000)

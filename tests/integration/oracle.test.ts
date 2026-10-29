@@ -20,6 +20,7 @@ import { verifyExplain } from './explain-contract'
 import { verifyConnectionSafeguards } from './connection-contract'
 import { verifySchemaChanges } from './schema-change-contract'
 import { verifyCatalog } from './catalog-contract'
+import { verifyObjectSource, verifyRoutineSource, verifyTriggerSource, verifyProcedureCall } from './object-source-contract'
 import { verifyLargeServerCatalog } from './server-catalog-contract'
 import { verifyCatalogPerformance } from './catalog-performance-contract'
 import { verifyDataTransfer } from './transfer-contract'
@@ -75,6 +76,11 @@ describe('Docker Oracle driver contracts', () => {
   it('exports reviewed migration files with native DDL semantics', async () => { await verifyMigrations(config) }, 180000)
   it('reviews and applies schema changes with native transaction handling', async () => { await verifySchemaChanges(config) }, 300000)
   it('explores rich catalog objects and definitions without changing session state', async () => { await verifyCatalog(config) }, 180000)
+  it('reviews source edits and refuses stale definitions', async () => { await verifyObjectSource(config) }, 180000)
+  it('reviews and applies a trigger source edit', async () => { await verifyTriggerSource(config) }, 180000)
+  it('preserves a disabled trigger when applying its reviewed source', async () => { await verifyTriggerSource(config, true) }, 180000)
+  it('reviews and applies a routine source edit', async () => { await verifyRoutineSource(config) }, 180000)
+  it('calls a procedure with discovered bound parameters', async () => { await verifyProcedureCall(config) }, 180000)
   it('keeps large server catalogs navigable with bounded metadata and preserved transactions', async () => { await verifyLargeServerCatalog(config) }, 360000)
   if(process.env.SQLCOMMANDER_CATALOG_PERFORMANCE==='1') it('catalog performance oracle: 10000 and 20000 constrained tables',()=>verifyCatalogPerformance(config),1200000)
   it('exports SQL INSERT scripts with exact values and explicit replay', async () => { await verifyInsertExport(config) }, 240000)
