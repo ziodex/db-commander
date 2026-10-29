@@ -26,7 +26,7 @@ const schemaChangeSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('drop-column'), target: catalogObjectSchema, column: name }).strict(),
   z.object({ action: z.literal('rename-table'), target: catalogObjectSchema, name }).strict(),
   z.object({ action: z.literal('drop-table'), target: catalogObjectSchema }).strict(),
-  z.object({ action: z.literal('create-index'), target: catalogObjectSchema, name, columns: z.array(name).min(1).max(16), unique: z.boolean() }).strict(),
+  z.object({ action: z.literal('create-index'), target: catalogObjectSchema, name, columns: z.array(name).min(1).max(16), unique: z.boolean(), descending: z.array(name).max(16).optional(), include: z.array(name).max(16).optional(), predicate: z.string().min(1).max(4000).optional(), method: z.enum(['btree', 'hash', 'gist', 'gin', 'brin']).optional() }).strict(),
   z.object({ action: z.literal('drop-index'), target: catalogObjectSchema }).strict()
 ])
 export type SchemaChange = z.infer<typeof schemaChangeSchema>

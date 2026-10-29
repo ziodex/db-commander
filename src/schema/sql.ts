@@ -120,9 +120,29 @@ export function schemaSql(change: SchemaChange, session: SessionInfo, detail?: O
       q(change.name)
       commands.push(mssql ? `EXEC sys.sp_rename @objname=${literal(full)}, @newname=${literal(change.name)}, @objtype=N'OBJECT'` : `ALTER TABLE ${full} RENAME TO ${mysql ? qualified(change.name) : q(change.name)}`); break
     case 'drop-table': commands.push(`DROP TABLE ${full}`); break
-    case 'create-index':
-      unique(change.columns); change.columns.forEach(requireColumn)
-      commands.push(`CREATE ${change.unique ? 'UNIQUE ' : ''}INDEX ${engine === 'sqlite' || engine === 'oracle' ? qualified(change.name) : q(change.name)} ON ${engine === 'sqlite' ? q(target!.name) : full} (${change.columns.map(q).join(', ')})`); break
+    case 'create-index': {
+      const descending = change.descending ?? [], include = change.include ?? []
+      unique(change.columns); unique(descending); unique(include)
+      change.columns.forEach(requireColumn); include.forEach(requireColumn)
+      if (descending.some(name => !change.columns.includes(name))) throw new Error('Descending order can only be selected for an index key column.')
+      if (descending.length && engine === 'duckdb') throw new Error('DuckDB does not retain descending index order. Use ordinary index keys instead.')
+      if (descending.length && mysql) {
+        const version = engine === 'mariadb' ? /(\d+)\.(\d+)\.\d+(?=[^0-9]*MariaDB)/i.exec(session.version) : /^(\d+)\.(\d+)/.exec(session.version)
+        const major = Number(version?.[1] ?? 0), minor = Number(version?.[2] ?? 0)
+        if (engine === 'mysql' ? major < 8 : major < 10 || major === 10 && minor < 8) throw new Error(`Descending index keys require ${engine === 'mysql' ? 'MySQL 8' : 'MariaDB 10.8'} or later; the server version could not establish support.`)
+      }
+      if (include.some(name => change.columns.includes(name))) throw new Error('Included columns must be distinct from index key columns.')
+      if (include.length && !['postgres', 'sqlserver', 'azure-sql'].includes(engine)) throw new Error('Included index columns are not supported by this engine.')
+      if (include.length && engine === 'postgres' && Number(/^PostgreSQL\s+(\d+)/i.exec(session.version)?.[1] ?? 0) < 11) throw new Error('Included index columns require PostgreSQL 11 or later.')
+      if (change.predicate && !['postgres', 'sqlite', 'sqlserver', 'azure-sql'].includes(engine)) throw new Error('Partial or filtered indexes are not supported here for this engine.')
+      if (change.method && engine !== 'postgres') throw new Error('Index methods are only offered for PostgreSQL here.')
+      if (change.method && change.method !== 'btree' && change.unique) throw new Error('PostgreSQL unique indexes require the B-tree method.')
+      if (change.method === 'gist' && include.length && Number(/^PostgreSQL\s+(\d+)/i.exec(session.version)?.[1] ?? 0) < 12) throw new Error('Included columns in GiST indexes require PostgreSQL 12 or later.')
+      if (change.method && !['btree', 'gist'].includes(change.method) && include.length) throw new Error('Included columns require PostgreSQL B-tree or GiST indexes here.')
+      if (change.method && change.method !== 'btree' && descending.length) throw new Error('Descending keys require the PostgreSQL B-tree method.')
+      const keys = change.columns.map(name => `${q(name)}${descending.includes(name) ? ' DESC' : ''}`).join(', ')
+      commands.push(`CREATE ${change.unique ? 'UNIQUE ' : ''}INDEX ${engine === 'sqlite' || engine === 'oracle' ? qualified(change.name) : q(change.name)} ON ${engine === 'sqlite' ? q(target!.name) : full}${change.method ? ` USING ${change.method.toUpperCase()}` : ''} (${keys})${include.length ? ` INCLUDE (${include.map(q).join(', ')})` : ''}${change.predicate ? ` WHERE ${schemaExpression(change.predicate, engine)}` : ''}`); break
+    }
     case 'drop-index':
       if (!detail?.definition.sql) throw new Error('This index has no standalone definition. Inspect its parent constraint instead.')
       commands.push(mysql || mssql ? `DROP INDEX ${q(target!.name)} ON ${qualified(target!.parent!)}` : `DROP INDEX ${full}`); break
@@ -138,6 +158,8 @@ export function schemaSql(change: SchemaChange, session: SessionInfo, detail?: O
       ...((change.action === 'create-table' && change.columns.some(c => c.generation?.kind === 'computed') || change.action === 'add-column' && change.column.generation?.kind === 'computed') ? ['Generated expressions are evaluated by the database; review dependencies, determinism and function effects. Generated values cannot be edited directly.'] : []),
       ...(change.action === 'add-column' && change.column.generation?.kind === 'identity' ? ['The database assigns identity values to existing rows when the column is added; their assignment order is not guaranteed.'] : []),
       ...(mssql && change.action === 'add-column' && change.column.nullable && !['none', 'null'].includes(change.column.default.kind) ? ['Existing rows remain NULL when adding a nullable column with a default. New rows use the default when no value is supplied.'] : []),
+      ...(change.action === 'create-index' && mysql && change.descending?.length ? ['Descending index behavior depends on the table storage engine; confirm that it supports descending key parts.'] : []),
+      ...(change.action === 'create-index' && change.predicate ? ['The index predicate is SQL evaluated by the database. Review its scope, dependencies and function effects before applying.'] : []),
       ...(['rename-table','rename-column'].includes(change.action) ? ['Renaming may leave views, routines or application SQL referring to the old name. Review dependencies separately.'] : []),
       ...(['drop-table','drop-column'].includes(change.action) ? ['This removes data. Related objects or data can also be affected according to the engine’s dependency and foreign-key rules.'] : []),
       ...(change.action === 'drop-index' ? ['Dropping an index may remove uniqueness enforcement or affect query performance. Constraint-backed indexes can be rejected by the server.'] : [])] }

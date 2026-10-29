@@ -102,6 +102,25 @@ describe('schema change plans', () => {
     const nullable = schemaColumnSchema.parse({ name: 'added', type: 'integer', nullable: true, default: { kind: 'expression', value: '4 + 5' } })
     expect(schemaSql({ action: 'add-column', target, column: nullable }, { ...session, engine: 'sqlserver' }, detail).warnings.join(' ')).toContain('Existing rows remain NULL')
   })
+  it('reviews index direction, included columns, methods and partial predicates with strict capability checks', () => {
+    const columns = { ...detail, sections: [{ title: 'Columns', columns: ['Name','Type'], rows: [['id','integer'], ['label','text']] }] }
+    const change = { action: 'create-index' as const, target, name: 'ix', columns: ['id'], unique: false, descending: ['id'], include: ['label'], predicate: 'id > 0', method: 'btree' as const }
+    const reviewed = schemaSql(change, { ...session, version: 'PostgreSQL 17.0' }, columns)
+    expect(reviewed.commands[0]).toBe('CREATE INDEX "ix" ON "test"."t" USING BTREE ("id" DESC) INCLUDE ("label") WHERE id > 0')
+    expect(reviewed.warnings.join(' ')).toContain('index predicate is SQL')
+    expect(() => schemaSql({ ...change, predicate: 'id > 0; DROP TABLE t' }, { ...session, version: 'PostgreSQL 17' }, columns)).toThrow()
+    expect(() => schemaSql({ ...change, include: ['id'] }, { ...session, version: 'PostgreSQL 17' }, columns)).toThrow(/distinct/)
+    expect(() => schemaSql({ ...change, include: [], predicate: undefined, method: undefined }, { ...session, engine: 'duckdb' }, columns)).toThrow(/does not retain descending/)
+    expect(() => schemaSql({ ...change, descending: ['label'] }, { ...session, version: 'PostgreSQL 17' }, columns)).toThrow(/only be selected/)
+    expect(() => schemaSql({ ...change, method: 'hash' }, { ...session, version: 'PostgreSQL 17' }, columns)).toThrow()
+    expect(() => schemaSql(change, { ...session, version: 'PostgreSQL 10' }, columns)).toThrow(/PostgreSQL 11/)
+    expect(() => schemaSql({ ...change, method: 'gist', descending: [] }, { ...session, version: 'PostgreSQL 11' }, columns)).toThrow(/PostgreSQL 12/)
+    expect(() => schemaSql(change, { ...session, engine: 'mysql', version: '8.0.40' }, columns)).toThrow(/not supported/)
+    expect(() => schemaSql({ ...change, include: [], predicate: undefined, method: undefined }, { ...session, engine: 'mysql', version: '5.7.44' }, columns)).toThrow(/MySQL 8/)
+    expect(() => schemaSql({ ...change, include: [], predicate: undefined, method: undefined }, { ...session, engine: 'mariadb', version: '10.7.8-MariaDB' }, columns)).toThrow(/MariaDB 10.8/)
+    expect(schemaSql({ ...change, include: [], predicate: undefined, method: undefined }, { ...session, engine: 'mariadb', version: '5.5.5-10.11.9-MariaDB' }, columns).commands[0]).toContain(' DESC')
+    expect(() => prepareSchemaChangeSchema.parse({ sessionId: session.id, change: { ...change, method: 'btree; DROP TABLE t' } })).toThrow()
+  })
   it('requires a fresh, one-use plan and all relevant acknowledgments', async () => {
     const manager = new SchemaChanges(), s = { ...session, engine: 'mysql' as const }, driver = catalogSession(s)
     const plan = await manager.prepare({ sessionId: s.id, change: create }, driver)

@@ -13,7 +13,7 @@ export async function verifySchemaChanges(config: ConnectionConfig) {
   const driver = new DriverRegistry(event => { events.push(event) }, { workerPath: resolve('out/main/sqlite-worker.cjs') })
   const engine = config.engine, embedded = ['sqlite','duckdb'].includes(engine), transactional = transactionalDdl(engine)
   const local = embedded ? { ...config, filePath: join(directory,'schema.db'), sqliteMode: 'create' as const, duckdbMode: 'create' as const } : config
-  const session = await driver.connect(local), prefix = `ddl_${randomUUID().replaceAll('-','').slice(0,8)}`, name = prefix+" odd'", renamed = prefix+'_renamed', generatedName = prefix+'_generated', identityAddName = prefix+'_identity_added', alwaysName = prefix+'_identity_always', generatedKeyName = prefix+'_generated_key'
+  const session = await driver.connect(local), prefix = `ddl_${randomUUID().replaceAll('-','').slice(0,8)}`, name = prefix+" odd'", renamed = prefix+'_renamed', generatedName = prefix+'_generated', identityAddName = prefix+'_identity_added', alwaysName = prefix+'_identity_always', generatedKeyName = prefix+'_generated_key', methodTable = prefix+'_method_types'
   const schema = engine === 'postgres' ? 'public' : ['sqlserver','azure-sql'].includes(engine) ? 'dbo' : engine === 'oracle' ? config.user.toUpperCase() : embedded ? 'main' : session.database
   const location = { schema, ...(engine === 'duckdb' ? { catalog: session.database } : {}) }
   const q = (value: string) => quoteIdentifier(value, engine), full = (name: string) => [...(location.catalog ? [q(location.catalog)] : []),q(schema),q(name)].join('.')
@@ -130,6 +130,37 @@ export async function verifySchemaChanges(config: ConnectionConfig) {
     await change({ action: 'rename-column', target: await object(name), column: 'score', name: 'points odd' })
     expect((await run(`SELECT ${q('points odd')} FROM ${full(name)} WHERE ${q('id')}=1`)).rows).toEqual([['7']])
     await change({ action: 'create-index', target: await object(name), name: prefix+'_index', columns: ['label'], unique: false })
+    if (engine === 'postgres') {
+      for (const method of ['hash','brin'] as const) {
+        const methodIndex = prefix+'_'+method
+        await change({ action: 'create-index', target: await object(name), name: methodIndex, columns: ['id'], unique: false, method })
+        await change({ action: 'drop-index', target: await object(methodIndex, 'index') })
+      }
+      await run(`CREATE TABLE ${full(methodTable)} (${q('geo')} point, ${q('terms')} tsvector, ${q('id')} integer)`)
+      for (const [method, key] of [['gist','geo'], ['gin','terms']] as const) {
+        const methodIndex = prefix+'_'+method
+        await change({ action: 'create-index', target: await object(methodTable), name: methodIndex, columns: [key], unique: false, method, ...(method === 'gist' ? { include: ['id'] } : {}) })
+        await change({ action: 'drop-index', target: await object(methodIndex, 'index') })
+      }
+      await change({ action: 'drop-table', target: await object(methodTable) })
+    }
+    const optionsIndex = prefix+'_options'
+    const partial = ['postgres','sqlite','sqlserver','azure-sql'].includes(engine)
+    const included = ['postgres','sqlserver','azure-sql'].includes(engine)
+    const optionsPlan = await prepare({ action: 'create-index', target: await object(name), name: optionsIndex, columns: ['label'], unique: false, ...(engine === 'duckdb' ? {} : { descending: ['label'] }), ...(included ? { include: ['id'] } : {}), ...(partial ? { predicate: `${q('id')} > 0` } : {}), ...(engine === 'postgres' ? { method: 'btree' as const } : {}) })
+    if (engine !== 'duckdb') expect(optionsPlan.sql).toContain(' DESC')
+    else expect(optionsPlan.sql).not.toContain(' DESC')
+    if (partial) expect(optionsPlan.sql).toContain(' WHERE ')
+    if (included) expect(optionsPlan.sql).toContain(' INCLUDE ')
+    const optionsResult = await apply(optionsPlan)
+    expect(optionsResult.status, optionsResult.message).toBe('completed'); if (transactional) await run('COMMIT')
+    expect(await object(optionsIndex, 'index')).toBeDefined()
+    if (['mysql','mariadb'].includes(engine)) {
+      const literal = (value: string) => `'${value.replaceAll("'", "''")}'`
+      const order = await run(`SELECT COLLATION FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=${literal(schema)} AND TABLE_NAME=${literal(name)} AND INDEX_NAME=${literal(optionsIndex)} AND COLUMN_NAME='label'`)
+      expect(order.rows).toEqual([['D']])
+    }
+    await change({ action: 'drop-index', target: await object(optionsIndex, 'index') })
     const dropIndex = await prepare({ action: 'drop-index', target: await object(prefix+'_index','index') })
     await expect(apply(dropIndex, { destructiveApproved: false })).rejects.toThrow(/destructive/)
     expect((await apply(dropIndex)).status).toBe('completed'); if (transactional) await run('COMMIT')
@@ -188,7 +219,7 @@ export async function verifySchemaChanges(config: ConnectionConfig) {
     expect(driver.getSession(other.id).transaction).toBe('idle')
   } finally {
     try { await run('ROLLBACK') } catch {}
-    for (const table of [name,renamed,generatedName,identityAddName,alwaysName,generatedKeyName]) { try { await run(`DROP TABLE ${full(table)}`) } catch {} }
+    for (const table of [name,renamed,generatedName,identityAddName,alwaysName,generatedKeyName,methodTable]) { try { await run(`DROP TABLE ${full(table)}`) } catch {} }
     await driver.close(); rmSync(directory, { recursive: true, force: true })
   }
 }
