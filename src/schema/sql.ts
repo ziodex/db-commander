@@ -201,6 +201,16 @@ export function schemaSql(change: SchemaChange, session: SessionInfo, detail?: O
         identity = /auto_increment/i.test(extra); generated = /(?:virtual|stored|persistent) generated/i.test(extra)
       }
       if (alter.kind !== 'type' && alter.kind !== 'nullability' && alter.kind !== 'default') {
+        if (mysql && (alter.kind === 'identity-add' || alter.kind === 'identity-drop')) {
+          if (generated) throw new Error('A generated column cannot also be AUTO_INCREMENT.')
+          if (alter.kind === 'identity-add' && alter.mode !== 'auto') throw new Error('Choose the AUTO_INCREMENT identity mode for this engine.')
+          if (identity === (alter.kind === 'identity-add')) throw new Error(identity ? 'This column is already AUTO_INCREMENT.' : 'This column is not AUTO_INCREMENT.')
+          const oldType = metadata.get('Type'), nullable = nullableValue(metadata.get('Nullable'))
+          if (!oldType || !/^(?:tinyint|smallint|mediumint|int|integer|bigint)(?:\(\d+\))?(?: unsigned)?(?: zerofill)?$/i.test(oldType)) throw new Error('AUTO_INCREMENT needs a supported native integer column. Inspect its type with explicit SQL.')
+          const retained = mysqlModifiedColumn(detail, change.column, oldType, { kind: 'identity', enabled: alter.kind === 'identity-add' }, nullable)
+          commands.push(`ALTER TABLE ${full} MODIFY COLUMN ${retained.sql}`)
+          break
+        }
         if (mysql && alter.kind === 'generated-expression') {
           const extra = metadata.get('Extra'), oldType = metadata.get('Type'), current = nullableValue(metadata.get('Nullable'))
           const match = /\b(virtual|stored|persistent) generated\b/i.exec(extra ?? '')
@@ -230,6 +240,7 @@ export function schemaSql(change: SchemaChange, session: SessionInfo, detail?: O
         const id = metadata.get('Identity'), gen = metadata.get('Generated')
         if (!['', 'a', 'd'].includes(id ?? '?') || !['', 's', 'v'].includes(gen ?? '?')) throw new Error('Generation metadata is incomplete or unsupported. Inspect the column before changing it.')
         if (alter.kind === 'identity-add') {
+          if (alter.mode === 'auto') throw new Error('Choose an identity mode supported by PostgreSQL.')
           if (identity || generated) throw new Error('This column is already an identity or generated column.')
           const currentDefault = metadata.get('Default / expression')
           if (currentDefault === undefined) throw new Error('Column default metadata is incomplete. Inspect its definition and use explicit SQL.')
@@ -391,8 +402,9 @@ export function schemaSql(change: SchemaChange, session: SessionInfo, detail?: O
       ...(change.action === 'alter-column' && mysql && change.alteration.kind === 'type' ? ['MySQL/MariaDB may truncate values in non-strict SQL mode and may automatically shorten affected index prefixes. Review session mode and indexes.'] : []),
       ...(change.action === 'alter-column' && change.alteration.kind === 'type' ? ['Type conversion can rewrite data, lose precision or change collation where the new type does not support it. Review conversions and dependencies before applying.'] : []),
       ...(change.action === 'alter-column' && change.alteration.kind === 'type' && mssql ? ['SQL Server can reject a type change when a default constraint or other object depends on the column. Dependencies are not removed automatically.'] : []),
-      ...(change.action === 'alter-column' && change.alteration.kind === 'identity-add' ? ['The new identity sequence starts independently of existing values. Review its starting value and uniqueness before inserting; existing rows are not changed.'] : []),
-      ...(change.action === 'alter-column' && change.alteration.kind === 'identity-drop' ? [engine === 'oracle' ? 'Dropping identity removes its sequence and identity-imposed NOT NULL and NOT DEFERRABLE constraints. Existing values remain; inspect safeguards before future inserts.' : 'Dropping identity removes its sequence. Existing values remain, but future inserts must supply values or use a separately reviewed default.'] : []),
+      ...(change.action === 'alter-column' && change.alteration.kind === 'identity-add' ? [mysql ? 'Adding AUTO_INCREMENT can change existing zero values, depending on SQL mode. The column needs a suitable index; review existing data, SQL mode, keys and future generated values.' : 'The new identity sequence starts independently of existing values. Review its starting value and uniqueness before inserting; existing rows are not changed.'] : []),
+      ...(change.action === 'alter-column' && change.alteration.kind === 'identity-drop' ? [engine === 'oracle' ? 'Dropping identity removes its sequence and identity-imposed NOT NULL and NOT DEFERRABLE constraints. Existing values remain; inspect safeguards before future inserts.' : mysql ? 'Removing AUTO_INCREMENT stops automatic numbering and can affect future inserts and the table counter. Existing values are retained.' : 'Dropping identity removes its sequence. Existing values remain, but future inserts must supply values or use a separately reviewed default.'] : []),
+      ...(change.action === 'alter-column' && mysql && (change.alteration.kind === 'identity-add' || change.alteration.kind === 'identity-drop') ? ['A foreign-key dependency can prevent this change. No constraints are removed automatically.'] : []),
       ...(change.action === 'alter-column' && change.alteration.kind === 'identity-mode' ? [engine === 'oracle' ? 'Changing identity mode alters handling of explicit values and can remove BY DEFAULT ON NULL behavior. Existing rows are not changed.' : 'Changing identity mode changes whether future inserts may provide explicit values. Existing rows are not changed.'] : []),
       ...(change.action === 'alter-column' && change.alteration.kind === 'generated-expression' ? [mysql ? 'The new SQL expression is evaluated by the database. Stored values and dependent indexes may be rebuilt; virtual values can fail on later reads if out of range. Review SQL mode, dependencies and function effects.' : 'The new SQL expression is evaluated by the database; stored values are rewritten and statistics are removed. Review dependencies and function effects.'] : []),
       ...(change.action === 'alter-column' && change.alteration.kind === 'generated-drop' ? ['Existing stored values remain, but future changes will no longer recompute this column.'] : []),

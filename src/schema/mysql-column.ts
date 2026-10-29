@@ -36,7 +36,7 @@ function unquoteIdentifier(value: string) {
   if ((quote !== '`' && quote !== '"') || value.at(-1) !== quote || value.includes('\\')) throw new Error('The native column identifier cannot be safely reconstructed.')
   return value.slice(1,-1).replaceAll(quote+quote, quote)
 }
-export function mysqlModifiedColumn(detail: ObjectDetail | undefined, column: string, oldType: string, change: { kind: 'type'; sql: string } | { kind: 'nullability'; nullable: boolean } | { kind: 'expression'; sql: string; storage: 'virtual' | 'stored' }, currentNullable: boolean): { sql: string; hadDefault: boolean } {
+export function mysqlModifiedColumn(detail: ObjectDetail | undefined, column: string, oldType: string, change: { kind: 'type'; sql: string } | { kind: 'nullability'; nullable: boolean } | { kind: 'expression'; sql: string; storage: 'virtual' | 'stored' } | { kind: 'identity'; enabled: boolean }, currentNullable: boolean): { sql: string; hadDefault: boolean } {
   if (!detail?.definition.sql || detail.definition.source !== 'native' || detail.definition.truncated) throw new Error('The complete native table definition is required for this change.')
   const ddl = detail.definition.sql, parts = stableTokens(ddl)
   const open = parts.find(token => token.text === '(' && token.depth === 0)
@@ -56,6 +56,19 @@ export function mysqlModifiedColumn(detail: ObjectDetail | undefined, column: st
   const words = columnTokens.filter(token => token.kind === 'word' && token.depth === 0 && token.start >= typeEnd)
   const hadDefault = words.some(word => word.text === 'DEFAULT')
   if (change.kind === 'type') return { sql: segment.slice(0,typeStart) + change.sql + segment.slice(typeEnd), hadDefault }
+  if (change.kind === 'identity') {
+    const tokens = words.filter(word => word.text === 'AUTO_INCREMENT')
+    if (tokens.length > 1 || change.enabled === Boolean(tokens.length)) throw new Error('The native identity definition is missing or ambiguous. Refresh and review again.')
+    if (words.some(word => word.text === 'GENERATED' || word.text === 'AS')) throw new Error('The native definition is generated or ambiguous. Inspect it with explicit SQL.')
+    const notNull = words.filter((word,i) => word.text === 'NOT' && words[i+1]?.text === 'NULL' && /^\s+$/.test(segment.slice(word.end, words[i+1].start)))
+    if (currentNullable || notNull.length !== 1 || hadDefault) throw new Error('AUTO_INCREMENT requires a NOT NULL column with no default. Review those changes separately.')
+    if (change.enabled) {
+      const attribute = words.find(word => ['COMMENT','COLUMN_FORMAT','STORAGE','VISIBLE','INVISIBLE','CHECK','REFERENCES','PRIMARY','UNIQUE','SRID'].includes(word.text))
+      const insert = attribute?.start ?? segment.length
+      return { sql: segment.slice(0,insert).trimEnd() + ' AUTO_INCREMENT' + (insert < segment.length ? ` ${segment.slice(insert)}` : ''), hadDefault }
+    }
+    return { sql: (segment.slice(0,tokens[0].start).trimEnd() + segment.slice(tokens[0].end)).trim(), hadDefault }
+  }
   if (change.kind === 'expression') {
     const top = columnTokens.filter(token => token.depth === 0 && token.start >= typeEnd)
     const as = top.filter(token => token.kind === 'word' && token.text === 'AS')

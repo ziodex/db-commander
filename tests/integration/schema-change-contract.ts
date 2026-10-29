@@ -307,6 +307,41 @@ export async function verifySchemaChanges(config: ConnectionConfig) {
       expect((await run(`SELECT ${q('calculated')} FROM ${full(generatedName)}`)).rows).toEqual([['15']])
     }
     await change({ action: 'drop-table', target: await object(generatedName) })
+    if (['mysql','mariadb'].includes(engine)) {
+      await run(`CREATE TABLE ${full(alterTable)} (${q('id')} INT NOT NULL COMMENT 'identity kept', ${q('quantity')} INT, PRIMARY KEY (${q('id')}))`)
+      await run(`INSERT INTO ${full(alterTable)} (${q('id')},${q('quantity')}) VALUES (0,7),(42,8)`)
+      const addIdentity = await prepare({ action: 'alter-column', target: await object(alterTable), column: 'id', alteration: { kind: 'identity-add', mode: 'auto' } })
+      expect(addIdentity.destructive).toBe(true); expect(addIdentity.warnings.join(' ')).toMatch(/existing zero values/); expect(addIdentity.sql).toMatch(/identity kept/)
+      await expect(apply(addIdentity, { destructiveApproved: false })).rejects.toThrow(/destructive/)
+      const added = await apply(addIdentity); expect(added.status, added.message).toBe('completed')
+      const transformed = (await run(`SELECT ${q('id')},${q('quantity')} FROM ${full(alterTable)} ORDER BY ${q('quantity')}`)).rows
+      expect(transformed).toEqual([['1','7'],['42','8']])
+      await run(`INSERT INTO ${full(alterTable)} (${q('quantity')}) VALUES (9)`)
+      expect((await run(`SELECT ${q('id')} FROM ${full(alterTable)} WHERE ${q('quantity')}=9`)).rows).toEqual([['43']])
+      await change({ action: 'alter-column', target: await object(alterTable), column: 'id', alteration: { kind: 'identity-drop' } })
+      const afterDrop = (await run(`SHOW CREATE TABLE ${full(alterTable)}`)).rows[0][1]!
+      expect(afterDrop).not.toMatch(/AUTO_INCREMENT/i); expect(afterDrop).toContain('identity kept')
+      await run(`INSERT INTO ${full(alterTable)} (${q('id')},${q('quantity')}) VALUES (99,10)`)
+      expect((await run(`SELECT ${q('id')},${q('quantity')} FROM ${full(alterTable)} ORDER BY ${q('quantity')}`)).rows).toEqual([['1','7'],['42','8'],['43','9'],['99','10']])
+      await change({ action: 'drop-table', target: await object(alterTable) })
+      await run('SET @s1_previous_sql_mode = @@SESSION.sql_mode')
+      try {
+        await run("SET SESSION sql_mode = CONCAT(@@SESSION.sql_mode, ',NO_AUTO_VALUE_ON_ZERO')")
+        await run(`CREATE TABLE ${full(alterTable)} (${q('id')} INT NOT NULL PRIMARY KEY, ${q('quantity')} INT)`)
+        await run(`INSERT INTO ${full(alterTable)} (${q('id')},${q('quantity')}) VALUES (0,7),(42,8)`)
+        await change({ action: 'alter-column', target: await object(alterTable), column: 'id', alteration: { kind: 'identity-add', mode: 'auto' } })
+        expect((await run(`SELECT ${q('id')},${q('quantity')} FROM ${full(alterTable)} ORDER BY ${q('quantity')}`)).rows).toEqual([['0','7'],['42','8']])
+        await change({ action: 'drop-table', target: await object(alterTable) })
+      } finally { await run('SET SESSION sql_mode = @s1_previous_sql_mode') }
+      if (engine === 'mysql') {
+        await run(`CREATE TABLE ${full(alterTable)} (${q('id')} INT NOT NULL AUTO_INCREMENT PRIMARY KEY, ${q('parent')} INT, CONSTRAINT ${q(prefix+'_self_fk')} FOREIGN KEY (${q('parent')}) REFERENCES ${full(alterTable)} (${q('id')}))`)
+        const blockedIdentity = await prepare({ action: 'alter-column', target: await object(alterTable), column: 'id', alteration: { kind: 'identity-drop' } })
+        expect(blockedIdentity.warnings.join(' ')).toMatch(/foreign-key dependency/)
+        const rejected = await apply(blockedIdentity); expect(rejected.status).toBe('failed'); expect(rejected.message).toMatch(/foreign key/i)
+        expect((await run(`SHOW CREATE TABLE ${full(alterTable)}`)).rows[0][1]).toMatch(/AUTO_INCREMENT/i)
+        await change({ action: 'drop-table', target: await object(alterTable) })
+      }
+    }
     if (engine === 'postgres') {
       await change({ action: 'create-table', location, name: alterTable, columns: [{ ...column('id', false), primaryKey: true }] })
       await run(`INSERT INTO ${full(alterTable)} (${q('id')}) VALUES (42)`)

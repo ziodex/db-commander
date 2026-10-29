@@ -30,4 +30,15 @@ describe('MySQL native column alteration', () => {
     const executable = definition('CREATE TABLE `t` (`v` int GENERATED ALWAYS AS (1) VIRTUAL /*!80000 INVISIBLE */)')
     expect(() => mysqlModifiedColumn(executable, 'v', 'int', { kind: 'expression', sql: '2', storage: 'virtual' }, true)).toThrow(/executable version comments/)
   })
+  it('adds or removes AUTO_INCREMENT without discarding native attributes', () => {
+    const before = definition("CREATE TABLE `t` (`id` int unsigned NOT NULL COMMENT 'keep', PRIMARY KEY (`id`))")
+    const added = mysqlModifiedColumn(before, 'id', 'int unsigned', { kind: 'identity', enabled: true }, false).sql
+    expect(added).toBe("`id` int unsigned NOT NULL AUTO_INCREMENT COMMENT 'keep'")
+    const after = definition(`CREATE TABLE \`t\` (${added}, PRIMARY KEY (\`id\`))`)
+    expect(mysqlModifiedColumn(after, 'id', 'int unsigned', { kind: 'identity', enabled: false }, false).sql).toBe("`id` int unsigned NOT NULL COMMENT 'keep'")
+    expect(() => mysqlModifiedColumn(before, 'id', 'int unsigned', { kind: 'identity', enabled: true }, true)).toThrow(/NOT NULL/)
+    expect(() => mysqlModifiedColumn(definition('CREATE TABLE `t` (`id` int NOT NULL DEFAULT 5)'), 'id', 'int', { kind: 'identity', enabled: true }, false)).toThrow(/no default/)
+    expect(() => mysqlModifiedColumn(before, 'id', 'int unsigned', { kind: 'identity', enabled: false }, false)).toThrow(/missing or ambiguous/)
+    expect(() => mysqlModifiedColumn(definition('CREATE TABLE `t` (`id` int GENERATED ALWAYS AS (1) STORED NOT NULL)'), 'id', 'int', { kind: 'identity', enabled: true }, false)).toThrow(/generated or ambiguous/)
+  })
 })

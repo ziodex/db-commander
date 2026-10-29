@@ -159,6 +159,26 @@ for (const engine of engineSchema.options) test(`schema changes ${engine}: revie
       await page.screenshot({ path: testInfo.outputPath(`${engine}-identity-alter-review.png`) })
       await editor.getByLabel('I understand this can remove data or database safeguards.', { exact: true }).check(); await apply(); await settle()
     }
+    if (['mysql','mariadb'].includes(engine)) {
+      const identityTable = `${name}_identity`
+      await databaseAction(page, 'Schema changes'); await editor.getByLabel('New object name').fill(identityTable)
+      await editor.getByLabel('Column 1 generation').selectOption('identity'); await review(); await approve(); await apply(); await settle()
+      await expect(tableNode(page, identityTable)).toBeVisible()
+      await tableAction(page, identityTable, 'Alter table')
+      await editor.getByLabel('Schema operation').selectOption('alter-column'); await editor.getByLabel('Existing column').selectOption('id')
+      await editor.getByLabel('Column change').selectOption('identity-drop'); await review()
+      await expect(editor.getByLabel('Schema SQL preview')).not.toHaveValue(/AUTO_INCREMENT/); await approve()
+      await expect(editor.getByRole('button', { name: 'Apply reviewed SQL', exact: true })).toBeDisabled()
+      await editor.getByLabel('I understand this can remove data or database safeguards.', { exact: true }).check(); await apply(); await settle()
+      await tableAction(page, identityTable, 'Alter table')
+      await editor.getByLabel('Schema operation').selectOption('alter-column'); await editor.getByLabel('Existing column').selectOption('id')
+      await editor.getByLabel('Column change').selectOption('identity-add'); await review()
+      await expect(editor.getByLabel('Schema SQL preview')).toHaveValue(/AUTO_INCREMENT/); await expect(editor.getByText(/existing zero values/)).toBeVisible(); await approve()
+      await editor.getByLabel('I understand this can remove data or database safeguards.', { exact: true }).check()
+      await page.screenshot({ path: testInfo.outputPath(`${engine}-identity-alter-review.png`) }); await apply(); await settle()
+      await tableAction(page, identityTable, 'Alter table'); await editor.getByLabel('Schema operation').selectOption('drop-table')
+      await review(); await approve(); await editor.getByLabel('I understand this can remove data or database safeguards.', { exact: true }).check(); await apply(); await settle()
+    }
     await tableAction(page, `${name}`, 'Alter table')
     await editor.getByLabel('Column 1 name').fill('new_value'); await editor.getByLabel('Column 1 nullable').check()
     if (engine === 'sqlite') {

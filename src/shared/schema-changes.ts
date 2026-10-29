@@ -28,7 +28,7 @@ const columnAlterationSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('type'), type: columnTypeSchema, using: z.string().min(1).max(4000).optional() }).strict(),
   z.object({ kind: z.literal('nullability'), nullable: z.boolean() }).strict(),
   z.object({ kind: z.literal('default'), default: defaultSchema }).strict(),
-  z.object({ kind: z.literal('identity-add'), mode: z.enum(['always', 'by-default']) }).strict(),
+  z.object({ kind: z.literal('identity-add'), mode: z.enum(['always', 'by-default', 'auto']) }).strict(),
   z.object({ kind: z.literal('identity-mode'), mode: z.enum(['always', 'by-default']) }).strict(),
   z.object({ kind: z.literal('identity-drop') }).strict(),
   z.object({ kind: z.literal('generated-expression'), expression: z.string().min(1).max(4000) }).strict(),
