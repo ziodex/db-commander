@@ -28,6 +28,9 @@ async function connect(page: Page) {
   await page.locator('.monaco-editor').click(); await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A')
   await page.keyboard.insertText("CREATE TABLE preserved(value); INSERT INTO preserved VALUES('committed');")
   await page.getByRole('button', { name: /^Run SQL/ }).click(); await expect(page.locator('.status-text')).toHaveText('Completed')
+  // DDL completion starts a separate schema refresh. The public backup RPC
+  // must wait for the same idle state required by the application's controls.
+  await expect(page.getByRole('button', { name: /^Run SQL/ })).toBeEnabled()
 }
 async function backup(page: Page, file: string) {
   const job = await page.evaluate(artifact => window.dbCommander.startBackup({ sessionId: (window as any).__backupSession, action: 'backup', artifact, content: 'all', confirmed: true }), file)
