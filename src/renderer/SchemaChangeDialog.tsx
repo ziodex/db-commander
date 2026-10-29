@@ -34,7 +34,11 @@ export function SchemaChangeDialog({ session, snapshot, initialTarget, blocked, 
   const [busy, setBusy] = useState<'review' | 'apply' | null>(null), [error, setError] = useState(''), [message, setMessage] = useState('')
   const [confirmed, setConfirmed] = useState(false), [implicit, setImplicit] = useState(false), [nontransactional, setNontransactional] = useState(false), [destructive, setDestructive] = useState(false), [cancelling, setCancelling] = useState(false)
   useEffect(() => { const node = dialog.current!; node.showModal(); return () => node.close() }, [])
-  useEffect(() => { if (plan) reviewHeading.current?.focus() }, [plan])
+  useEffect(() => {
+    if (!plan || !reviewHeading.current) return
+    reviewHeading.current.focus({ preventScroll: true })
+    reviewHeading.current.scrollIntoView?.({ block: 'start' })
+  }, [plan])
   const targets = (snapshot?.catalog?.objects ?? []).filter(o => o.kind === (action === 'drop-index' ? 'index' : 'table'))
   const target = targets.find(o => objectKey(o) === targetKey)
   const targetColumns = snapshot?.objects.find(o => o.name === target?.name && o.schema === target?.schema && o.catalog === target?.catalog)?.columns.map(c => c.name) ?? []

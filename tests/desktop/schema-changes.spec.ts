@@ -32,7 +32,11 @@ for (const engine of engineSchema.options) test(`schema changes ${engine}: revie
     await editor.getByRole('button', { name: 'Review SQL', exact: true }).click()
     await expect(editor.getByLabel('Schema SQL preview')).toBeVisible({ timeout: metadataTimeout })
     const heading = editor.getByRole('heading', { name: 'Review SQL', exact: true })
-    await expect(heading).toBeFocused(); await expect(heading).toBeInViewport()
+    await expect(heading).toBeFocused(); await expect(heading).toBeInViewport({ ratio: 1 })
+    await expect.poll(() => heading.evaluate(element => {
+      const header = element.closest('.schema-editor')?.querySelector('.dialog-heading')
+      return Boolean(header && element.getBoundingClientRect().top >= header.getBoundingClientRect().bottom)
+    })).toBe(true)
   }
   async function approve() {
     await editor.getByLabel('I reviewed this SQL and its target.', { exact: true }).check()
