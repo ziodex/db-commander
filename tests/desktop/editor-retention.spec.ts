@@ -85,7 +85,11 @@ async function readyForSnapshot(page: Page) {
   // Visible can still mean Monaco's initial 5px layout. Compare fully laid-out
   // editors with the same lazy suggestion controls, not two creation stages.
   await expect.poll(() => editor.evaluate(element => element.clientWidth > 100 && element.clientHeight > 100)).toBe(true)
-  await editor.locator('textarea').focus(); await page.keyboard.press('Control+Space')
+  // Closing a tab can leave the surviving editor read-only until its workspace
+  // save completes. Keep its selection intact while waiting for native input.
+  const input = editor.locator('textarea.inputarea')
+  await page.bringToFront(); await expect(input).toBeEditable()
+  await input.focus(); await expect(input).toBeFocused(); await page.keyboard.press('Control+Space')
   const suggestions = editor.locator('.suggest-widget')
   await expect(suggestions).toHaveClass(/\bvisible\b/)
   // Monaco hides this message after loading but retains its text in the DOM.

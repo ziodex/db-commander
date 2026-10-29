@@ -14,6 +14,16 @@ const plan = (): SchemaChangePlan => ({ id: randomUUID(), sessionId: randomUUID(
 const request = (sourceId: string) => ({ sourceId, name: 'Add table', selected: ['change'], includeDestructive: false, transaction: 'caller' as const })
 afterEach(() => vi.useRealTimers())
 describe('migration export', () => {
+  it('refuses a transaction wrapper for a retained concurrent index', () => {
+    const store = new MigrationExports(), review: SchemaChangePlan = { ...plan(), transaction: 'nontransactional', warnings: ['Requires autocommit.', 'An invalid index can remain.'] }
+    store.retainChange(review, ['CREATE INDEX CONCURRENTLY ix ON t(id)'])
+    expect(() => store.prepare({ ...request(review.id), transaction: 'transaction' })).toThrow(/outside a transaction/)
+    const preview = store.prepare(request(review.id))
+    expect(preview.sql).toContain('CREATE INDEX CONCURRENTLY ix ON t(id);')
+    expect(preview.sql).not.toMatch(/^BEGIN|^COMMIT/m)
+    expect(preview.warnings.join(' ')).toMatch(/idle autocommit/)
+    expect(preview.warnings.join(' ')).toMatch(/invalid index/)
+  })
   it.each(engineSchema.options)('exports canonical statements with explicit transaction handling for %s', engine => {
     const store = new MigrationExports(), review = { ...plan(), engine }, commands = ["CREATE TABLE t(value VARCHAR(30) DEFAULT 'a;--b')"]
     store.retainChange(review, commands)
