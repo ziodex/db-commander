@@ -4,7 +4,7 @@ import { tableAction, tableNode } from './explorer-actions'
 import { verifyMigrationExport } from './migration-export'
 import { openSeparateQueryTab } from './separate-query-tab'
 import { _electron as electron, test, expect } from '@playwright/test'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { quoteIdentifier } from '../../src/shared/sql/common'
@@ -358,4 +358,75 @@ for (const engine of engineSchema.options) test(`schema changes ${engine}: revie
     await apply(); await settle()
     await expect(tableNode(page, `${name}`)).toHaveCount(0)
   } finally { await app.evaluate(({ app }) => app.exit()).catch(() => {}); await app.close().catch(() => {}); rmSync(directory,{ recursive: true, force: true }) }
+})
+
+test('schema changes duckdb: reviewed index remains reachable across themes and zoom', async ({}, testInfo) => {
+  test.setTimeout(180_000)
+  test.skip(!(process.env.SQLCOMMANDER_TEST_DRIVERS ?? '').split(',').includes('duckdb'), 'DuckDB not selected by test runner')
+  const directory = mkdtempSync(join(tmpdir(), 'dbcommander-schema-layout-'))
+  const env: Record<string, string | undefined> = { ...process.env, SQLCOMMANDER_USER_DATA: directory }; delete env.ELECTRON_RUN_AS_NODE
+  const app = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: process.env.SQLCOMMANDER_TEST_EXECUTABLE } : { args: [resolve('.')] }), env: env as Record<string, string> })
+  const page = await app.firstWindow()
+  try {
+    await waitForWorkspaceReady(page)
+    await page.getByRole('button', { name: 'Connect database', exact: true }).click()
+    const connection = page.getByRole('dialog')
+    await connection.getByLabel('Database engine').selectOption('duckdb')
+    await connection.getByLabel('Open mode').selectOption('memory')
+    await connection.getByRole('button', { name: 'Connect', exact: true }).click(); await expect(connection).toBeHidden()
+    const run = page.getByRole('button', { name: /^Run SQL/ })
+    await expect(run).toBeEnabled(); await page.locator('.monaco-editor').click()
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A')
+    await page.keyboard.insertText('CREATE TABLE schema_layout (id INTEGER, amount INTEGER);')
+    await page.keyboard.press('Escape'); await run.click(); await expect(page.locator('.status-text')).toHaveText('Completed'); await expect(run).toBeEnabled()
+    await expect(tableNode(page, 'schema_layout')).toBeVisible({ timeout: 30000 })
+    for (const theme of ['dark', 'light'] as const) {
+      await page.getByRole('button', { name: 'Workspace', exact: true }).click()
+      await page.getByRole('menuitem', { name: 'Preferences', exact: true }).click()
+      const settings = page.getByRole('dialog', { name: 'Preferences', exact: true })
+      await settings.getByLabel('Appearance', { exact: true }).selectOption(theme)
+      await settings.getByRole('button', { name: 'Apply settings', exact: true }).click()
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
+      for (const { width, height, zoom, name } of [
+        { width: 1440, height: 940, zoom: 1, name: 'wide' },
+        { width: 1024, height: 700, zoom: 1.25, name: 'compact-125' },
+        { width: 1024, height: 700, zoom: 2, name: 'compact-200' }
+      ]) {
+        await app.evaluate(({ BrowserWindow }, value) => { const window = BrowserWindow.getAllWindows()[0]; window.setContentSize(value.width, value.height); window.webContents.setZoomFactor(value.zoom) }, { width, height, zoom })
+        await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(Math.round(width / zoom))
+        await tableAction(page, 'schema_layout', 'Alter table')
+        const dialog = page.getByRole('dialog', { name: 'Schema changes', exact: true })
+        await expect.poll(() => dialog.evaluate(element => {
+          const rect = element.getBoundingClientRect()
+          return rect.left >= 0 && rect.right <= window.innerWidth
+        })).toBe(true)
+        await expect(dialog.getByRole('button', { name: 'Close schema changes', exact: true })).toBeInViewport({ ratio: 1 })
+        await dialog.getByLabel('Schema operation').selectOption('create-index')
+        await dialog.getByLabel('New object name').fill('layout_index')
+        await dialog.getByLabel('Index column id', { exact: true }).check()
+        await dialog.getByRole('button', { name: 'Add expression key', exact: true }).click()
+        await dialog.getByLabel('Index expression 1', { exact: true }).fill('amount + 1')
+        await dialog.getByLabel('Index expression 1 position').selectOption('1')
+        const capture = async (path: string) => {
+          const data = await app.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].webContents.capturePage()).toPNG().toString('base64'))
+          writeFileSync(testInfo.outputPath(path), Buffer.from(data, 'base64'))
+        }
+        await capture(`schema-index-${theme}-${name}.png`)
+        await dialog.getByRole('button', { name: 'Review SQL', exact: true }).click()
+        const heading = dialog.getByRole('heading', { name: 'Review SQL', exact: true }), preview = dialog.getByLabel('Schema SQL preview')
+        await expect(heading).toBeFocused(); await expect(heading).toBeInViewport({ ratio: 1 })
+        await expect.poll(() => heading.evaluate(element => {
+          const header = element.closest('.schema-editor')?.querySelector('.dialog-heading')
+          return Boolean(header && element.getBoundingClientRect().top >= header.getBoundingClientRect().bottom)
+        })).toBe(true)
+        await expect(preview).toHaveValue(/CREATE INDEX.*amount.*\+ 1/)
+        await capture(`schema-review-${theme}-${name}.png`)
+        await preview.scrollIntoViewIfNeeded(); await expect(preview).toBeInViewport()
+        await expect(dialog.getByRole('button', { name: 'Apply reviewed SQL', exact: true })).toBeDisabled()
+        await dialog.getByRole('button', { name: 'Close schema changes', exact: true }).click()
+      }
+    }
+  } finally {
+    await app.evaluate(({ app }) => app.exit()).catch(() => {}); await app.close().catch(() => {}); rmSync(directory, { recursive: true, force: true })
+  }
 })
