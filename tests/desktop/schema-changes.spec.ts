@@ -423,6 +423,11 @@ test('schema changes duckdb: reviewed index remains reachable across themes and 
         await capture(`schema-review-${theme}-${name}.png`)
         await preview.scrollIntoViewIfNeeded(); await expect(preview).toBeInViewport()
         await expect(dialog.getByRole('button', { name: 'Apply reviewed SQL', exact: true })).toBeDisabled()
+        await preview.focus(); await page.keyboard.press('Tab')
+        const copy = dialog.getByRole('button', { name: 'Copy SQL', exact: true })
+        await expect(copy).toBeFocused(); await expect(copy).toBeInViewport({ ratio: 1 })
+        await page.keyboard.press('Tab'); await expect(dialog.getByRole('button', { name: 'Save SQL', exact: true })).toBeFocused()
+        await page.keyboard.press('Tab'); await expect(dialog.getByLabel('I reviewed this SQL and its target.', { exact: true })).toBeFocused()
         await dialog.getByRole('button', { name: 'Close schema changes', exact: true }).click()
       }
     }
