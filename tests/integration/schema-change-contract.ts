@@ -183,7 +183,7 @@ export async function verifySchemaChanges(config: ConnectionConfig) {
     await change({ action: 'drop-table', target: await object(alterTable) })
     if (['mysql','mariadb'].includes(engine)) {
       const odd = 'odd`name'
-      await run(`CREATE TABLE ${full(alterTable)} (${q('id')} INT PRIMARY KEY, ${q(odd)} VARCHAR(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT 'alpha' COMMENT 'a,b; note', ${q('stamp')} TIMESTAMP(3) NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3), ${q('generated')} INT GENERATED ALWAYS AS (${q('id')} + 1) VIRTUAL)`)
+      await run(`CREATE TABLE ${full(alterTable)} (${q('id')} INT PRIMARY KEY, ${q(odd)} VARCHAR(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT 'alpha' COMMENT 'a,b; note', ${q('stamp')} TIMESTAMP(3) NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3), ${q('generated')} INT GENERATED ALWAYS AS (${q('id')} + 1) VIRTUAL COMMENT 'generated kept', ${q('gen_text')} VARCHAR(30) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin GENERATED ALWAYS AS (concat('x',${q('id')})) STORED COMMENT 'text kept')`)
       await run(`INSERT INTO ${full(alterTable)} (${q('id')}) VALUES (1)`)
       await change({ action: 'alter-column', target: await object(alterTable), column: odd, alteration: { kind: 'nullability', nullable: false } })
       await change({ action: 'alter-column', target: await object(alterTable), column: odd, alteration: { kind: 'type', type: { type: 'varchar', length: 40, precision: 18, scale: 2 } } })
@@ -194,6 +194,17 @@ export async function verifySchemaChanges(config: ConnectionConfig) {
       await run(`INSERT INTO ${full(alterTable)} (${q('id')}) VALUES (2)`)
       expect((await run(`SELECT ${q(odd)} FROM ${full(alterTable)} ORDER BY ${q('id')}`)).rows).toEqual([['alpha'],['alpha']])
       await expect(prepare({ action: 'alter-column', target: await object(alterTable), column: 'generated', alteration: { kind: 'default', default: { kind: 'number', value: '5' } } })).rejects.toThrow(/Generated columns/)
+      const virtualPlan = await prepare({ action: 'alter-column', target: await object(alterTable), column: 'generated', alteration: { kind: 'generated-expression', expression: `${q('id')} + 2` } })
+      expect(virtualPlan.destructive).toBe(true); expect(virtualPlan.sql).toMatch(/generated kept/); expect(virtualPlan.warnings.join(' ')).toMatch(/virtual values/i)
+      await expect(apply(virtualPlan, { destructiveApproved: false })).rejects.toThrow(/destructive/)
+      const virtualResult = await apply(virtualPlan); expect(virtualResult.status, virtualResult.message).toBe('completed')
+      expect((await run(`SELECT ${q('generated')} FROM ${full(alterTable)} ORDER BY ${q('id')}`)).rows).toEqual([['3'],['4']])
+      const afterGenerated = (await run(`SHOW CREATE TABLE ${full(alterTable)}`)).rows[0][1]!
+      expect(afterGenerated).toMatch(/generated kept/); expect(afterGenerated).toMatch(/VIRTUAL/i)
+      await change({ action: 'alter-column', target: await object(alterTable), column: 'gen_text', alteration: { kind: 'generated-expression', expression: `concat('y',${q('id')})` } })
+      const textDefinition = (await run(`SHOW CREATE TABLE ${full(alterTable)}`)).rows[0][1]!.split('\n').find(line => line.includes('`gen_text`'))!
+      expect(textDefinition.toLowerCase()).toContain('collate utf8mb4_bin'); expect(textDefinition).toContain('text kept'); expect(textDefinition).toMatch(/STORED|PERSISTENT/i)
+      expect((await run(`SELECT ${q('gen_text')} FROM ${full(alterTable)} ORDER BY ${q('id')}`)).rows).toEqual([['y1'],['y2']])
       await run(`ALTER TABLE ${full(alterTable)} ADD ${q('no_default')} INT NOT NULL DEFAULT 8`)
       await change({ action: 'alter-column', target: await object(alterTable), column: 'no_default', alteration: { kind: 'default', default: { kind: 'none' } } })
       const beforeNull = (await run(`SHOW CREATE TABLE ${full(alterTable)}`)).rows[0][1]!
@@ -289,6 +300,10 @@ export async function verifySchemaChanges(config: ConnectionConfig) {
       expect((await run(`SELECT ${q('calculated')} FROM ${full(generatedName)}`)).rows).toEqual([['15']])
       await generated({ kind: 'generated-drop' })
       await run(`UPDATE ${full(generatedName)} SET ${q('quantity')}=7`)
+      expect((await run(`SELECT ${q('calculated')} FROM ${full(generatedName)}`)).rows).toEqual([['15']])
+    }
+    if (['mysql','mariadb'].includes(engine)) {
+      await change({ action: 'alter-column', target: await object(generatedName), column: 'calculated', alteration: { kind: 'generated-expression', expression: `${q('quantity')} + 10` } })
       expect((await run(`SELECT ${q('calculated')} FROM ${full(generatedName)}`)).rows).toEqual([['15']])
     }
     await change({ action: 'drop-table', target: await object(generatedName) })

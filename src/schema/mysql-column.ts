@@ -36,7 +36,7 @@ function unquoteIdentifier(value: string) {
   if ((quote !== '`' && quote !== '"') || value.at(-1) !== quote || value.includes('\\')) throw new Error('The native column identifier cannot be safely reconstructed.')
   return value.slice(1,-1).replaceAll(quote+quote, quote)
 }
-export function mysqlModifiedColumn(detail: ObjectDetail | undefined, column: string, oldType: string, change: { kind: 'type'; sql: string } | { kind: 'nullability'; nullable: boolean }, currentNullable: boolean): { sql: string; hadDefault: boolean } {
+export function mysqlModifiedColumn(detail: ObjectDetail | undefined, column: string, oldType: string, change: { kind: 'type'; sql: string } | { kind: 'nullability'; nullable: boolean } | { kind: 'expression'; sql: string; storage: 'virtual' | 'stored' }, currentNullable: boolean): { sql: string; hadDefault: boolean } {
   if (!detail?.definition.sql || detail.definition.source !== 'native' || detail.definition.truncated) throw new Error('The complete native table definition is required for this change.')
   const ddl = detail.definition.sql, parts = stableTokens(ddl)
   const open = parts.find(token => token.text === '(' && token.depth === 0)
@@ -56,6 +56,15 @@ export function mysqlModifiedColumn(detail: ObjectDetail | undefined, column: st
   const words = columnTokens.filter(token => token.kind === 'word' && token.depth === 0 && token.start >= typeEnd)
   const hadDefault = words.some(word => word.text === 'DEFAULT')
   if (change.kind === 'type') return { sql: segment.slice(0,typeStart) + change.sql + segment.slice(typeEnd), hadDefault }
+  if (change.kind === 'expression') {
+    const top = columnTokens.filter(token => token.depth === 0 && token.start >= typeEnd)
+    const as = top.filter(token => token.kind === 'word' && token.text === 'AS')
+    const generated = top.filter(token => token.kind === 'word' && token.text === 'GENERATED')
+    if (as.length !== 1 || generated.length !== 1) throw new Error('The generated column definition is incomplete or ambiguous. Inspect it with explicit SQL.')
+    const asIndex = top.indexOf(as[0]), generatedIndex = top.indexOf(generated[0]), open = top[asIndex+1], close = top[asIndex+2], storage = top[asIndex+3]
+    if (generatedIndex + 2 !== asIndex || top[generatedIndex+1]?.text !== 'ALWAYS' || open?.text !== '(' || close?.text !== ')' || !storage || !['VIRTUAL','STORED','PERSISTENT'].includes(storage.text) || (storage.text === 'VIRTUAL' ? 'virtual' : 'stored') !== change.storage || !/^\s*$/.test(segment.slice(as[0].end, open.start))) throw new Error('The generated column storage or expression is ambiguous. Inspect it with explicit SQL.')
+    return { sql: segment.slice(0,open.end) + change.sql + segment.slice(close.start), hadDefault }
+  }
   if (!change.nullable && words.some((word,i) => word.text === 'DEFAULT' && words[i+1]?.text === 'NULL')) throw new Error('The existing DEFAULT NULL conflicts with NOT NULL. Change the default first, then review nullability.')
   const notNull = words.flatMap((word,i) => word.text === 'NOT' && words[i+1]?.text === 'NULL' && /^\s+$/.test(segment.slice(word.end, words[i+1].start)) ? [{ start: word.start, end: words[i+1].end }] : [])
   if (notNull.length > 1 || currentNullable === Boolean(notNull.length)) throw new Error('The native nullability is ambiguous. Inspect the column definition with explicit SQL.')

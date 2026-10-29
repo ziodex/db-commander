@@ -140,15 +140,15 @@ for (const engine of engineSchema.options) test(`schema changes ${engine}: revie
     await expect(editor.getByRole('button', { name: 'Review SQL', exact: true })).toBeDisabled(); await expect(editor.getByRole('alert')).toContainText('Commit or roll back')
     await editor.getByRole('button', { name: 'Close schema changes', exact: true }).click()
     await page.getByRole('button', { name: 'Rollback', exact: true }).click(); await expect(page.locator('.status-text')).toHaveText('Completed')
-    if (engine === 'postgres') {
+    if (['postgres','mysql','mariadb'].includes(engine)) {
       await tableAction(page, `${name}`, 'Alter table')
       await editor.getByLabel('Schema operation').selectOption('alter-column'); await editor.getByLabel('Existing column').selectOption('computed_value')
-      await editor.getByLabel('Column change').selectOption('generated-expression'); await editor.getByLabel('New generated expression').fill(`${q('id')} + 2`)
-      await review(); await expect(editor.getByLabel('Schema SQL preview')).toHaveValue(/SET EXPRESSION AS/)
-      await editor.getByLabel('New generated expression').fill(`${q('id')} + 3`); await expect(editor.getByLabel('Schema SQL preview')).toHaveCount(0)
+      await editor.getByLabel('Column change').selectOption('generated-expression'); await editor.getByLabel('New generated expression').fill(engine === 'postgres' ? `${q('id')} + 2` : '2 + 4')
+      await review(); await expect(editor.getByLabel('Schema SQL preview')).toHaveValue(engine === 'postgres' ? /SET EXPRESSION AS/ : /GENERATED ALWAYS AS/)
+      await editor.getByLabel('New generated expression').fill(engine === 'postgres' ? `${q('id')} + 3` : '2 + 5'); await expect(editor.getByLabel('Schema SQL preview')).toHaveCount(0)
       await review(); await approve(); await expect(editor.getByRole('button', { name: 'Apply reviewed SQL', exact: true })).toBeDisabled()
       await editor.getByLabel('I understand this can remove data or database safeguards.', { exact: true }).check()
-      await page.screenshot({ path: testInfo.outputPath('postgres-generated-alter-review.png') })
+      await page.screenshot({ path: testInfo.outputPath(`${engine}-generated-alter-review.png`) })
       await apply(); await settle()
     }
     if (['postgres','oracle'].includes(engine)) {

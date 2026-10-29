@@ -198,9 +198,17 @@ export function schemaSql(change: SchemaChange, session: SessionInfo, detail?: O
       } else if (mysql) {
         const extra = metadata.get('Extra')
         if (extra == null) throw new Error('Identity or generated-column metadata is incomplete. Inspect the column before changing it.')
-        identity = /auto_increment/i.test(extra); generated = /(?:virtual|stored) generated/i.test(extra)
+        identity = /auto_increment/i.test(extra); generated = /(?:virtual|stored|persistent) generated/i.test(extra)
       }
       if (alter.kind !== 'type' && alter.kind !== 'nullability' && alter.kind !== 'default') {
+        if (mysql && alter.kind === 'generated-expression') {
+          const extra = metadata.get('Extra'), oldType = metadata.get('Type'), current = nullableValue(metadata.get('Nullable'))
+          const match = /\b(virtual|stored|persistent) generated\b/i.exec(extra ?? '')
+          if (!generated || !match || !oldType) throw new Error('Generated column metadata is incomplete. Inspect the column before changing it.')
+          const retained = mysqlModifiedColumn(detail, change.column, oldType, { kind: 'expression', sql: schemaExpression(alter.expression, engine), storage: match[1].toLowerCase() === 'virtual' ? 'virtual' : 'stored' }, current)
+          commands.push(`ALTER TABLE ${full} MODIFY COLUMN ${retained.sql}`)
+          break
+        }
         if (engine === 'oracle' && (alter.kind === 'identity-mode' || alter.kind === 'identity-drop')) {
           if (!identity || generated) throw new Error('This column is not an editable identity column.')
           const info = detail?.sections.find(section => section.title === 'Identity columns')
@@ -379,14 +387,14 @@ export function schemaSql(change: SchemaChange, session: SessionInfo, detail?: O
       ...(mssql && change.action === 'add-column' && change.column.nullable && !['none', 'null'].includes(change.column.default.kind) ? ['Existing rows remain NULL when adding a nullable column with a default. New rows use the default when no value is supplied.'] : []),
       ...(mysqlRestoreAbsentDefault ? ['MySQL requires a second implicitly committed statement to restore the absence of a default. If it fails or is interrupted after the first statement, DEFAULT NULL may remain; inspect the column before retrying.'] : []),
       ...(mariaImplicitNullDefault ? ['MariaDB represents a nullable column without a prior default as DEFAULT NULL after modification; the default metadata will change.'] : []),
-      ...(change.action === 'alter-column' && mysql && change.alteration.kind !== 'default' ? ['The complete existing native column definition is carried forward. A new type replaces its type-specific attributes; review character set, collation and defaults in the SQL.'] : []),
+      ...(change.action === 'alter-column' && mysql && change.alteration.kind !== 'default' ? [change.alteration.kind === 'type' ? 'The complete existing native column definition is carried forward. A new type replaces its type-specific attributes; review character set, collation and defaults in the SQL.' : 'The complete existing native column definition is carried forward. Review its attributes in the SQL.'] : []),
       ...(change.action === 'alter-column' && mysql && change.alteration.kind === 'type' ? ['MySQL/MariaDB may truncate values in non-strict SQL mode and may automatically shorten affected index prefixes. Review session mode and indexes.'] : []),
       ...(change.action === 'alter-column' && change.alteration.kind === 'type' ? ['Type conversion can rewrite data, lose precision or change collation where the new type does not support it. Review conversions and dependencies before applying.'] : []),
       ...(change.action === 'alter-column' && change.alteration.kind === 'type' && mssql ? ['SQL Server can reject a type change when a default constraint or other object depends on the column. Dependencies are not removed automatically.'] : []),
       ...(change.action === 'alter-column' && change.alteration.kind === 'identity-add' ? ['The new identity sequence starts independently of existing values. Review its starting value and uniqueness before inserting; existing rows are not changed.'] : []),
       ...(change.action === 'alter-column' && change.alteration.kind === 'identity-drop' ? [engine === 'oracle' ? 'Dropping identity removes its sequence and identity-imposed NOT NULL and NOT DEFERRABLE constraints. Existing values remain; inspect safeguards before future inserts.' : 'Dropping identity removes its sequence. Existing values remain, but future inserts must supply values or use a separately reviewed default.'] : []),
       ...(change.action === 'alter-column' && change.alteration.kind === 'identity-mode' ? [engine === 'oracle' ? 'Changing identity mode alters handling of explicit values and can remove BY DEFAULT ON NULL behavior. Existing rows are not changed.' : 'Changing identity mode changes whether future inserts may provide explicit values. Existing rows are not changed.'] : []),
-      ...(change.action === 'alter-column' && change.alteration.kind === 'generated-expression' ? ['The new SQL expression is evaluated by the database; stored values are rewritten and statistics are removed. Review dependencies and function effects.'] : []),
+      ...(change.action === 'alter-column' && change.alteration.kind === 'generated-expression' ? [mysql ? 'The new SQL expression is evaluated by the database. Stored values and dependent indexes may be rebuilt; virtual values can fail on later reads if out of range. Review SQL mode, dependencies and function effects.' : 'The new SQL expression is evaluated by the database; stored values are rewritten and statistics are removed. Review dependencies and function effects.'] : []),
       ...(change.action === 'alter-column' && change.alteration.kind === 'generated-drop' ? ['Existing stored values remain, but future changes will no longer recompute this column.'] : []),
       ...(change.action === 'alter-column' && change.alteration.kind === 'type' && engine === 'duckdb' ? ['DuckDB can reject a conversion because of previously deleted or updated values. No automatic cleanup or retry is performed.'] : []),
       ...(change.action === 'alter-column' && change.alteration.kind === 'type' && change.alteration.using ? ['The conversion expression is SQL evaluated by the database; review functions and side effects.'] : []),
