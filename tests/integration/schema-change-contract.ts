@@ -306,6 +306,22 @@ export async function verifySchemaChanges(config: ConnectionConfig) {
       await change({ action: 'alter-column', target: await object(generatedName), column: 'calculated', alteration: { kind: 'generated-expression', expression: `${q('quantity')} + 10` } })
       expect((await run(`SELECT ${q('calculated')} FROM ${full(generatedName)}`)).rows).toEqual([['15']])
     }
+    if (engine === 'oracle') {
+      const inspected = async () => {
+        const columns = (await driver.inspectObject({ sessionId: session.id, object: await object(generatedName) })).sections.find(section => section.title === 'Columns')!
+        const row = columns.rows.find(row => row[columns.columns.indexOf('Name')] === 'calculated')!
+        return ['Type','Length','Precision','Scale','Nullable','Virtual'].map(key => row[columns.columns.indexOf(key)])
+      }
+      const before = await inspected()
+      await change({ action: 'alter-column', target: await object(generatedName), column: 'calculated', alteration: { kind: 'generated-expression', expression: `${q('quantity')} + 10` } })
+      expect(await inspected()).toEqual(before)
+      expect((await run(`SELECT ${q('calculated')} FROM ${full(generatedName)}`)).rows).toEqual([['15']])
+      const incompatible = await prepare({ action: 'alter-column', target: await object(generatedName), column: 'calculated', alteration: { kind: 'generated-expression', expression: `TO_CHAR(${q('quantity')})` } })
+      const changedType = await apply(incompatible)
+      if (changedType.status !== 'completed') expect(['failed','unknown']).toContain(changedType.status)
+      expect(await inspected(), 'Changing only the expression must preserve the native column type').toEqual(before)
+      expect((await run(`SELECT ${q('calculated')} FROM ${full(generatedName)}`)).rows).toEqual([[changedType.status === 'completed' ? '5' : '15']])
+    }
     await change({ action: 'drop-table', target: await object(generatedName) })
     if (['mysql','mariadb'].includes(engine)) {
       await run(`CREATE TABLE ${full(alterTable)} (${q('id')} INT NOT NULL COMMENT 'identity kept', ${q('quantity')} INT, PRIMARY KEY (${q('id')}))`)
@@ -416,6 +432,30 @@ export async function verifySchemaChanges(config: ConnectionConfig) {
       const identityColumn = identityDetails.sections.find(section => section.title === 'Columns')!
       expect(identityColumn.rows[0][identityColumn.columns.indexOf('Default on null')]).toBe('NO')
       expect((await run(`SELECT ${q('id')} FROM ${full(alterTable)} WHERE ${q('quantity')}=5`)).rows).toEqual([['1']])
+      await change({ action: 'drop-table', target: await object(alterTable) })
+      await run(`CREATE TABLE ${full(alterTable)} (${q('quantity')} NUMBER, ${q('precise')} NUMBER(8,2) GENERATED ALWAYS AS (${q('quantity')} * 1.25) VIRTUAL, ${q('event_date')} DATE GENERATED ALWAYS AS (DATE '2020-01-01' + ${q('quantity')}) VIRTUAL, ${q('event_time')} TIMESTAMP(6) GENERATED ALWAYS AS (CAST(DATE '2020-01-01' + ${q('quantity')} AS TIMESTAMP)) VIRTUAL, ${q('zoned_time')} TIMESTAMP(6) WITH TIME ZONE GENERATED ALWAYS AS (FROM_TZ(CAST(DATE '2020-01-01' + ${q('quantity')} AS TIMESTAMP), 'UTC')) VIRTUAL, ${q('local_time')} TIMESTAMP(6) WITH LOCAL TIME ZONE GENERATED ALWAYS AS (CAST(FROM_TZ(CAST(DATE '2020-01-01' + ${q('quantity')} AS TIMESTAMP), 'UTC') AS TIMESTAMP WITH LOCAL TIME ZONE)) VIRTUAL, ${q('float_value')} BINARY_FLOAT GENERATED ALWAYS AS (CAST(${q('quantity')} AS BINARY_FLOAT)) VIRTUAL, ${q('double_value')} BINARY_DOUBLE GENERATED ALWAYS AS (CAST(${q('quantity')} AS BINARY_DOUBLE)) VIRTUAL, ${q('raw_value')} RAW(8) GENERATED ALWAYS AS (HEXTORAW(CASE WHEN ${q('quantity')} > 0 THEN 'FA' ELSE 'FB' END)) VIRTUAL, ${q('v_char')} VARCHAR2(64 CHAR) GENERATED ALWAYS AS (TO_CHAR(${q('quantity')} + 1)) VIRTUAL, ${q('v_byte')} VARCHAR2(64 BYTE) GENERATED ALWAYS AS (TO_CHAR(${q('quantity')} + 2)) VIRTUAL, ${q('fixed_char')} CHAR(64 CHAR) GENERATED ALWAYS AS (TO_CHAR(${q('quantity')} + 3)) VIRTUAL, ${q('national')} NVARCHAR2(64) GENERATED ALWAYS AS (TO_CHAR(${q('quantity')} + 4)) VIRTUAL, ${q('fixed_national')} NCHAR(64) GENERATED ALWAYS AS (TO_CHAR(${q('quantity')} + 5)) VIRTUAL)`)
+      await run(`INSERT INTO ${full(alterTable)} (${q('quantity')}) VALUES (1)`); await run('COMMIT')
+      const cases = [
+        ['precise', `${q('quantity')} * 2.25`],
+        ['event_date', `DATE '2020-01-01' + ${q('quantity')} + 1`],
+        ['event_time', `CAST(DATE '2020-01-01' + ${q('quantity')} + 1 AS TIMESTAMP)`],
+        ['zoned_time', `FROM_TZ(CAST(DATE '2020-01-01' + ${q('quantity')} + 1 AS TIMESTAMP), 'UTC')`],
+        ['local_time', `CAST(FROM_TZ(CAST(DATE '2020-01-01' + ${q('quantity')} + 1 AS TIMESTAMP), 'UTC') AS TIMESTAMP WITH LOCAL TIME ZONE)`],
+        ['float_value', `CAST(${q('quantity')} + 1 AS BINARY_FLOAT)`],
+        ['double_value', `CAST(${q('quantity')} + 1 AS BINARY_DOUBLE)`],
+        ['raw_value', `HEXTORAW(CASE WHEN ${q('quantity')} > 0 THEN 'FC' ELSE 'FD' END)`],
+        ...['v_char','v_byte','fixed_char','national','fixed_national'].map((name, index) => [name, `TO_CHAR(${q('quantity')} + ${index + 11})`])
+      ]
+      for (const [columnName, expression] of cases) {
+        const inspect = async () => {
+          const columns = (await driver.inspectObject({ sessionId: session.id, object: await object(alterTable) })).sections.find(section => section.title === 'Columns')!
+          const row = columns.rows.find(row => row[columns.columns.indexOf('Name')] === columnName)!
+          return ['Type','Length','Precision','Scale','Nullable','Virtual','Char semantics','Char length','Collation'].map(key => row[columns.columns.indexOf(key)])
+        }
+        const before = await inspect()
+        await change({ action: 'alter-column', target: await object(alterTable), column: columnName, alteration: { kind: 'generated-expression', expression } })
+        expect(await inspect(), columnName).toEqual(before)
+      }
       await change({ action: 'drop-table', target: await object(alterTable) })
     }
     await run(`INSERT INTO ${full(name)} (${q('id')}) VALUES (1)`); await run(`INSERT INTO ${full(name)} (${q('id')}) VALUES (2)`)

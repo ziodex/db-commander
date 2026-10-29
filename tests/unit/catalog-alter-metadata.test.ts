@@ -40,3 +40,15 @@ it('keeps Oracle browsing available when identity metadata is unavailable', asyn
   expect(detail.sections.some(section => section.title === 'Identity columns')).toBe(false)
   expect(() => schemaSql({ action: 'alter-column', target: table, column: 'v', alteration: { kind: 'identity-drop' } }, { ...session, engine: 'oracle' }, { ...detail, object: table, source: 'catalog-connection', fetchedAt: '' })).toThrow(/identity metadata is incomplete/i)
 })
+it('refuses Oracle character expression changes if collation metadata is unavailable', async () => {
+  const table: CatalogObject = { schema: 'TEST', name: 't', kind: 'table', identity: '12' }
+  const adapter = oracleCatalog(async sql => {
+    if (sql.includes('char_used')) throw new Error('field unavailable on this server')
+    if (sql.includes('evaluation_edition')) return [['v',null,null,null]]
+    if (sql.includes('FROM user_tab_cols')) return [['v','VARCHAR2','24',null,null,'Y','TO_CHAR(1)','NO','YES','NO']]
+    return []
+  })
+  const detail = await adapter.detail(table), columns = detail.sections.find(section => section.title === 'Columns')!
+  expect(columns.rows[0][columns.columns.indexOf('Collation')]).toBeNull()
+  expect(() => schemaSql({ action: 'alter-column', target: table, column: 'v', alteration: { kind: 'generated-expression', expression: 'TO_CHAR(2)' } }, { ...session, engine: 'oracle' }, { ...detail, object: table, source: 'catalog-connection', fetchedAt: '' })).toThrow(/character type or collation metadata is incomplete/)
+})

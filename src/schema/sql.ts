@@ -201,6 +201,38 @@ export function schemaSql(change: SchemaChange, session: SessionInfo, detail?: O
         identity = /auto_increment/i.test(extra); generated = /(?:virtual|stored|persistent) generated/i.test(extra)
       }
       if (alter.kind !== 'type' && alter.kind !== 'nullability' && alter.kind !== 'default') {
+        if (engine === 'oracle' && alter.kind === 'generated-expression') {
+          if (!generated || identity) throw new Error('This column is not an editable virtual column.')
+          const editions = detail?.sections.find(section => section.title === 'Virtual column editions'), nameIndex = editions?.columns.indexOf('Column') ?? -1
+          const editionColumns = ['Evaluation edition','Unusable before','Unusable beginning'].map(name => editions?.columns.indexOf(name) ?? -1)
+          const rows = editions?.rows.filter(row => row[nameIndex] === change.column) ?? []
+          if (!editions || editions.truncated || nameIndex < 0 || editionColumns.some(index => index < 0) || rows.length !== 1 || editionColumns.some(index => rows[0][index] === undefined)) throw new Error('Oracle virtual-column edition metadata is incomplete. Inspect it with explicit SQL.')
+          if (editionColumns.some(index => rows[0][index] !== null && rows[0][index] !== '')) throw new Error('Edition-dependent Oracle virtual columns require separately reviewed SQL.')
+          const type = metadata.get('Type'), precision = metadata.get('Precision'), scale = metadata.get('Scale'), length = metadata.get('Length')
+          let retainedType: string
+          if (type === 'NUMBER') {
+            if (precision === undefined || scale === undefined) throw new Error('Oracle numeric type metadata is incomplete. Inspect the virtual column with explicit SQL.')
+            if (precision == null && scale == null) retainedType = 'NUMBER'
+            else {
+              if (precision !== null && precision !== undefined && (!/^\d+$/.test(precision) || Number(precision) < 1 || Number(precision) > 38) || scale == null || !/^-?\d+$/.test(scale) || Number(scale) < -84 || Number(scale) > 127) throw new Error('Oracle numeric type metadata is incomplete. Inspect the virtual column with explicit SQL.')
+              retainedType = `NUMBER(${precision ?? '*'},${scale})`
+            }
+          } else if (type && ['DATE','BINARY_FLOAT','BINARY_DOUBLE'].includes(type)) retainedType = type
+          else if (type === 'RAW' && length && /^\d+$/.test(length) && Number(length) >= 1 && Number(length) <= 32767) retainedType = `RAW(${length})`
+          else if (type && /^TIMESTAMP\([0-9]\)(?: WITH (?:LOCAL )?TIME ZONE)?$/.test(type)) retainedType = type
+          else if (type && ['CHAR','VARCHAR2','NCHAR','NVARCHAR2'].includes(type)) {
+            const semantics = metadata.get('Char semantics'), charLength = metadata.get('Char length'), collation = metadata.get('Collation')
+            const isNational = type === 'NCHAR' || type === 'NVARCHAR2', size = isNational || semantics === 'C' ? charLength : length
+            if (!['B','C'].includes(semantics ?? '') || !size || !/^\d+$/.test(size) || Number(size) < 1 || Number(size) > 32767 || !collation) throw new Error('Oracle character type or collation metadata is incomplete. Inspect the virtual column with explicit SQL.')
+            const tableCollationIndex = editions.columns.indexOf('Table default collation'), tableCollation = rows[0][tableCollationIndex]
+            if (tableCollationIndex < 0 || !tableCollation) throw new Error('Oracle table collation metadata is incomplete. Inspect the virtual column with explicit SQL.')
+            if (collation !== 'USING_NLS_COMP' || tableCollation !== collation) throw new Error('A nondefault Oracle column or table collation requires separately reviewed SQL for this virtual expression change.')
+            retainedType = `${type}(${size}${isNational ? '' : semantics === 'C' ? ' CHAR' : ' BYTE'})`
+          }
+          else throw new Error('The virtual column type cannot be safely retained here. Inspect and change it with explicit SQL.')
+          commands.push(`ALTER TABLE ${full} MODIFY (${col} ${retainedType} GENERATED ALWAYS AS (${schemaExpression(alter.expression, engine)}))`)
+          break
+        }
         if (mysql && (alter.kind === 'identity-add' || alter.kind === 'identity-drop')) {
           if (generated) throw new Error('A generated column cannot also be AUTO_INCREMENT.')
           if (alter.kind === 'identity-add' && alter.mode !== 'auto') throw new Error('Choose the AUTO_INCREMENT identity mode for this engine.')
@@ -406,7 +438,7 @@ export function schemaSql(change: SchemaChange, session: SessionInfo, detail?: O
       ...(change.action === 'alter-column' && change.alteration.kind === 'identity-drop' ? [engine === 'oracle' ? 'Dropping identity removes its sequence and identity-imposed NOT NULL and NOT DEFERRABLE constraints. Existing values remain; inspect safeguards before future inserts.' : mysql ? 'Removing AUTO_INCREMENT stops automatic numbering and can affect future inserts and the table counter. Existing values are retained.' : 'Dropping identity removes its sequence. Existing values remain, but future inserts must supply values or use a separately reviewed default.'] : []),
       ...(change.action === 'alter-column' && mysql && (change.alteration.kind === 'identity-add' || change.alteration.kind === 'identity-drop') ? ['A foreign-key dependency can prevent this change. No constraints are removed automatically.'] : []),
       ...(change.action === 'alter-column' && change.alteration.kind === 'identity-mode' ? [engine === 'oracle' ? 'Changing identity mode alters handling of explicit values and can remove BY DEFAULT ON NULL behavior. Existing rows are not changed.' : 'Changing identity mode changes whether future inserts may provide explicit values. Existing rows are not changed.'] : []),
-      ...(change.action === 'alter-column' && change.alteration.kind === 'generated-expression' ? [mysql ? 'The new SQL expression is evaluated by the database. Stored values and dependent indexes may be rebuilt; virtual values can fail on later reads if out of range. Review SQL mode, dependencies and function effects.' : 'The new SQL expression is evaluated by the database; stored values are rewritten and statistics are removed. Review dependencies and function effects.'] : []),
+      ...(change.action === 'alter-column' && change.alteration.kind === 'generated-expression' ? [mysql ? 'The new SQL expression is evaluated by the database. Stored values and dependent indexes may be rebuilt; virtual values can fail on later reads if out of range. Review SQL mode, dependencies and function effects.' : engine === 'oracle' ? 'The new virtual expression is evaluated by the database. Review its type, dependencies, indexes and function effects.' : 'The new SQL expression is evaluated by the database; stored values are rewritten and statistics are removed. Review dependencies and function effects.'] : []),
       ...(change.action === 'alter-column' && change.alteration.kind === 'generated-drop' ? ['Existing stored values remain, but future changes will no longer recompute this column.'] : []),
       ...(change.action === 'alter-column' && change.alteration.kind === 'type' && engine === 'duckdb' ? ['DuckDB can reject a conversion because of previously deleted or updated values. No automatic cleanup or retry is performed.'] : []),
       ...(change.action === 'alter-column' && change.alteration.kind === 'type' && change.alteration.using ? ['The conversion expression is SQL evaluated by the database; review functions and side effects.'] : []),
