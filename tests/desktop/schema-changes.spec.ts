@@ -28,7 +28,12 @@ for (const engine of engineSchema.options) test(`schema changes ${engine}: revie
     await page.getByRole('button', { name: /^Run SQL/ }).click(); await expect(page.locator('.status-text')).toHaveText('Completed')
     await expect(page.getByRole('button', { name: /^Run SQL/ })).toBeEnabled()
   }
-  async function review() { await editor.getByRole('button', { name: 'Review SQL', exact: true }).click(); await expect(editor.getByLabel('Schema SQL preview')).toBeVisible({ timeout: metadataTimeout }) }
+  async function review() {
+    await editor.getByRole('button', { name: 'Review SQL', exact: true }).click()
+    await expect(editor.getByLabel('Schema SQL preview')).toBeVisible({ timeout: metadataTimeout })
+    const heading = editor.getByRole('heading', { name: 'Review SQL', exact: true })
+    await expect(heading).toBeFocused(); await expect(heading).toBeInViewport()
+  }
   async function approve() {
     await editor.getByLabel('I reviewed this SQL and its target.', { exact: true }).check()
     if (!transactional) {

@@ -14,6 +14,7 @@ export function SchemaChangeDialog({ session, snapshot, initialTarget, blocked, 
   onClose(): void; onPrepare(change: SchemaChange): Promise<SchemaChangePlan>; onApply(request: ApplySchemaChange): Promise<SchemaChangeResult>
 }) {
   const dialog = useRef<HTMLDialogElement>(null)
+  const reviewHeading = useRef<HTMLHeadingElement>(null)
   const [action, setAction] = useState<SchemaChange['action']>(initialTarget ? 'add-column' : 'create-table')
   const [targetKey, setTargetKey] = useState(initialTarget ? objectKey(initialTarget) : '')
   const [schema, setSchema] = useState(initialTarget?.schema ?? (session.engine === 'postgres' ? 'public' : ['sqlserver','azure-sql'].includes(session.engine) ? 'dbo' : session.engine === 'oracle' ? session.user.toUpperCase() : ['sqlite','duckdb'].includes(session.engine) ? 'main' : session.database))
@@ -33,6 +34,7 @@ export function SchemaChangeDialog({ session, snapshot, initialTarget, blocked, 
   const [busy, setBusy] = useState<'review' | 'apply' | null>(null), [error, setError] = useState(''), [message, setMessage] = useState('')
   const [confirmed, setConfirmed] = useState(false), [implicit, setImplicit] = useState(false), [nontransactional, setNontransactional] = useState(false), [destructive, setDestructive] = useState(false), [cancelling, setCancelling] = useState(false)
   useEffect(() => { const node = dialog.current!; node.showModal(); return () => node.close() }, [])
+  useEffect(() => { if (plan) reviewHeading.current?.focus() }, [plan])
   const targets = (snapshot?.catalog?.objects ?? []).filter(o => o.kind === (action === 'drop-index' ? 'index' : 'table'))
   const target = targets.find(o => objectKey(o) === targetKey)
   const targetColumns = snapshot?.objects.find(o => o.name === target?.name && o.schema === target?.schema && o.catalog === target?.catalog)?.columns.map(c => c.name) ?? []
@@ -121,7 +123,7 @@ export function SchemaChangeDialog({ session, snapshot, initialTarget, blocked, 
     </fieldset>
     {busy && <p role="status">{busy === 'review' ? 'Preparing SQL and checking metadata…' : 'Applying schema change…'}</p>}
     {error && <p role="alert">{error}</p>}{message && <p role="status">{message}</p>}
-    {plan && <section className="schema-review"><h3>Review SQL</h3><p>{plan.connection} · {plan.database} · Review expires {new Date(plan.expiresAt).toLocaleTimeString()}</p>{plan.warnings.map(warning => <p key={warning}>{warning}</p>)}<textarea aria-label="Schema SQL preview" readOnly spellCheck={false} value={plan.sql}/>
+    {plan && <section className="schema-review"><h3 ref={reviewHeading} tabIndex={-1}>Review SQL</h3><p>{plan.connection} · {plan.database} · Review expires {new Date(plan.expiresAt).toLocaleTimeString()}</p>{plan.warnings.map(warning => <p key={warning}>{warning}</p>)}<textarea aria-label="Schema SQL preview" readOnly spellCheck={false} value={plan.sql}/>
       <div className="object-actions"><button disabled={Boolean(busy)} onClick={() => void window.dbCommander.copyDefinition(plan.sql).then(() => setMessage('SQL copied.')).catch(e => setError((e as Error).message))}>Copy SQL</button><button disabled={Boolean(busy)} onClick={() => void window.dbCommander.saveSql(plan.sql).then(path => path && setMessage('SQL saved.')).catch(e => setError((e as Error).message))}>Save SQL</button></div>
       <fieldset disabled={Boolean(busy) || Boolean(result)}><label className="check-field"><input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)}/>I reviewed this SQL and its target.</label>{plan.transaction === 'implicit-commit' && <label className="check-field"><input type="checkbox" checked={implicit} onChange={e => setImplicit(e.target.checked)}/>I understand this DDL commits immediately and cannot be rolled back.</label>}{plan.transaction === 'nontransactional' && <label className="check-field"><input type="checkbox" checked={nontransactional} onChange={e => setNontransactional(e.target.checked)}/>I understand this runs outside a transaction and can leave an invalid index.</label>}{plan.destructive && <label className="check-field"><input type="checkbox" checked={destructive} onChange={e => setDestructive(e.target.checked)}/>I understand this can remove data or database safeguards.</label>}
         <button className="primary-button" disabled={Boolean(blocked) || !confirmed || plan.transaction === 'implicit-commit' && !implicit || plan.transaction === 'nontransactional' && !nontransactional || plan.destructive && !destructive} onClick={() => void apply()}>Apply reviewed SQL</button></fieldset>

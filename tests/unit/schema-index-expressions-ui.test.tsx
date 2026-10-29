@@ -34,6 +34,7 @@ it('keeps expression positions explicit, invalidates review, and handles removed
   fireEvent.click(screen.getByLabelText('Index expression 2 descending'))
   fireEvent.click(screen.getByRole('button', { name: 'Review SQL' }))
   await waitFor(() => expect(onPrepare).toHaveBeenCalledTimes(1))
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Review SQL' })))
   expect(onPrepare.mock.calls[0][0]).toMatchObject({ action: 'create-index', columns: ['id','label'], expressions: [{ expression: 'lower(label)', after: 'id', descending: false }, { expression: 'id + 1', after: null, descending: true }] })
   expect(await screen.findByLabelText('Schema SQL preview')).toBeTruthy()
   fireEvent.click(screen.getByLabelText('Index column id'))
