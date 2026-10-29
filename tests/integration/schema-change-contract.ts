@@ -225,6 +225,40 @@ export async function verifySchemaChanges(config: ConnectionConfig) {
       await expect(prepare({ action: 'alter-column', target: await object(alterTable), column: 'mode_sensitive', alteration: { kind: 'type', type: { type: 'varchar', length: 20, precision: 18, scale: 2 } } })).rejects.toThrow(/SQL mode/)
       await change({ action: 'drop-table', target: await object(alterTable) })
     }
+    if (['postgres','sqlite','duckdb','mysql','oracle'].includes(engine)) {
+      const expressionIndex = prefix+'_expression', expression = `lower(${q('label')})`
+      const expressionOnly: SchemaChange = { action: 'create-index', target: await object(name), name: expressionIndex, columns: [], expressions: [{ expression, after: null, descending: false }], unique: false }
+      const expressionPlan = await prepare(expressionOnly)
+      expect(expressionPlan.sql).toContain(`(${expression})`); expect(expressionPlan.warnings.join(' ')).toMatch(/determinism/)
+      const expressionResult = await apply(expressionPlan); expect(expressionResult.status, expressionResult.message).toBe('completed'); if (transactional) await run('COMMIT')
+      const indexSql = engine === 'postgres' ? `SELECT indexdef FROM pg_indexes WHERE schemaname='public' AND indexname='${expressionIndex}'`
+        : engine === 'sqlite' ? `SELECT sql FROM sqlite_master WHERE type='index' AND name='${expressionIndex}'`
+        : engine === 'duckdb' ? `SELECT sql FROM duckdb_indexes() WHERE index_name='${expressionIndex}'`
+        : engine === 'mysql' ? `SELECT EXPRESSION FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='${name.replaceAll("'", "''")}' AND INDEX_NAME='${expressionIndex}'`
+        : `SELECT column_expression FROM user_ind_expressions WHERE index_name='${expressionIndex}'`
+      expect((await run(indexSql)).rows[0][0]).toMatch(/lower/i)
+      await change({ action: 'drop-index', target: await object(expressionIndex, 'index') })
+      const mixed = prefix+'_mixed_expression'
+      const mixedPlan = await prepare({ ...expressionOnly, name: mixed, columns: ['id','label'], expressions: [{ expression: `${q('id')} + 1`, after: null, descending: false }, { expression, after: 'id', descending: engine !== 'duckdb' }] })
+      expect(mixedPlan.sql).toContain(`(${q('id')} + 1), ${q('id')}, (${expression})${engine === 'duckdb' ? '' : ' DESC'}, ${q('label')}`)
+      const mixedResult = await apply(mixedPlan); expect(mixedResult.status, mixedResult.message).toBe('completed'); if (transactional) await run('COMMIT')
+      if (engine !== 'duckdb') {
+        const orderSql = engine === 'postgres' ? `SELECT indexdef FROM pg_indexes WHERE schemaname='public' AND indexname='${mixed}'`
+          : engine === 'sqlite' ? `SELECT sql FROM sqlite_master WHERE type='index' AND name='${mixed}'`
+          : engine === 'mysql' ? `SELECT COLLATION FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='${name.replaceAll("'", "''")}' AND INDEX_NAME='${mixed}' AND SEQ_IN_INDEX=3`
+          : `SELECT descend FROM user_ind_columns WHERE index_name='${mixed}' AND column_position=3`
+        expect((await run(orderSql)).rows[0][0]).toMatch(engine === 'mysql' ? /^D$/ : /DESC/i)
+      }
+      await change({ action: 'drop-index', target: await object(mixed, 'index') })
+      await run(`CREATE TABLE ${full(alterTable)} (${q('id')} INTEGER, ${q('value')} ${engine === 'oracle' ? 'VARCHAR2(40)' : 'VARCHAR(40)'})`)
+      await run(`INSERT INTO ${full(alterTable)} (${q('id')},${q('value')}) VALUES (1,'Alice')`)
+      await run(`INSERT INTO ${full(alterTable)} (${q('id')},${q('value')}) VALUES (2,'alice')`); if (engine === 'oracle') await run('COMMIT')
+      const uniqueExpression = await prepare({ ...expressionOnly, target: await object(alterTable), name: prefix+'_unique_expression', expressions: [{ expression: `lower(${q('value')})`, after: null, descending: false }], unique: true })
+      const rejectedExpression = await apply(uniqueExpression)
+      expect(['failed','unknown']).toContain(rejectedExpression.status); expect(rejectedExpression.message).toMatch(/unique|duplicate/i)
+      expect((await run(`SELECT ${q('value')} FROM ${full(alterTable)} ORDER BY ${q('id')}`)).rows).toEqual([['Alice'],['alice']])
+      await change({ action: 'drop-table', target: await object(alterTable) })
+    }
     if (['postgres','sqlserver','azure-sql'].includes(engine)) {
       const isPg = engine === 'postgres', collation = isPg ? `${q('pg_catalog')}.${q('C')}` : 'Latin1_General_100_BIN2'
       await run(`CREATE TABLE ${full(alterTable)} (${q('id')} INTEGER PRIMARY KEY, ${q('collated')} ${isPg ? 'VARCHAR(20)' : 'NVARCHAR(20)'} COLLATE ${collation} DEFAULT 'original'${isPg ? '' : `, ${q('blocked_type')} INT DEFAULT 7`})`)

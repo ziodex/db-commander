@@ -54,9 +54,11 @@ const schemaChangeSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('drop-column'), target: catalogObjectSchema, column: name }).strict(),
   z.object({ action: z.literal('rename-table'), target: catalogObjectSchema, name }).strict(),
   z.object({ action: z.literal('drop-table'), target: catalogObjectSchema }).strict(),
-  z.object({ action: z.literal('create-index'), target: catalogObjectSchema, name, columns: z.array(name).min(1).max(16), unique: z.boolean(), descending: z.array(name).max(16).optional(), prefixes: z.array(z.object({ column: name, length: z.number().int().min(1).max(65535) }).strict()).max(16).optional(), include: z.array(name).max(16).optional(), predicate: z.string().min(1).max(4000).optional(), method: z.enum(['btree', 'hash', 'gist', 'gin', 'brin']).optional() }).strict(),
+  z.object({ action: z.literal('create-index'), target: catalogObjectSchema, name, columns: z.array(name).max(16), unique: z.boolean(), descending: z.array(name).max(16).optional(), prefixes: z.array(z.object({ column: name, length: z.number().int().min(1).max(65535) }).strict()).max(16).optional(), expressions: z.array(z.object({ expression: z.string().min(1).max(4000), after: name.nullable(), descending: z.boolean() }).strict()).max(16).optional(), include: z.array(name).max(16).optional(), predicate: z.string().min(1).max(4000).optional(), method: z.enum(['btree', 'hash', 'gist', 'gin', 'brin']).optional() }).strict(),
   z.object({ action: z.literal('drop-index'), target: catalogObjectSchema }).strict()
-])
+]).superRefine((change, context) => {
+  if (change.action === 'create-index' && (change.columns.length + (change.expressions?.length ?? 0) < 1 || change.columns.length + (change.expressions?.length ?? 0) > 16)) context.addIssue({ code: 'custom', message: 'Select between one and sixteen index keys.' })
+})
 export type SchemaChange = z.infer<typeof schemaChangeSchema>
 export const prepareSchemaChangeSchema = z.object({ sessionId: idSchema, change: schemaChangeSchema }).strict()
 export type PrepareSchemaChange = z.infer<typeof prepareSchemaChangeSchema>

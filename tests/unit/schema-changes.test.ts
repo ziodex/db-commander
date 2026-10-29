@@ -297,6 +297,24 @@ describe('schema change plans', () => {
     expect(() => schemaSql({ ...change, prefixes: [{ column: 'label', length: 5 }, { column: 'label', length: 6 }] }, mysql, columns)).toThrow()
     expect(prepareSchemaChangeSchema.safeParse({ sessionId: session.id, change: { ...change, prefixes: [{ column: 'label', length: 1.5 }] } }).success).toBe(false)
   })
+  it('reviews ordered expression keys with engine and version guards', () => {
+    const columns: ObjectDetail = { ...detail, sections: [{ title: 'Columns', columns: ['Name'], rows: [['id'],['label']] }] }
+    const change: Extract<SchemaChange,{ action: 'create-index' }> = { action: 'create-index', target, name: 'expr_idx', columns: ['id','label'], unique: false, expressions: [{ expression: 'lower(label)', after: null, descending: false }, { expression: 'id + 1', after: 'id', descending: true }, { expression: 'id + 2', after: 'id', descending: false }] }
+    const pg = { ...session, version: 'PostgreSQL 17.0' }, plan = schemaSql(change, pg, columns)
+    expect(plan.commands[0]).toBe('CREATE INDEX "expr_idx" ON "test"."t" ((lower(label)), "id", (id + 1) DESC, (id + 2), "label")')
+    expect(plan.warnings.join(' ')).toMatch(/function definitions are not locked/)
+    expect(() => schemaSql({ ...change, expressions: [{ expression: '1); DROP TABLE t; --', after: null, descending: false }] }, pg, columns)).toThrow()
+    expect(() => schemaSql({ ...change, expressions: [{ expression: '1', after: 'missing', descending: false }] }, pg, columns)).toThrow(/selected key column/)
+    expect(() => schemaSql(change, { ...session, engine: 'mysql', version: '8.0.12' }, columns)).toThrow(/8.0.13/)
+    expect(() => schemaSql(change, { ...session, engine: 'mariadb', version: '11.4.0-MariaDB' }, columns)).toThrow(/not supported/)
+    expect(() => schemaSql(change, { ...session, engine: 'sqlite', version: '3.8.11' }, columns)).toThrow(/3.9/)
+    expect(() => schemaSql(change, { ...session, engine: 'duckdb', version: '1.4.0' }, columns)).toThrow(/descending/)
+    expect(() => schemaSql({ ...change, method: 'hash' }, pg, columns)).toThrow(/Descending keys/)
+    expect(prepareSchemaChangeSchema.safeParse({ sessionId: session.id, change: { ...change, columns: [], expressions: [] } }).success).toBe(false)
+    const expressionOnly = { ...change, columns: [], expressions: [{ expression: 'lower(label)', after: null, descending: false }] }
+    expect(prepareSchemaChangeSchema.safeParse({ sessionId: session.id, change: expressionOnly }).success).toBe(true)
+    expect(schemaSql(expressionOnly, pg, columns).commands[0]).toContain('((lower(label)))')
+  })
   it('gates SQLite native NOT NULL changes by version and rejects redundant clauses', () => {
     const sqliteTarget = { ...target, schema: 'main' }
     const sqlite: ObjectDetail = { ...detail, object: sqliteTarget, sections: [{ title: 'Columns', columns: ['Name','Not null','Hidden / generated'], rows: [['id','0','0']] }], definition: { sql: 'CREATE TABLE t (id INTEGER)', source: 'native' } }
