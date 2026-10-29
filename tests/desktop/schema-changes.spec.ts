@@ -286,13 +286,13 @@ for (const engine of engineSchema.options) test(`schema changes ${engine}: revie
     if (engine === 'postgres') await editor.getByLabel('Index method').selectOption('btree')
     if (['postgres','sqlite','duckdb','mysql','oracle'].includes(engine)) {
       await editor.getByRole('button', { name: 'Add expression key', exact: true }).click()
-      await editor.getByLabel('Index expression 1').fill(`${q('new_value')} + 1`)
+      await editor.getByLabel('Index expression 1', { exact: true }).fill(`${q('new_value')} + 1`)
       await editor.getByLabel('Index expression 1 position').selectOption('1')
     } else await expect(editor.getByRole('button', { name: 'Add expression key', exact: true })).toHaveCount(0)
     await review()
     if (['postgres','sqlite','duckdb','mysql','oracle'].includes(engine)) {
       await expect(editor.getByLabel('Schema SQL preview')).toHaveValue(/\+ 1/)
-      await editor.getByLabel('Index expression 1').fill(`${q('new_value')} + 2`); await expect(editor.getByLabel('Schema SQL preview')).toHaveCount(0)
+      await editor.getByLabel('Index expression 1', { exact: true }).fill(`${q('new_value')} + 2`); await expect(editor.getByLabel('Schema SQL preview')).toHaveCount(0)
       await review(); await expect(editor.getByLabel('Schema SQL preview')).toHaveValue(/\+ 2/)
     }
     if (['mysql','mariadb'].includes(engine)) {
