@@ -37,7 +37,7 @@ export async function verifySchemaChanges(config: ConnectionConfig) {
     if (transactional) await run('COMMIT')
     return result
   }
-  const create: SchemaChange = { action: 'create-table', location, name, columns: [column('id',false), schemaColumnSchema.parse({ name: 'label', type: 'varchar', length: 100, nullable: true, default: { kind: 'text', value: "quote'\\;-- 世界" } })] }
+  const create: SchemaChange = { action: 'create-table', location, name, columns: [column('id',false), schemaColumnSchema.parse({ name: 'label', type: 'varchar', length: 100, nullable: true, default: { kind: 'text', value: "quote'\\;-- 世界" } }), schemaColumnSchema.parse({ name: 'expression_default', type: 'integer', nullable: true, default: { kind: 'expression', value: '1 + 2' } })] }
   create.columns[0].primaryKey = true
   let other: Awaited<ReturnType<typeof driver.connect>> | undefined
   try {
@@ -60,6 +60,17 @@ export async function verifySchemaChanges(config: ConnectionConfig) {
     await run(`INSERT INTO ${full(name)} (${q('id')}) VALUES (1)`); await run(`INSERT INTO ${full(name)} (${q('id')}) VALUES (2)`)
     if (engine === 'oracle') await run('COMMIT')
     expect((await run(`SELECT ${q('label')} FROM ${full(name)} WHERE ${q('id')}=1`)).rows).toEqual([["quote'\\;-- 世界"]])
+    expect((await run(`SELECT ${q('expression_default')} FROM ${full(name)} WHERE ${q('id')}=1`)).rows).toEqual([['3']])
+    const expressionColumn = { ...column('added_expression'), default: { kind: 'expression' as const, value: '4 + 5' } }
+    if (engine === 'sqlite') await expect(prepare({ action: 'add-column', target: await object(name), column: expressionColumn })).rejects.toThrow(/SQLite cannot add/)
+    else {
+      await change({ action: 'add-column', target: await object(name), column: expressionColumn })
+      const mssql = ['sqlserver','azure-sql'].includes(engine)
+      expect((await run(`SELECT ${q('added_expression')} FROM ${full(name)} WHERE ${q('id')}=1`)).rows).toEqual([[mssql ? null : '9']])
+      await run(`INSERT INTO ${full(name)} (${q('id')}) VALUES (3)`)
+      if (engine === 'oracle') await run('COMMIT')
+      expect((await run(`SELECT ${q('added_expression')} FROM ${full(name)} WHERE ${q('id')}=3`)).rows).toEqual([['9']])
+    }
     await change({ action: 'add-column', target: await object(name), column: { ...column('score',false), default: { kind: 'number', value: '7' } } })
     expect((await run(`SELECT ${q('score')} FROM ${full(name)} WHERE ${q('id')}=1`)).rows).toEqual([['7']])
     await change({ action: 'rename-column', target: await object(name), column: 'score', name: 'points odd' })

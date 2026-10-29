@@ -5,6 +5,7 @@ import { engineSchema, type SessionInfo } from '../../src/shared/contracts'
 import { prepareSchemaChangeSchema, schemaColumnSchema, transactionalDdl, type SchemaChange } from '../../src/shared/schema-changes'
 import type { Completion } from '../../src/driver/driver'
 import type { ObjectDetail } from '../../src/shared/catalog'
+import { schemaExpression } from '../../src/schema/expression'
 
 const session: SessionInfo = { id: '00000000-0000-4000-8000-000000000001', engine: 'postgres', name: 'test', database: 'test', user: 'test', host: 'localhost', port: 1, tls: false, transaction: 'idle', version: '' }
 const c = schemaColumnSchema.parse({ name: 'id', type: 'integer', nullable: false, primaryKey: true })
@@ -13,6 +14,29 @@ const target = { schema: 'test', name: 't', kind: 'table' as const, identity: '1
 const detail: ObjectDetail = { object: target, source: 'catalog-connection', fetchedAt: '', definition: { sql: 'CREATE TABLE t(id INT)', source: 'native' }, sections: [{ title: 'Columns', columns: ['Name','Type'], rows: [['id','integer']] }] }
 const catalogSession = (s: SessionInfo) => ({ getSession: () => ({ ...s }), explore: async () => ({ detail: structuredClone(detail) }) })
 describe('schema change plans', () => {
+  it.each(engineSchema.options)('retains a reviewed expression default for %s', engine => {
+    const value = schemaColumnSchema.parse({ ...c, default: { kind: 'expression', value: ' (1 + 2) * 3 ' } })
+    const s = { ...session, engine }, change = { ...create, location: { schema: engine === 'oracle' ? 'TEST' : 'test' }, columns: [value] }
+    const generated = schemaSql(change, s)
+    expect(generated.commands[0]).toContain(' DEFAULT ((1 + 2) * 3)')
+    expect(generated.warnings.join(' ')).toContain('can call functions')
+  })
+  it('rejects expression escapes and ambiguous syntax without rejecting quoted values', () => {
+    for (const engine of engineSchema.options) {
+      for (const value of ['1); DROP TABLE important; --', '1 /* comment */ + 2', '1, other_column INT', '(1 + 2', '1\nGO\nDROP TABLE x', 'coalesce(1, 2))', "'unfinished"]) {
+        expect(() => schemaExpression(value, engine), `${engine}: ${value}`).toThrow()
+      }
+      expect(schemaExpression("coalesce('semi;colon', 'other')", engine)).toBe("coalesce('semi;colon', 'other')")
+    }
+    expect(schemaExpression('ARRAY[1,2]', 'postgres')).toBe('ARRAY[1,2]')
+    expect(schemaExpression("E'a\\\\b'", 'postgres')).toBe("E'a\\\\b'")
+    expect(() => schemaExpression("'a\\\\b'", 'postgres')).toThrow(/explicit E string/)
+    expect(() => schemaExpression("N'a\\\\b'", 'postgres')).toThrow(/explicit E string/)
+    expect(() => schemaExpression('x'.repeat(4001), 'postgres')).toThrow(/4,000/)
+    expect(() => schemaExpression("'one\\' ; DROP TABLE x; --'", 'mysql')).toThrow()
+    const expression = schemaColumnSchema.parse({ ...c, name: 'added', primaryKey: false, default: { kind: 'expression', value: '1 + 2' } })
+    expect(() => schemaSql({ action: 'add-column', target, column: expression }, { ...session, engine: 'sqlite' }, detail)).toThrow(/SQLite cannot add/)
+  })
   it('accepts structured operations and rejects arbitrary SQL, type injection and control characters', () => {
     const input = { sessionId: session.id, change: create }
     expect(prepareSchemaChangeSchema.parse(input).change).toEqual(create)
@@ -39,6 +63,8 @@ describe('schema change plans', () => {
     const sqlserver = { ...detail, sections: [{ title: 'Columns', columns: ['Name','Default constraint'], rows: [['id','DF id']] }] }
     expect(schemaSql({ action: 'drop-column', target, column: 'id' }, { ...session, engine: 'sqlserver' }, sqlserver).commands).toEqual(['ALTER TABLE [test].[t] DROP CONSTRAINT [DF id]', 'ALTER TABLE [test].[t] DROP COLUMN [id]'])
     expect(schemaSql({ action: 'add-column', target, column: { ...c, name: 'next', primaryKey: false, default: { kind: 'number', value: '1' } } }, { ...session, engine: 'duckdb' }, detail).commands).toHaveLength(2)
+    const nullable = schemaColumnSchema.parse({ name: 'added', type: 'integer', nullable: true, default: { kind: 'expression', value: '4 + 5' } })
+    expect(schemaSql({ action: 'add-column', target, column: nullable }, { ...session, engine: 'sqlserver' }, detail).warnings.join(' ')).toContain('Existing rows remain NULL')
   })
   it('requires a fresh, one-use plan and all relevant acknowledgments', async () => {
     const manager = new SchemaChanges(), s = { ...session, engine: 'mysql' as const }, driver = catalogSession(s)
@@ -51,6 +77,18 @@ describe('schema change plans', () => {
     const result = await manager.apply({ ...request, implicitCommitApproved: true },driver,async sql => { actual.push(sql); return execute() })
     expect(result.status).toBe('completed'); expect(actual[0]).toContain('CREATE TABLE'); expect(actual[0]).not.toContain('DROP DATABASE')
     await expect(manager.apply({ ...request, implicitCommitApproved: true },driver,execute)).rejects.toThrow(/expired/)
+  })
+  it('executes the retained expression review even if the caller mutates its input and preview', async () => {
+    const manager = new SchemaChanges(), s = { ...session, engine: 'mysql' as const }, driver = catalogSession(s)
+    const column = schemaColumnSchema.parse({ name: 'amount', type: 'integer', nullable: true, default: { kind: 'expression', value: '1 + 2' } })
+    const change: SchemaChange = { action: 'create-table', location: { schema: 'test' }, name: 'safe', columns: [column] }
+    const plan = await manager.prepare({ sessionId: s.id, change }, driver)
+    column.default = { kind: 'expression', value: '99' }; plan.sql = 'DROP TABLE safe;'
+    const executed: string[] = []
+    const result = await manager.apply({ sessionId: s.id, planId: plan.id, confirmed: true, implicitCommitApproved: true, destructiveApproved: false }, driver, async sql => { executed.push(sql); return { status: 'completed' } as Completion })
+    expect(result.status).toBe('completed')
+    expect(executed).toHaveLength(1); expect(executed[0]).toContain('DEFAULT (1 + 2)'); expect(executed[0]).not.toContain('DROP TABLE')
+    await expect(manager.apply({ sessionId: s.id, planId: plan.id, confirmed: true, implicitCommitApproved: true, destructiveApproved: false }, driver, async () => ({ status: 'completed' } as Completion))).rejects.toThrow(/expired/)
   })
   it('cancels between transactional statements and rolls back the owned transaction', async () => {
     const manager = new SchemaChanges(), s = { ...session }, executed: string[] = [], driver = catalogSession(s)

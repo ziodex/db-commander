@@ -9,7 +9,8 @@ const defaultSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('none') }).strict(), z.object({ kind: z.literal('null') }).strict(),
   z.object({ kind: z.literal('text'), value: z.string().max(4000).refine(value => !value.includes('\0'), 'NUL is not supported in defaults.') }).strict(),
   z.object({ kind: z.literal('number'), value: z.string().max(100).regex(/^-?\d+(?:\.\d+)?$/) }).strict(),
-  z.object({ kind: z.literal('boolean'), value: z.boolean() }).strict()
+  z.object({ kind: z.literal('boolean'), value: z.boolean() }).strict(),
+  z.object({ kind: z.literal('expression'), value: z.string().min(1).max(4000) }).strict()
 ])
 export const schemaColumnSchema = z.object({ name, type: z.enum(columnTypes), length: z.number().int().min(1).max(4000).default(255), precision: z.number().int().min(1).max(38).default(18), scale: z.number().int().min(0).max(38).default(2), nullable: z.boolean(), primaryKey: z.boolean().default(false), default: defaultSchema.default({ kind: 'none' }) }).strict()
 export type SchemaColumnInput = z.infer<typeof schemaColumnSchema>

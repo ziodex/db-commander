@@ -2,6 +2,7 @@ import { quoteIdentifier } from '../shared/sql/common'
 import type { ObjectDetail } from '../shared/catalog'
 import type { SessionInfo } from '../shared/contracts'
 import { supportsCreateSchema, transactionalDdl, type SchemaChange, type SchemaColumnInput } from '../shared/schema-changes'
+import { schemaExpression } from './expression'
 
 function columnNames(detail?: ObjectDetail): string[] {
   const section = detail?.sections.find(section => section.title === 'Columns'), position = section?.columns.indexOf('Name') ?? -1
@@ -21,6 +22,7 @@ export function schemaSql(change: SchemaChange, session: SessionInfo, detail?: O
     if (value.kind === 'null') return ' DEFAULT NULL'
     if (value.kind === 'number') return ` DEFAULT ${value.value}`
     if (value.kind === 'boolean') return ` DEFAULT ${mssql || engine === 'oracle' ? (value.value ? '1' : '0') : value.value ? 'TRUE' : 'FALSE'}`
+    if (value.kind === 'expression') return ` DEFAULT (${schemaExpression(value.value, engine)})`
     // Hex encoding is independent of the server's NO_BACKSLASH_ESCAPES setting.
     return ` DEFAULT ${mysql ? `(CONVERT(X'${Buffer.from(value.value).toString('hex')}' USING utf8mb4))` : literal(value.value)}`
   }
@@ -57,7 +59,8 @@ export function schemaSql(change: SchemaChange, session: SessionInfo, detail?: O
     case 'add-column':
       if (change.column.primaryKey) throw new Error('Adding a primary key is not supported by Add column.')
       if (names.includes(change.column.name)) throw new Error('This column already exists.')
-      if (!change.column.nullable && ['none','null'].includes(change.column.default.kind)) throw new Error('Adding a required column needs a non-NULL literal default for existing rows.')
+      if (engine === 'sqlite' && change.column.default.kind === 'expression') throw new Error('SQLite cannot add a column with an expression default. Use a literal default or review a separate table migration.')
+      if (!change.column.nullable && ['none','null'].includes(change.column.default.kind)) throw new Error('Adding a required column needs a non-NULL default for existing rows.')
       commands.push(`ALTER TABLE ${full} ADD ${engine === 'oracle' ? `(${column(change.column)})` : `${mssql ? '' : 'COLUMN '}${column(change.column, engine === 'duckdb')}`}`)
       if (engine === 'duckdb' && !change.column.nullable) commands.push(`ALTER TABLE ${full} ALTER COLUMN ${q(change.column.name)} SET NOT NULL`)
       break
@@ -92,6 +95,8 @@ export function schemaSql(change: SchemaChange, session: SessionInfo, detail?: O
     transaction: transactional ? 'transactional' as const : 'implicit-commit' as const, destructive: ['drop-table','drop-column','drop-index'].includes(change.action),
     warnings: [transactional ? 'Starts a new transaction and leaves successful changes uncommitted. Close this dialog, then Commit or Rollback in this tab. Failure or cancellation rolls back this change when the connection remains usable.' : 'DDL commits implicitly and cannot be rolled back. Existing transactions and manual-commit mode must be resolved first. An error or cancellation does not prove that the DDL was undone.',
       'DDL can lock tables and affect dependent objects. Database permissions and dependency rules still apply; no automatic CASCADE or table rebuild is added.',
+      ...((change.action === 'create-table' && change.columns.some(c => c.default.kind === 'expression') || change.action === 'add-column' && change.column.default.kind === 'expression') ? ['Default expressions are SQL evaluated by the database and can call functions. Review their behavior and side effects before applying.'] : []),
+      ...(mssql && change.action === 'add-column' && change.column.nullable && !['none', 'null'].includes(change.column.default.kind) ? ['Existing rows remain NULL when adding a nullable column with a default. New rows use the default when no value is supplied.'] : []),
       ...(['rename-table','rename-column'].includes(change.action) ? ['Renaming may leave views, routines or application SQL referring to the old name. Review dependencies separately.'] : []),
       ...(['drop-table','drop-column'].includes(change.action) ? ['This removes data. Related objects or data can also be affected according to the engine’s dependency and foreign-key rules.'] : []),
       ...(change.action === 'drop-index' ? ['Dropping an index may remove uniqueness enforcement or affect query performance. Constraint-backed indexes can be rejected by the server.'] : [])] }
