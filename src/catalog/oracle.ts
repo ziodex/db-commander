@@ -28,7 +28,10 @@ export function oracleCatalog(query: CatalogQuery, definitionQuery?: CatalogQuer
       try {
         const sections = [], table = o.parent ?? o.name, params = [o.schema,table]
         if (['table','view','materialized view','constraint'].includes(o.kind)) {
-          sections.push(section('Columns', ['Name','Type','Length','Precision','Scale','Nullable','Default','Identity','Virtual'], await query('SELECT column_name,data_type,data_length,data_precision,data_scale,nullable,data_default,identity_column,virtual_column FROM user_tab_cols WHERE USER=:1 AND table_name=:2 AND hidden_column=\'NO\' ORDER BY column_id FETCH FIRST 501 ROWS ONLY', params)))
+          let columns: (string | null)[][]
+          try { columns = await query('SELECT column_name,data_type,data_length,data_precision,data_scale,nullable,data_default,identity_column,virtual_column,default_on_null FROM user_tab_cols WHERE USER=:1 AND table_name=:2 AND hidden_column=\'NO\' ORDER BY column_id FETCH FIRST 501 ROWS ONLY', params) }
+          catch { columns = (await query('SELECT column_name,data_type,data_length,data_precision,data_scale,nullable,data_default,identity_column,virtual_column FROM user_tab_cols WHERE USER=:1 AND table_name=:2 AND hidden_column=\'NO\' ORDER BY column_id FETCH FIRST 501 ROWS ONLY', params)).map(row => [...row, null]) }
+          sections.push(section('Columns', ['Name','Type','Length','Precision','Scale','Nullable','Default','Identity','Virtual','Default on null'], columns))
           const constraints = section('Constraints and keys', ['Name','Kind','Status','Deferrable','Validated','Referenced owner','Referenced constraint','Delete rule'], await query('SELECT constraint_name,constraint_type,status,deferrable,validated,r_owner,r_constraint_name,delete_rule FROM user_constraints WHERE USER=:1 AND table_name=:2 ORDER BY constraint_name FETCH FIRST 501 ROWS ONLY', params))
           sections.push(constraints)
           const keyColumns = section('Key columns', ['Constraint','Column','Position'], await query('SELECT constraint_name,column_name,position FROM user_cons_columns WHERE USER=:1 AND table_name=:2 ORDER BY constraint_name,position FETCH FIRST 501 ROWS ONLY', params))

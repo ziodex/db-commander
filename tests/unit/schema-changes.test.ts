@@ -201,6 +201,50 @@ describe('schema change plans', () => {
     expect(result.status).toBe('failed'); expect(result.message).toContain('referenced table changed'); expect(executed).toEqual([])
     await expect(manager.apply({ sessionId: s.id, planId: plan.id, confirmed: true, implicitCommitApproved: false, destructiveApproved: false }, driver, async () => ({ status: 'completed' } as Completion))).rejects.toThrow(/expired/)
   })
+  it('reviews column type, nullability and default changes without rewriting other properties', () => {
+    const pgDetail: ObjectDetail = { ...detail, sections: [{ title: 'Columns', columns: ['Name','Type','Nullable','Identity','Generated','Collation schema','Collation'], rows: [['id','text','true','','','pg_catalog','C']] }] }
+    const spec = { type: 'varchar' as const, length: 64, precision: 18, scale: 2 }
+    const conversion = schemaSql({ action: 'alter-column', target, column: 'id', alteration: { kind: 'type', type: spec, using: 'upper(id)' } }, session, pgDetail)
+    expect(conversion.commands[0]).toBe('ALTER TABLE "test"."t" ALTER COLUMN "id" TYPE VARCHAR(64) COLLATE "pg_catalog"."C" USING upper(id)')
+    expect(conversion.destructive).toBe(true); expect(conversion.warnings.join(' ')).toContain('rewrite data')
+    expect(() => schemaSql({ action: 'alter-column', target, column: 'id', alteration: { kind: 'type', type: spec, using: 'id); DROP TABLE x; --' } }, session, pgDetail)).toThrow()
+    expect(schemaSql({ action: 'alter-column', target, column: 'id', alteration: { kind: 'nullability', nullable: false } }, session, pgDetail).commands[0]).toContain('SET NOT NULL')
+    expect(schemaSql({ action: 'alter-column', target, column: 'id', alteration: { kind: 'default', default: { kind: 'number', value: '7' } } }, session, pgDetail).commands[0]).toContain('SET DEFAULT 7')
+    const generated = { ...pgDetail, sections: [{ ...pgDetail.sections[0], rows: [['id','text','true','','s','pg_catalog','C']] }] }
+    expect(() => schemaSql({ action: 'alter-column', target, column: 'id', alteration: { kind: 'default', default: { kind: 'none' } } }, session, generated)).toThrow(/Generated columns/)
+  })
+  it('gates SQLite native NOT NULL changes by version and rejects redundant clauses', () => {
+    const sqliteTarget = { ...target, schema: 'main' }
+    const sqlite: ObjectDetail = { ...detail, object: sqliteTarget, sections: [{ title: 'Columns', columns: ['Name','Not null','Hidden / generated'], rows: [['id','0','0']] }], definition: { sql: 'CREATE TABLE t (id INTEGER)', source: 'native' } }
+    const change = { action: 'alter-column' as const, target: sqliteTarget, column: 'id', alteration: { kind: 'nullability' as const, nullable: false } }
+    expect(() => schemaSql(change, { ...session, engine: 'sqlite', version: '3.51.3' }, sqlite)).toThrow(/separate table migration/)
+    expect(schemaSql(change, { ...session, engine: 'sqlite', version: '3.53.0' }, sqlite).commands[0]).toBe('ALTER TABLE "main"."t" ALTER COLUMN "id" SET NOT NULL')
+    expect(schemaSql(change, { ...session, engine: 'sqlite', version: '3.53.0' }, sqlite).destructive).toBe(true)
+    const redundant: ObjectDetail = { ...sqlite, sections: [{ ...sqlite.sections[0], rows: [['id','1','0']] }], definition: { sql: 'CREATE TABLE t (id INTEGER NOT NULL NOT NULL)', source: 'native' } }
+    expect(() => schemaSql({ ...change, alteration: { kind: 'nullability', nullable: true } }, { ...session, engine: 'sqlite', version: '3.54.0' }, redundant)).toThrow(/redundant/)
+  })
+  it('preserves SQL Server collation, full type modifiers and named defaults', () => {
+    const cols = ['Name','Type','Length (bytes)','Precision','Scale','Nullable','Identity','Computed expression','Default','Default constraint','Type schema','User-defined','Collation','Sparse','Column set','Filestream','Generated always','Hidden','Masked','Encryption','XML schema collection','Default object ID','Computed']
+    const row = ['id','nvarchar','40','0','0','1','0',null,"(N'x')",'DF_id','sys','0','Latin1_General_100_BIN2','0','0','0','0','0','0',null,'0','17','0']
+    const sqlDetail: ObjectDetail = { ...detail, sections: [{ title: 'Columns', columns: cols, rows: [row] }] }
+    const s = { ...session, engine: 'sqlserver' as const }
+    const notNull = schemaSql({ action: 'alter-column', target, column: 'id', alteration: { kind: 'nullability', nullable: false } }, s, sqlDetail)
+    expect(notNull.commands[0]).toBe('ALTER TABLE [test].[t] ALTER COLUMN [id] NVARCHAR(20) COLLATE Latin1_General_100_BIN2 NOT NULL')
+    const replacement = schemaSql({ action: 'alter-column', target, column: 'id', alteration: { kind: 'default', default: { kind: 'text', value: 'y' } } }, s, sqlDetail)
+    expect(replacement.commands).toEqual(['ALTER TABLE [test].[t] DROP CONSTRAINT [DF_id]', "ALTER TABLE [test].[t] ADD CONSTRAINT [DF_id] DEFAULT N'y' FOR [id]"])
+    const sparse = { ...sqlDetail, sections: [{ ...sqlDetail.sections[0], rows: [row.map((value,i) => i === cols.indexOf('Sparse') ? '1' : value)] }] }
+    expect(() => schemaSql({ action: 'alter-column', target, column: 'id', alteration: { kind: 'nullability', nullable: false } }, s, sparse)).toThrow(/sparse/)
+  })
+  it('warns and reports a partial MySQL change when restoring an absent default fails', async () => {
+    const mysqlDetail: ObjectDetail = { ...detail, definition: { sql: 'CREATE TABLE `t` (`id` int NOT NULL)', source: 'native' }, sections: [{ title: 'Columns', columns: ['Name','Type','Nullable','Extra'], rows: [['id','int','NO','']] }] }
+    const s = { ...session, engine: 'mysql' as const, version: '8.4.11' }, driver = { getSession: () => ({ ...s }), explore: async () => ({ detail: structuredClone(mysqlDetail) }) }, manager = new SchemaChanges()
+    const plan = await manager.prepare({ sessionId: s.id, change: { action: 'alter-column', target, column: 'id', alteration: { kind: 'nullability', nullable: true } } }, driver)
+    expect(plan.destructive).toBe(true); expect(plan.warnings.join(' ')).toContain('second implicitly committed statement')
+    const executed: string[] = []
+    const result = await manager.apply({ sessionId: s.id, planId: plan.id, confirmed: true, implicitCommitApproved: true, destructiveApproved: true }, driver, async sql => { executed.push(sql); return { status: executed.length === 1 ? 'completed' : 'failed', error: 'restore failed' } as Completion })
+    expect(result.status).toBe('failed'); expect(result.message).toContain('DDL can commit implicitly'); expect(executed).toHaveLength(2); expect(executed[1]).toContain('DROP DEFAULT')
+    await expect(manager.apply({ sessionId: s.id, planId: plan.id, confirmed: true, implicitCommitApproved: true, destructiveApproved: true }, driver, async () => ({ status: 'completed' } as Completion))).rejects.toThrow(/expired/)
+  })
   it('requires a fresh, one-use plan and all relevant acknowledgments', async () => {
     const manager = new SchemaChanges(), s = { ...session, engine: 'mysql' as const }, driver = catalogSession(s)
     const plan = await manager.prepare({ sessionId: s.id, change: create }, driver)

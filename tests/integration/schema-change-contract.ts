@@ -14,7 +14,7 @@ export async function verifySchemaChanges(config: ConnectionConfig) {
   const driver = new DriverRegistry(event => { events.push(event) }, { workerPath: resolve('out/main/sqlite-worker.cjs') })
   const engine = config.engine, embedded = ['sqlite','duckdb'].includes(engine), transactional = transactionalDdl(engine)
   const local = embedded ? { ...config, filePath: join(directory,'schema.db'), sqliteMode: 'create' as const, duckdbMode: 'create' as const } : config
-  const session = await driver.connect(local), prefix = `ddl_${randomUUID().replaceAll('-','').slice(0,8)}`, name = prefix+" odd'", renamed = prefix+'_renamed', generatedName = prefix+'_generated', identityAddName = prefix+'_identity_added', alwaysName = prefix+'_identity_always', generatedKeyName = prefix+'_generated_key', methodTable = prefix+'_method_types', nativeTable = prefix+'_native', namedType = prefix+'_enum', constrainedTable = prefix+'_constraints', cascadeTable = prefix+'_cascade', compositeParent = prefix+'_composite_parent', compositeChild = prefix+'_composite_child'
+  const session = await driver.connect(local), prefix = `ddl_${randomUUID().replaceAll('-','').slice(0,8)}`, name = prefix+" odd'", renamed = prefix+'_renamed', generatedName = prefix+'_generated', identityAddName = prefix+'_identity_added', alwaysName = prefix+'_identity_always', generatedKeyName = prefix+'_generated_key', methodTable = prefix+'_method_types', nativeTable = prefix+'_native', namedType = prefix+'_enum', constrainedTable = prefix+'_constraints', cascadeTable = prefix+'_cascade', compositeParent = prefix+'_composite_parent', compositeChild = prefix+'_composite_child', alterTable = prefix+'_alter', conversionTable = prefix+'_conversion'
   const schema = engine === 'postgres' ? 'public' : ['sqlserver','azure-sql'].includes(engine) ? 'dbo' : engine === 'oracle' ? config.user.toUpperCase() : embedded ? 'main' : session.database
   const location = { schema, ...(engine === 'duckdb' ? { catalog: session.database } : {}) }
   const q = (value: string) => quoteIdentifier(value, engine), full = (name: string) => [...(location.catalog ? [q(location.catalog)] : []),q(schema),q(name)].join('.')
@@ -109,6 +109,149 @@ export async function verifySchemaChanges(config: ConnectionConfig) {
       await change({ action: 'drop-table', target: await object(nativeTable) })
       await run(`DROP TYPE ${full(namedType)}`)
     }
+    const alterValue = schemaColumnSchema.parse({ name: 'value', type: 'varchar', length: 20, nullable: true, default: { kind: 'text', value: 'alpha' } })
+    await change({ action: 'create-table', location, name: alterTable, columns: [{ ...column('id', false), primaryKey: true }, alterValue] })
+    await run(`INSERT INTO ${full(alterTable)} (${q('id')}) VALUES (1)`)
+    if (engine === 'oracle') await run('COMMIT')
+    const alter = async (alteration: Extract<SchemaChange,{ action: 'alter-column' }>['alteration']) => change({ action: 'alter-column', target: await object(alterTable), column: 'value', alteration })
+    if (engine === 'sqlite') {
+      await expect(prepare({ action: 'alter-column', target: await object(alterTable), column: 'value', alteration: { kind: 'default', default: { kind: 'text', value: 'bravo' } } })).rejects.toThrow(/separate table migration/)
+      const sqliteVersion = /^(\d+)\.(\d+)/.exec(session.version), supportsAlterNull = Number(sqliteVersion?.[1] ?? 0) > 3 || Number(sqliteVersion?.[1] ?? 0) === 3 && Number(sqliteVersion?.[2] ?? 0) >= 53
+      const requireValue: SchemaChange = { action: 'alter-column', target: await object(alterTable), column: 'value', alteration: { kind: 'nullability', nullable: false } }
+      if (supportsAlterNull) {
+        await change(requireValue)
+        const denied = driver.start({ sessionId: session.id, sql: `INSERT INTO ${full(alterTable)} (${q('id')},${q('value')}) VALUES (2,NULL)`, maxRows: 100 }); await driver.wait(session.id)
+        expect(events.find(event => event.type === 'complete' && event.queryId === denied)).toMatchObject({ status: 'failed' })
+        await alter({ kind: 'nullability', nullable: true })
+        await run(`INSERT INTO ${full(alterTable)} (${q('id')},${q('value')}) VALUES (2,NULL)`)
+      } else await expect(prepare(requireValue)).rejects.toThrow(/separate table migration/)
+    } else {
+      await alter({ kind: 'default', default: { kind: 'text', value: 'bravo' } })
+      await run(`INSERT INTO ${full(alterTable)} (${q('id')}) VALUES (2)`)
+      if (engine === 'oracle') await run('COMMIT')
+      expect((await run(`SELECT ${q('value')} FROM ${full(alterTable)} ORDER BY ${q('id')}`)).rows).toEqual([['alpha'],['bravo']])
+      await alter({ kind: 'default', default: { kind: 'expression', value: "upper('mixed')" } })
+      await run(`INSERT INTO ${full(alterTable)} (${q('id')}) VALUES (4)`)
+      expect((await run(`SELECT ${q('value')} FROM ${full(alterTable)} WHERE ${q('id')}=4`)).rows).toEqual([['MIXED']])
+      await run(`DELETE FROM ${full(alterTable)} WHERE ${q('id')}=4`)
+      if (engine === 'oracle') await run('COMMIT')
+      await alter({ kind: 'default', default: { kind: 'none' } })
+      if (engine === 'mysql') {
+        const omitted = driver.start({ sessionId: session.id, sql: `INSERT INTO ${full(alterTable)} (${q('id')}) VALUES (3)`, maxRows: 100 }); await driver.wait(session.id)
+        expect(events.find(event => event.type === 'complete' && event.queryId === omitted)).toMatchObject({ status: 'failed' })
+        await run(`INSERT INTO ${full(alterTable)} (${q('id')},${q('value')}) VALUES (3,NULL)`)
+      } else await run(`INSERT INTO ${full(alterTable)} (${q('id')}) VALUES (3)`)
+      if (engine === 'oracle') await run('COMMIT')
+      expect((await run(`SELECT ${q('value')} FROM ${full(alterTable)} WHERE ${q('id')}=3`)).rows).toEqual([[null]])
+      await alter({ kind: 'default', default: { kind: 'text', value: 'charlie' } })
+      {
+        const notNull = await prepare({ action: 'alter-column', target: await object(alterTable), column: 'value', alteration: { kind: 'nullability', nullable: false } })
+        const failed = await apply(notNull); expect(['failed','unknown']).toContain(failed.status)
+        expect((await run(`SELECT ${q('value')} FROM ${full(alterTable)} WHERE ${q('id')}=3`)).rows).toEqual([[null]])
+        await run(`UPDATE ${full(alterTable)} SET ${q('value')}='charlie' WHERE ${q('id')}=3`)
+        if (engine === 'oracle') await run('COMMIT')
+        await alter({ kind: 'nullability', nullable: false })
+        const nullable = await prepare({ action: 'alter-column', target: await object(alterTable), column: 'value', alteration: { kind: 'nullability', nullable: true } })
+        expect(nullable.destructive).toBe(true); await expect(apply(nullable, { destructiveApproved: false })).rejects.toThrow(/destructive/)
+        expect((await apply(nullable)).status).toBe('completed'); if (transactional) await run('COMMIT')
+        const type = { type: 'varchar' as const, length: 40, precision: 18, scale: 2 }
+        const typePlan = await prepare({ action: 'alter-column', target: await object(alterTable), column: 'value', alteration: { kind: 'type', type, ...(['postgres','duckdb'].includes(engine) ? { using: `upper(${q('value')})` } : {}) } })
+        expect(typePlan.destructive).toBe(true); await expect(apply(typePlan, { destructiveApproved: false })).rejects.toThrow(/destructive/)
+        const converted = await apply(typePlan); expect(converted.status, converted.message).toBe('completed'); if (transactional) await run('COMMIT')
+        expect((await run(`SELECT ${q('value')} FROM ${full(alterTable)} WHERE ${q('id')}=1`)).rows).toEqual([[['postgres','duckdb'].includes(engine) ? 'ALPHA' : 'alpha']])
+        if (['postgres','duckdb'].includes(engine)) {
+          await alter({ kind: 'default', default: { kind: 'none' } })
+          await run(`UPDATE ${full(alterTable)} SET ${q('value')}=CAST(${q('id')} AS VARCHAR)`)
+          const conversion: Extract<SchemaChange,{ action: 'alter-column' }>['alteration'] = { kind: 'type', type: { type: 'integer', length: 255, precision: 18, scale: 2 }, using: `CAST(${q('value')} AS INTEGER)` }
+          if (engine === 'duckdb') {
+            const oldRows = await apply(await prepare({ action: 'alter-column', target: await object(alterTable), column: 'value', alteration: conversion }))
+            expect(['failed','completed']).toContain(oldRows.status)
+            if (oldRows.status === 'failed') expect(oldRows.message).toMatch(/rolled back/); else await run('COMMIT')
+            expect((await run(`SELECT ${q('value')} FROM ${full(alterTable)} ORDER BY ${q('id')}`)).rows).toEqual([['1'],['2'],['3']])
+            await change({ action: 'create-table', location, name: conversionTable, columns: [schemaColumnSchema.parse({ name: 'value', type: 'varchar', nullable: true })] })
+            await run(`INSERT INTO ${full(conversionTable)} (${q('value')}) VALUES ('1'),('2')`)
+            await change({ action: 'alter-column', target: await object(conversionTable), column: 'value', alteration: conversion })
+            expect((await run(`SELECT ${q('value')} FROM ${full(conversionTable)} ORDER BY ${q('value')}`)).rows).toEqual([['1'],['2']])
+            await change({ action: 'drop-table', target: await object(conversionTable) })
+          } else {
+            await alter(conversion)
+            expect((await run(`SELECT ${q('value')} FROM ${full(alterTable)} ORDER BY ${q('id')}`)).rows).toEqual([['1'],['2'],['3']])
+          }
+        }
+      }
+    }
+    await change({ action: 'drop-table', target: await object(alterTable) })
+    if (['mysql','mariadb'].includes(engine)) {
+      const odd = 'odd`name'
+      await run(`CREATE TABLE ${full(alterTable)} (${q('id')} INT PRIMARY KEY, ${q(odd)} VARCHAR(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT 'alpha' COMMENT 'a,b; note', ${q('stamp')} TIMESTAMP(3) NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3), ${q('generated')} INT GENERATED ALWAYS AS (${q('id')} + 1) VIRTUAL)`)
+      await run(`INSERT INTO ${full(alterTable)} (${q('id')}) VALUES (1)`)
+      await change({ action: 'alter-column', target: await object(alterTable), column: odd, alteration: { kind: 'nullability', nullable: false } })
+      await change({ action: 'alter-column', target: await object(alterTable), column: odd, alteration: { kind: 'type', type: { type: 'varchar', length: 40, precision: 18, scale: 2 } } })
+      await change({ action: 'alter-column', target: await object(alterTable), column: odd, alteration: { kind: 'nullability', nullable: true } })
+      await change({ action: 'alter-column', target: await object(alterTable), column: 'stamp', alteration: { kind: 'type', type: { type: 'timestamp', nativeType: { kind: 'builtin', name: 'DATETIME', fractional: 3 }, length: 255, precision: 18, scale: 2 } } })
+      const ddl = (await run(`SHOW CREATE TABLE ${full(alterTable)}`)).rows[0][1]!
+      expect(ddl.toLowerCase()).toContain('collate utf8mb4_bin'); expect(ddl).toContain('a,b; note'); expect(ddl.toLowerCase()).toContain('on update current_timestamp(3)')
+      await run(`INSERT INTO ${full(alterTable)} (${q('id')}) VALUES (2)`)
+      expect((await run(`SELECT ${q(odd)} FROM ${full(alterTable)} ORDER BY ${q('id')}`)).rows).toEqual([['alpha'],['alpha']])
+      await expect(prepare({ action: 'alter-column', target: await object(alterTable), column: 'generated', alteration: { kind: 'default', default: { kind: 'number', value: '5' } } })).rejects.toThrow(/Generated columns/)
+      await run(`ALTER TABLE ${full(alterTable)} ADD ${q('no_default')} INT NOT NULL DEFAULT 8`)
+      await change({ action: 'alter-column', target: await object(alterTable), column: 'no_default', alteration: { kind: 'default', default: { kind: 'none' } } })
+      const beforeNull = (await run(`SHOW CREATE TABLE ${full(alterTable)}`)).rows[0][1]!
+      const beforeLine = beforeNull.split('\n').find(line => line.includes('`no_default`'))!
+      const absentDefault = await prepare({ action: 'alter-column', target: await object(alterTable), column: 'no_default', alteration: { kind: 'nullability', nullable: true } })
+      expect(absentDefault.warnings.join(' ')).toContain(engine === 'mysql' ? 'second implicitly committed statement' : 'default metadata will change')
+      const noDefaultResult = await apply(absentDefault); expect(noDefaultResult.status, noDefaultResult.message).toBe('completed')
+      const afterNull = (await run(`SHOW CREATE TABLE ${full(alterTable)}`)).rows[0][1]!
+      const afterLine = afterNull.split('\n').find(line => line.includes('`no_default`'))!
+      expect(beforeLine).not.toMatch(/\bDEFAULT\b/i)
+      if (engine === 'mysql') expect(afterLine, 'MySQL must restore the absent default').not.toMatch(/\bDEFAULT\b/i)
+      else expect(afterLine).toMatch(/DEFAULT NULL/i)
+      await change({ action: 'alter-column', target: await object(alterTable), column: 'no_default', alteration: { kind: 'type', type: { type: 'bigint', length: 255, precision: 18, scale: 2 } } })
+      const afterType = (await run(`SHOW CREATE TABLE ${full(alterTable)}`)).rows[0][1]!.split('\n').find(line => line.includes('`no_default`'))!
+      if (engine === 'mysql') expect(afterType, 'MySQL type change must restore the absent default').not.toMatch(/\bDEFAULT\b/i)
+      else expect(afterType).toMatch(/DEFAULT NULL/i)
+      await run(`ALTER TABLE ${full(alterTable)} ADD ${q('mode_sensitive')} VARCHAR(10) COMMENT 'a\\\\b'`)
+      await expect(prepare({ action: 'alter-column', target: await object(alterTable), column: 'mode_sensitive', alteration: { kind: 'type', type: { type: 'varchar', length: 20, precision: 18, scale: 2 } } })).rejects.toThrow(/SQL mode/)
+      await change({ action: 'drop-table', target: await object(alterTable) })
+    }
+    if (['postgres','sqlserver','azure-sql'].includes(engine)) {
+      const isPg = engine === 'postgres', collation = isPg ? `${q('pg_catalog')}.${q('C')}` : 'Latin1_General_100_BIN2'
+      await run(`CREATE TABLE ${full(alterTable)} (${q('id')} INTEGER PRIMARY KEY, ${q('collated')} ${isPg ? 'VARCHAR(20)' : 'NVARCHAR(20)'} COLLATE ${collation} DEFAULT 'original'${isPg ? '' : `, ${q('blocked_type')} INT DEFAULT 7`})`)
+      await run(`INSERT INTO ${full(alterTable)} (${q('id')}) VALUES (1)`)
+      if (!isPg) {
+        const blocked = await prepare({ action: 'alter-column', target: await object(alterTable), column: 'blocked_type', alteration: { kind: 'type', type: { type: 'bigint', length: 255, precision: 18, scale: 2 } } })
+        expect(blocked.warnings.join(' ')).toMatch(/default constraint/)
+        const rejected = await apply(blocked)
+        expect(['failed','unknown']).toContain(rejected.status); expect(rejected.message).toMatch(/dependent|dependenc/i)
+        const inspected = (await driver.inspectObject({ sessionId: session.id, object: await object(alterTable) })).sections.find(section => section.title === 'Columns')!
+        const unchanged = inspected.rows.find(row => row[inspected.columns.indexOf('Name')] === 'blocked_type')!
+        expect(unchanged[inspected.columns.indexOf('Type')]?.toLowerCase()).toBe('int')
+        expect(unchanged[inspected.columns.indexOf('Default constraint')]).toBeTruthy()
+        expect((await run(`SELECT ${q('blocked_type')} FROM ${full(alterTable)} WHERE ${q('id')}=1`)).rows).toEqual([['7']])
+      }
+      await change({ action: 'alter-column', target: await object(alterTable), column: 'collated', alteration: { kind: 'nullability', nullable: false } })
+      await change({ action: 'alter-column', target: await object(alterTable), column: 'collated', alteration: { kind: 'type', type: { type: 'varchar', length: 40, precision: 18, scale: 2 } } })
+      await run(`INSERT INTO ${full(alterTable)} (${q('id')}) VALUES (2)`)
+      expect((await run(`SELECT ${q('collated')} FROM ${full(alterTable)} ORDER BY ${q('id')}`)).rows).toEqual([['original'],['original']])
+      const actual = (await driver.inspectObject({ sessionId: session.id, object: await object(alterTable) })).sections.find(section => section.title === 'Columns')!
+      const row = actual.rows.find(row => row[actual.columns.indexOf('Name')] === 'collated')!
+      expect(row[actual.columns.indexOf('Collation')]).toBe(isPg ? 'C' : 'Latin1_General_100_BIN2')
+      if (!isPg) {
+        await run(`ALTER TABLE ${full(alterTable)} ADD ${q('sparse_value')} INT SPARSE NULL, ${q('computed_value')} AS (${q('id')} + 1)`)
+        await expect(prepare({ action: 'alter-column', target: await object(alterTable), column: 'sparse_value', alteration: { kind: 'nullability', nullable: false } })).rejects.toThrow(/sparse/)
+        await expect(prepare({ action: 'alter-column', target: await object(alterTable), column: 'computed_value', alteration: { kind: 'default', default: { kind: 'number', value: '1' } } })).rejects.toThrow(/Generated columns/)
+      }
+      await change({ action: 'drop-table', target: await object(alterTable) })
+    }
+    if (engine === 'oracle') {
+      await run(`CREATE TABLE ${full(alterTable)} (${q('id')} INTEGER PRIMARY KEY, ${q('special_default')} INTEGER DEFAULT ON NULL 5)`)
+      await run(`INSERT INTO ${full(alterTable)} (${q('id')},${q('special_default')}) VALUES (1,NULL)`); await run('COMMIT')
+      await change({ action: 'alter-column', target: await object(alterTable), column: 'special_default', alteration: { kind: 'default', default: { kind: 'number', value: '9' } } })
+      await run(`INSERT INTO ${full(alterTable)} (${q('id')},${q('special_default')}) VALUES (2,NULL)`); await run('COMMIT')
+      expect((await run(`SELECT ${q('special_default')} FROM ${full(alterTable)} ORDER BY ${q('id')}`)).rows).toEqual([['5'],['9']])
+      await expect(prepare({ action: 'alter-column', target: await object(alterTable), column: 'special_default', alteration: { kind: 'default', default: { kind: 'none' } } })).rejects.toThrow(/DEFAULT ON NULL/)
+      await change({ action: 'drop-table', target: await object(alterTable) })
+    }
     const id = { ...column('generated_id', false), primaryKey: true, ...(engine === 'duckdb' ? {} : { generation: { kind: 'identity' as const, mode: ['postgres','oracle'].includes(engine) ? 'by-default' as const : 'auto' as const } }) }
     const storage = ['postgres','mysql','mariadb','sqlserver','azure-sql'].includes(engine) ? 'stored' as const : 'virtual' as const
     const computed = (name: string, amount: number) => schemaColumnSchema.parse({ name, type: 'integer', nullable: true, generation: { kind: 'computed', expression: `${q('quantity')} + ${amount}`, storage } })
@@ -116,6 +259,15 @@ export async function verifySchemaChanges(config: ConnectionConfig) {
     await run(engine === 'duckdb' ? `INSERT INTO ${full(generatedName)} (${q('generated_id')},${q('quantity')}) VALUES (1,2)` : `INSERT INTO ${full(generatedName)} (${q('quantity')}) VALUES (2)`)
     if (engine === 'oracle') await run('COMMIT')
     expect((await run(`SELECT ${q('generated_id')},${q('quantity')},${q('calculated')} FROM ${full(generatedName)}`)).rows).toEqual([['1','2','3']])
+    const generatedAlter: SchemaChange = { action: 'alter-column', target: await object(generatedName), column: 'calculated', alteration: { kind: 'default', default: { kind: 'number', value: '5' } } }
+    if (engine === 'duckdb') {
+      const denied = await apply(await prepare(generatedAlter)); expect(denied.status).toBe('failed')
+      expect((await run(`SELECT ${q('calculated')} FROM ${full(generatedName)}`)).rows).toEqual([['3']])
+    } else await expect(prepare(generatedAlter)).rejects.toThrow(engine === 'sqlite' ? /separate table migration/ : /Generated columns/)
+    if (engine !== 'duckdb') {
+      const identityAlter: SchemaChange = { ...generatedAlter, column: 'generated_id' }
+      await expect(prepare(identityAlter)).rejects.toThrow(engine === 'sqlite' ? /separate table migration/ : /Identity columns/)
+    }
     const gridResult = await driver.editGrid({ action: 'open', sessionId: session.id, table: { ...location, name: generatedName } })
     expect(gridResult.error).toBeUndefined(); expect(gridResult.grid).toBeDefined()
     const grid = gridResult.grid!, generatedIndex = grid.columns.findIndex(c => c.name === 'calculated')
@@ -358,7 +510,7 @@ export async function verifySchemaChanges(config: ConnectionConfig) {
     expect(driver.getSession(other.id).transaction).toBe('idle')
   } finally {
     try { await run('ROLLBACK') } catch {}
-    for (const table of [compositeChild,compositeParent,cascadeTable,constrainedTable,name,renamed,generatedName,identityAddName,alwaysName,generatedKeyName,methodTable,nativeTable]) { try { await run(`DROP TABLE ${full(table)}`) } catch {} }
+    for (const table of [conversionTable,alterTable,compositeChild,compositeParent,cascadeTable,constrainedTable,name,renamed,generatedName,identityAddName,alwaysName,generatedKeyName,methodTable,nativeTable]) { try { await run(`DROP TABLE ${full(table)}`) } catch {} }
     if (['postgres','duckdb','sqlserver','azure-sql','oracle'].includes(engine)) { try { await run(`DROP TYPE ${full(namedType)}`) } catch {} }
     await driver.close(); rmSync(directory, { recursive: true, force: true })
   }

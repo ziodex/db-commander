@@ -1,9 +1,12 @@
 import { quoteIdentifier } from '../shared/sql/common'
 import { objectKey, type ObjectDetail } from '../shared/catalog'
 import type { SessionInfo } from '../shared/contracts'
-import { supportsCreateSchema, transactionalDdl, type SchemaChange, type SchemaColumnInput, type TableConstraint } from '../shared/schema-changes'
+import { supportsCreateSchema, transactionalDdl, type SchemaChange, type SchemaColumnInput, type SchemaColumnType, type TableConstraint } from '../shared/schema-changes'
 import { schemaExpression } from './expression'
 import { nativeIdentityCompatible, nativeTypeSql } from './native-types'
+import { sqlServerCurrentType } from './sqlserver-column'
+import { mysqlModifiedColumn } from './mysql-column'
+import { sqliteExplicitNotNullCount } from './sqlite-column'
 
 function columnNames(detail?: ObjectDetail): string[] {
   const section = detail?.sections.find(section => section.title === 'Columns'), position = section?.columns.indexOf('Name') ?? -1
@@ -26,6 +29,12 @@ export function schemaSql(change: SchemaChange, session: SessionInfo, detail?: O
     if (value.kind === 'expression') return ` DEFAULT (${schemaExpression(value.value, engine)})`
     // Hex encoding is independent of the server's NO_BACKSLASH_ESCAPES setting.
     return ` DEFAULT ${mysql ? `(CONVERT(X'${Buffer.from(value.value).toString('hex')}' USING utf8mb4))` : literal(value.value)}`
+  }
+  function columnType(c: SchemaColumnType) {
+    if (!c.nativeType && c.type === 'decimal' && c.scale > c.precision) throw new Error('Decimal scale cannot exceed precision.')
+    return c.nativeType ? nativeTypeSql(c.nativeType, engine, q, session.version) : c.type === 'varchar' ? `${mssql ? 'NVARCHAR' : engine === 'oracle' ? 'VARCHAR2' : 'VARCHAR'}(${c.length}${engine === 'oracle' ? ' CHAR' : ''})`
+      : c.type === 'decimal' ? `DECIMAL(${c.precision},${c.scale})`
+      : ({ integer: 'INTEGER', bigint: engine === 'oracle' ? 'NUMBER(19)' : 'BIGINT', text: engine === 'oracle' ? 'CLOB' : mssql ? 'NVARCHAR(MAX)' : mysql ? 'LONGTEXT' : 'TEXT', boolean: engine === 'oracle' ? 'NUMBER(1)' : mssql ? 'BIT' : 'BOOLEAN', date: 'DATE', timestamp: mssql ? 'DATETIME2' : mysql ? 'DATETIME' : 'TIMESTAMP' } as Record<string,string>)[c.type]
   }
   function column(c: SchemaColumnInput, omitNotNull = false) {
     const generation = c.generation
@@ -52,9 +61,7 @@ export function schemaSql(change: SchemaChange, session: SessionInfo, detail?: O
       if ((engine === 'duckdb' || mssql && generation.storage === 'virtual') && !c.nullable) throw new Error('This generated column has database-inferred nullability. Leave Nullable selected.')
     }
     if (mssql && generation?.kind === 'computed' && c.nativeType) throw new Error('SQL Server infers computed-column types; remove the native type selection.')
-    const type = c.nativeType ? nativeTypeSql(c.nativeType, engine, q, session.version) : c.type === 'varchar' ? `${mssql ? 'NVARCHAR' : engine === 'oracle' ? 'VARCHAR2' : 'VARCHAR'}(${c.length}${engine === 'oracle' ? ' CHAR' : ''})`
-      : c.type === 'decimal' ? `DECIMAL(${c.precision},${c.scale})`
-      : ({ integer: 'INTEGER', bigint: engine === 'oracle' ? 'NUMBER(19)' : 'BIGINT', text: engine === 'oracle' ? 'CLOB' : mssql ? 'NVARCHAR(MAX)' : mysql ? 'LONGTEXT' : 'TEXT', boolean: engine === 'oracle' ? 'NUMBER(1)' : mssql ? 'BIT' : 'BOOLEAN', date: 'DATE', timestamp: mssql ? 'DATETIME2' : mysql ? 'DATETIME' : 'TIMESTAMP' } as Record<string,string>)[c.type]
+    const type = mssql && generation?.kind === 'computed' ? '' : columnType(c)
     if (generation?.kind === 'computed') {
       const expression = schemaExpression(generation.expression, engine)
       if (mssql) return `${q(c.name)} AS (${expression})${generation.storage === 'stored' ? ' PERSISTED' : ''}${!c.nullable || c.primaryKey ? ' NOT NULL' : ''}`
@@ -79,6 +86,20 @@ export function schemaSql(change: SchemaChange, session: SessionInfo, detail?: O
   const full = target ? qualified(target.name) : '', names = columnNames(detail)
   function requireColumn(name: string) { if (!names.includes(name)) throw new Error(`Column ${name} is no longer visible. Refresh and review again.`) }
   function unique(names: string[]) { if (new Set(names.map(name => name.toLowerCase())).size !== names.length) throw new Error('Column names must be distinct, ignoring case.') }
+  function columnMetadata(name: string) {
+    const section = detail?.sections.find(section => section.title === 'Columns')
+    const position = section?.columns.indexOf('Name') ?? -1, row = section?.rows.find(row => row[position] === name)
+    if (!section || position < 0 || !row) throw new Error(`Column ${name} is no longer visible. Refresh and review again.`)
+    return { section, row, get(key: string) { const i = section.columns.indexOf(key); if (i < 0) throw new Error('Column metadata is incomplete. Inspect its definition and use explicit SQL.'); return row[i] } }
+  }
+  function isTrue(value: string | null | undefined) { return value === '1' || value?.toLowerCase() === 'true' || value?.toUpperCase() === 'YES' || value === 'Y' }
+  function isFalse(value: string | null | undefined) { return value === '0' || value?.toLowerCase() === 'false' || value?.toUpperCase() === 'NO' || value === 'N' }
+  function nullableValue(value: string | null | undefined) {
+    if (isTrue(value)) return true
+    if (isFalse(value)) return false
+    throw new Error('Column nullability metadata is incomplete. Inspect its definition and use explicit SQL.')
+  }
+  function isTextType(type: SchemaColumnType) { return type.nativeType?.kind === 'named' || type.nativeType?.kind === 'builtin' ? type.nativeType?.kind === 'named' || ['CHAR','VARCHAR','NCHAR','NVARCHAR','TEXT'].includes(type.nativeType.name) : ['varchar','text'].includes(type.type) }
   function renderConstraint(constraint: TableConstraint, localNames: string[], place: { schema: string; catalog?: string }, tableName: string) {
     q(constraint.name)
     if (constraint.kind === 'check') {
@@ -124,6 +145,7 @@ export function schemaSql(change: SchemaChange, session: SessionInfo, detail?: O
     if (namePos < 0 || kindPos < 0 || !actual || !expected.includes(actual)) throw new Error('The selected constraint is no longer visible or its kind changed. Refresh and review again.')
   }
   const commands: string[] = []
+  let mysqlRestoreAbsentDefault = false, mariaImplicitNullDefault = false
   switch (change.action) {
     case 'create-schema':
       if (!supportsCreateSchema(engine)) throw new Error('Namespace creation is not supported here. MySQL/MariaDB schemas are databases, Oracle schemas are users, and SQLite namespaces are attachments. Use explicit SQL or an existing namespace.')
@@ -151,6 +173,90 @@ export function schemaSql(change: SchemaChange, session: SessionInfo, detail?: O
       commands.push(`ALTER TABLE ${full} ADD ${engine === 'oracle' ? `(${column(change.column)})` : `${mssql ? '' : 'COLUMN '}${column(change.column, engine === 'duckdb')}`}`)
       if (engine === 'duckdb' && !change.column.nullable) commands.push(`ALTER TABLE ${full} ALTER COLUMN ${q(change.column.name)} SET NOT NULL`)
       break
+    case 'alter-column': {
+      const metadata = columnMetadata(change.column), alter = change.alteration, col = q(change.column)
+      if (engine === 'sqlite') {
+        const version = /^(\d+)\.(\d+)\.(\d+)/.exec(session.version), major = Number(version?.[1] ?? 0), minor = Number(version?.[2] ?? 0)
+        if (alter.kind !== 'nullability' || major < 3 || major === 3 && minor < 53) throw new Error('SQLite cannot make this column change here. Review a separate table migration.')
+        const hidden = metadata.get('Hidden / generated'), notNull = metadata.get('Not null')
+        if (hidden !== '0' || !isTrue(notNull) && !isFalse(notNull)) throw new Error('This SQLite column cannot be safely altered from its available metadata.')
+        const current = !isTrue(notNull)
+        if (current === alter.nullable) throw new Error('The column already has the selected nullability.')
+        const count = sqliteExplicitNotNullCount(detail, change.column)
+        if (count !== (current ? 0 : 1)) throw new Error('The SQLite column has an implicit or redundant NOT NULL constraint. Inspect it with explicit SQL.')
+        commands.push(`ALTER TABLE ${full} ALTER COLUMN ${col} ${alter.nullable ? 'DROP' : 'SET'} NOT NULL`); break
+      }
+      let identity = false, generated = false
+      if (engine === 'postgres') {
+        const id = metadata.get('Identity'), gen = metadata.get('Generated')
+        if (id == null || gen == null) throw new Error('Identity or generated-column metadata is incomplete. Inspect the column before changing it.')
+        identity = Boolean(id); generated = Boolean(gen)
+      } else if (engine === 'oracle' || mssql) {
+        const id = metadata.get('Identity'), gen = metadata.get(engine === 'oracle' ? 'Virtual' : 'Computed')
+        if (!isTrue(id) && !isFalse(id) || !isTrue(gen) && !isFalse(gen)) throw new Error('Identity or generated-column metadata is incomplete. Inspect the column before changing it.')
+        identity = isTrue(id); generated = isTrue(gen)
+      } else if (mysql) {
+        const extra = metadata.get('Extra')
+        if (extra == null) throw new Error('Identity or generated-column metadata is incomplete. Inspect the column before changing it.')
+        identity = /auto_increment/i.test(extra); generated = /(?:virtual|stored) generated/i.test(extra)
+      }
+      if (generated) throw new Error('Generated columns need a separately reviewed expression change; this editor will not replace their definition.')
+      if (alter.kind === 'default') {
+        if (identity) throw new Error('Identity columns cannot have their defaults changed here.')
+        if (alter.default.kind === 'null' && !nullableValue(metadata.get('Nullable'))) throw new Error('A required column cannot default to NULL.')
+        if (engine === 'oracle') {
+          const onNullValue = metadata.get('Default on null')
+          if (!isTrue(onNullValue) && !isFalse(onNullValue)) throw new Error('Oracle DEFAULT ON NULL metadata is unavailable. Inspect the column and use explicit SQL.')
+          const onNull = isTrue(onNullValue)
+          if (onNull && ['none','null'].includes(alter.default.kind)) throw new Error('Removing DEFAULT ON NULL needs a separately reviewed alteration to preserve its nullability semantics.')
+          const clause = alter.default.kind === 'none' ? ' DEFAULT NULL' : defaultSql(alter.default)
+          commands.push(`ALTER TABLE ${full} MODIFY (${col}${onNull ? clause.replace(' DEFAULT ', ' DEFAULT ON NULL ') : clause})`)
+        } else if (mssql) {
+          const defaultId = metadata.get('Default object ID'), defaultName = metadata.get('Default constraint')
+          if (defaultId == null || !/^\d+$/.test(defaultId) || defaultId === '0' && defaultName) throw new Error('Default-constraint metadata is incomplete. Inspect the table before changing it.')
+          if (defaultId !== '0' && !defaultName) throw new Error('This column uses a bound or unavailable default. Inspect and change it with explicit SQL.')
+          if (defaultName) commands.push(`ALTER TABLE ${full} DROP CONSTRAINT ${q(defaultName)}`)
+          if (alter.default.kind !== 'none') commands.push(`ALTER TABLE ${full} ADD${defaultName ? ` CONSTRAINT ${q(defaultName)}` : ''}${defaultSql(alter.default)} FOR ${col}`)
+          if (!commands.length) throw new Error('This column has no default constraint to remove.')
+        } else commands.push(`ALTER TABLE ${full} ALTER COLUMN ${col} ${alter.default.kind === 'none' ? 'DROP DEFAULT' : `SET${defaultSql(alter.default)}`}`)
+      } else if (alter.kind === 'nullability') {
+        const current = nullableValue(metadata.get('Nullable'))
+        if (current === alter.nullable) throw new Error('The column already has the selected nullability.')
+        if (engine === 'oracle') commands.push(`ALTER TABLE ${full} MODIFY (${col} ${alter.nullable ? 'NULL' : 'NOT NULL'})`)
+        else if (mssql) {
+          const type = sqlServerCurrentType(metadata.section, metadata.row, q)
+          commands.push(`ALTER TABLE ${full} ALTER COLUMN ${col} ${type.sql}${type.collation ? ` COLLATE ${type.collation}` : ''} ${alter.nullable ? 'NULL' : 'NOT NULL'}`)
+        } else if (mysql) {
+          const oldType = metadata.get('Type'); if (!oldType) throw new Error('Column type metadata is incomplete.')
+          const retained = mysqlModifiedColumn(detail, change.column, oldType, { kind: 'nullability', nullable: alter.nullable }, current)
+          commands.push(`ALTER TABLE ${full} MODIFY COLUMN ${retained.sql}`)
+          if (alter.nullable && !retained.hadDefault && !identity) { if (engine === 'mysql') { commands.push(`ALTER TABLE ${full} ALTER COLUMN ${col} DROP DEFAULT`); mysqlRestoreAbsentDefault = true } else mariaImplicitNullDefault = true }
+        }
+        else commands.push(`ALTER TABLE ${full} ALTER COLUMN ${col} ${alter.nullable ? 'DROP' : 'SET'} NOT NULL`)
+      } else {
+        if (alter.using && !['postgres','duckdb'].includes(engine)) throw new Error('A USING conversion expression is not supported by this engine in the guided editor.')
+        const type = columnType(alter.type)
+        if (engine === 'oracle') commands.push(`ALTER TABLE ${full} MODIFY (${col} ${type})`)
+        else if (mssql) {
+          const current = sqlServerCurrentType(metadata.section, metadata.row, q), nullable = nullableValue(metadata.get('Nullable'))
+          const collation = current.collation && isTextType(alter.type) && alter.type.nativeType?.kind !== 'named' ? ` COLLATE ${current.collation}` : ''
+          if (current.collation && alter.type.nativeType?.kind === 'named') throw new Error('Changing a collated column to a user-defined type requires separately reviewed SQL.')
+          commands.push(`ALTER TABLE ${full} ALTER COLUMN ${col} ${type}${collation} ${nullable ? 'NULL' : 'NOT NULL'}`)
+        } else if (mysql) {
+          const oldType = metadata.get('Type'); if (!oldType) throw new Error('Column type metadata is incomplete.')
+          const current = nullableValue(metadata.get('Nullable')), retained = mysqlModifiedColumn(detail, change.column, oldType, { kind: 'type', sql: type }, current)
+          commands.push(`ALTER TABLE ${full} MODIFY COLUMN ${retained.sql}`)
+          if (current && !retained.hadDefault && !identity) { if (engine === 'mysql') { commands.push(`ALTER TABLE ${full} ALTER COLUMN ${col} DROP DEFAULT`); mysqlRestoreAbsentDefault = true } else mariaImplicitNullDefault = true }
+        }
+        else {
+          const schema = engine === 'postgres' ? metadata.get('Collation schema') : null, collation = engine === 'postgres' ? metadata.get('Collation') : null
+          if (Boolean(schema) !== Boolean(collation)) throw new Error('Column collation metadata is incomplete. Inspect its definition and use explicit SQL.')
+          const keepCollation = schema && collation && isTextType(alter.type) ? ` COLLATE ${q(schema)}.${q(collation)}` : ''
+          commands.push(`ALTER TABLE ${full} ALTER COLUMN ${col} ${engine === 'duckdb' ? 'SET DATA TYPE' : 'TYPE'} ${type}${keepCollation}${alter.using ? ` USING ${schemaExpression(alter.using, engine)}` : ''}`)
+        }
+      }
+      break
+    }
     case 'add-constraint':
       if (engine === 'sqlite' || engine === 'duckdb') throw new Error('This engine cannot add a table constraint with ALTER TABLE. Review a separate table migration.')
       commands.push(`ALTER TABLE ${full} ADD ${renderConstraint(change.constraint, names, place, target!.name)}`); break
@@ -217,14 +323,27 @@ export function schemaSql(change: SchemaChange, session: SessionInfo, detail?: O
   const constraints = change.action === 'create-table' ? change.constraints ?? [] : change.action === 'add-constraint' || change.action === 'replace-constraint' ? [change.constraint] : []
   const cascading = constraints.some(c => c.kind === 'foreign' && [c.onDelete, c.onUpdate].some(action => ['cascade','set-null','set-default'].includes(action)))
   return { commands, begin: transactional ? begin : undefined, sql,
-    transaction: transactional ? 'transactional' as const : 'implicit-commit' as const, destructive: cascading || ['drop-table','drop-column','drop-index','drop-constraint','replace-constraint'].includes(change.action),
+    transaction: transactional ? 'transactional' as const : 'implicit-commit' as const, destructive: cascading || change.action === 'alter-column' && (change.alteration.kind === 'type' || change.alteration.kind === 'nullability') || ['drop-table','drop-column','drop-index','drop-constraint','replace-constraint'].includes(change.action),
     warnings: [transactional ? 'Starts a new transaction and leaves successful changes uncommitted. Close this dialog, then Commit or Rollback in this tab. Failure or cancellation rolls back this change when the connection remains usable.' : 'DDL commits implicitly and cannot be rolled back. Existing transactions and manual-commit mode must be resolved first. An error or cancellation does not prove that the DDL was undone.',
       'DDL can lock tables and affect dependent objects. Database permissions and dependency rules still apply; no automatic CASCADE or table rebuild is added.',
       ...((change.action === 'create-table' && change.columns.some(c => c.nativeType?.kind === 'named') || change.action === 'add-column' && change.column.nativeType?.kind === 'named') ? ['User-defined types are resolved by the database when the change runs. Review their definitions and permissions separately; their definitions are not locked by this plan.'] : []),
-      ...((change.action === 'create-table' && change.columns.some(c => c.default.kind === 'expression') || change.action === 'add-column' && change.column.default.kind === 'expression') ? ['Default expressions are SQL evaluated by the database and can call functions. Review their behavior and side effects before applying.'] : []),
+      ...((change.action === 'create-table' && change.columns.some(c => c.default.kind === 'expression') || change.action === 'add-column' && change.column.default.kind === 'expression' || change.action === 'alter-column' && change.alteration.kind === 'default' && change.alteration.default.kind === 'expression') ? ['Default expressions are SQL evaluated by the database and can call functions. Review their behavior and side effects before applying.'] : []),
       ...((change.action === 'create-table' && change.columns.some(c => c.generation?.kind === 'computed') || change.action === 'add-column' && change.column.generation?.kind === 'computed') ? ['Generated expressions are evaluated by the database; review dependencies, determinism and function effects. Generated values cannot be edited directly.'] : []),
       ...(change.action === 'add-column' && change.column.generation?.kind === 'identity' ? ['The database assigns identity values to existing rows when the column is added; their assignment order is not guaranteed.'] : []),
       ...(mssql && change.action === 'add-column' && change.column.nullable && !['none', 'null'].includes(change.column.default.kind) ? ['Existing rows remain NULL when adding a nullable column with a default. New rows use the default when no value is supplied.'] : []),
+      ...(mysqlRestoreAbsentDefault ? ['MySQL requires a second implicitly committed statement to restore the absence of a default. If it fails or is interrupted after the first statement, DEFAULT NULL may remain; inspect the column before retrying.'] : []),
+      ...(mariaImplicitNullDefault ? ['MariaDB represents a nullable column without a prior default as DEFAULT NULL after modification; the default metadata will change.'] : []),
+      ...(change.action === 'alter-column' && mysql && change.alteration.kind !== 'default' ? ['The complete existing native column definition is carried forward. A new type replaces its type-specific attributes; review character set, collation and defaults in the SQL.'] : []),
+      ...(change.action === 'alter-column' && mysql && change.alteration.kind === 'type' ? ['MySQL/MariaDB may truncate values in non-strict SQL mode and may automatically shorten affected index prefixes. Review session mode and indexes.'] : []),
+      ...(change.action === 'alter-column' && change.alteration.kind === 'type' ? ['Type conversion can rewrite data, lose precision or change collation where the new type does not support it. Review conversions and dependencies before applying.'] : []),
+      ...(change.action === 'alter-column' && change.alteration.kind === 'type' && mssql ? ['SQL Server can reject a type change when a default constraint or other object depends on the column. Dependencies are not removed automatically.'] : []),
+      ...(change.action === 'alter-column' && change.alteration.kind === 'type' && engine === 'duckdb' ? ['DuckDB can reject a conversion because of previously deleted or updated values. No automatic cleanup or retry is performed.'] : []),
+      ...(change.action === 'alter-column' && change.alteration.kind === 'type' && change.alteration.using ? ['The conversion expression is SQL evaluated by the database; review functions and side effects.'] : []),
+      ...(change.action === 'alter-column' && change.alteration.kind === 'nullability' && engine === 'sqlite' ? ['SQLite validates the existing table definition and data. Implicit or redundant NOT NULL constraints require separate review.'] : []),
+      ...(change.action === 'alter-column' && change.alteration.kind === 'nullability' && !change.alteration.nullable && mysql ? ['In non-strict SQL mode, existing NULL values may be converted to implicit defaults. Review the data and session mode before applying.'] : []),
+      ...(change.action === 'alter-column' && change.alteration.kind === 'nullability' && change.alteration.nullable ? ['Allowing NULL removes an existing data safeguard.'] : []),
+      ...(change.action === 'alter-column' && change.alteration.kind === 'default' && engine === 'mysql' && change.alteration.default.kind === 'none' ? ['MySQL strict mode can reject inserts that omit a column after its default is dropped, even when it is nullable.'] : []),
+      ...(change.action === 'alter-column' && change.alteration.kind === 'default' && engine === 'oracle' && change.alteration.default.kind === 'none' ? ['Oracle represents removal of a default as DEFAULT NULL.'] : []),
       ...(constraints.length ? ['The database checks constraints against data and may lock the table. Review referenced columns, permissions and engine enforcement settings.'] : []),
       ...(constraints.some(c => c.kind === 'check') ? ['Check expressions are SQL evaluated by the database; review functions and dependencies.'] : []),
       ...(constraints.some(c => c.kind === 'foreign') && engine === 'sqlite' ? ['SQLite foreign-key enforcement depends on PRAGMA foreign_keys for each connection.'] : []),

@@ -155,6 +155,49 @@ for (const engine of engineSchema.options) test(`schema changes ${engine}: revie
     const details = page.getByRole('dialog', { name: 'Object details', exact: true })
     await expect(details.getByRole('table', { name: 'Columns', exact: true })).toContainText('new_value')
     await details.getByRole('button', { name: 'Close object details', exact: true }).click()
+    await tableAction(page, `${name}`, 'Alter table')
+    await editor.getByLabel('Schema operation').selectOption('alter-column')
+    await editor.getByLabel('Existing column').selectOption('new_value')
+    await editor.getByLabel('Column change').selectOption('default')
+    await editor.getByLabel('New column default kind').selectOption('number'); await editor.getByLabel('New column default value').fill('7')
+    if (engine === 'sqlite') {
+      await editor.getByRole('button', { name: 'Review SQL', exact: true }).click()
+      await expect(editor.getByRole('alert')).toContainText('separate table migration')
+      await editor.getByRole('button', { name: 'Close schema changes', exact: true }).click()
+    } else {
+      await review(); await expect(editor.getByLabel('Schema SQL preview')).toHaveValue(/DEFAULT 7/); await approve(); await apply(); await settle()
+      // SQL Server rejects some type changes while a default constraint exists.
+      // Remove and restore it through separately reviewed changes, never implicitly.
+      if (['sqlserver','azure-sql'].includes(engine)) {
+        await tableAction(page, `${name}`, 'Alter table')
+        await editor.getByLabel('Schema operation').selectOption('alter-column'); await editor.getByLabel('Existing column').selectOption('new_value')
+        await editor.getByLabel('Column change').selectOption('default'); await editor.getByLabel('New column default kind').selectOption('none')
+        await review(); await expect(editor.getByLabel('Schema SQL preview')).toHaveValue(/DROP CONSTRAINT/); await approve(); await apply(); await settle()
+      }
+      await tableAction(page, `${name}`, 'Alter table')
+      await editor.getByLabel('Schema operation').selectOption('alter-column'); await editor.getByLabel('Existing column').selectOption('new_value')
+      await editor.getByLabel('Column change').selectOption('type'); await editor.getByLabel('New column type').selectOption('bigint')
+      await review(); await expect(editor.getByLabel('Schema SQL preview')).toHaveValue(/BIGINT|NUMBER\(19\)/)
+      await approve(); await expect(editor.getByRole('button', { name: 'Apply reviewed SQL', exact: true })).toBeDisabled()
+      await editor.getByLabel('I understand this can remove data or database safeguards.', { exact: true }).check()
+      await page.screenshot({ path: testInfo.outputPath(`${engine}-alter-column-review.png`) })
+      await apply(); await settle()
+      if (['sqlserver','azure-sql'].includes(engine)) {
+        await tableAction(page, `${name}`, 'Alter table')
+        await editor.getByLabel('Schema operation').selectOption('alter-column'); await editor.getByLabel('Existing column').selectOption('new_value')
+        await editor.getByLabel('Column change').selectOption('default'); await editor.getByLabel('New column default kind').selectOption('number'); await editor.getByLabel('New column default value').fill('7')
+        await review(); await expect(editor.getByLabel('Schema SQL preview')).toHaveValue(/DEFAULT 7/); await approve(); await apply(); await settle()
+      }
+      await tableAction(page, `${name}`, 'Alter table')
+      await editor.getByLabel('Schema operation').selectOption('alter-column'); await editor.getByLabel('Existing column').selectOption('new_value')
+      await editor.getByLabel('Column change').selectOption('nullability'); await editor.getByLabel('New nullability').selectOption('required')
+      await review(); await approve(); await editor.getByLabel('I understand this can remove data or database safeguards.', { exact: true }).check(); await apply(); await settle()
+      await tableAction(page, `${name}`, 'Alter table')
+      await editor.getByLabel('Schema operation').selectOption('alter-column'); await editor.getByLabel('Existing column').selectOption('new_value')
+      await editor.getByLabel('Column change').selectOption('nullability'); await editor.getByLabel('New nullability').selectOption('nullable')
+      await review(); await approve(); await editor.getByLabel('I understand this can remove data or database safeguards.', { exact: true }).check()
+      await apply(); await settle()
+    }
     if (!['sqlite','duckdb'].includes(engine)) {
       await tableAction(page, `${name}`, 'Alter table')
       await editor.getByLabel('Schema operation').selectOption('add-constraint')

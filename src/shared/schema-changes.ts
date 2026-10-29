@@ -5,7 +5,7 @@ import { idSchema, type DatabaseEngine, type SessionInfo } from './contracts'
 const name = z.string().min(1).max(255).refine(value => value.trim().length > 0 && !/[\u0000-\u001f\u007f]/.test(value), 'Names must not contain control characters.')
 const location = z.object({ schema: name, catalog: name.optional() }).strict()
 export const columnTypes = ['integer', 'bigint', 'varchar', 'text', 'decimal', 'boolean', 'date', 'timestamp'] as const
-const defaultSchema = z.discriminatedUnion('kind', [
+export const defaultSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('none') }).strict(), z.object({ kind: z.literal('null') }).strict(),
   z.object({ kind: z.literal('text'), value: z.string().max(4000).refine(value => !value.includes('\0'), 'NUL is not supported in defaults.') }).strict(),
   z.object({ kind: z.literal('number'), value: z.string().max(100).regex(/^-?\d+(?:\.\d+)?$/) }).strict(),
@@ -22,6 +22,14 @@ const nativeTypeSchema = z.discriminatedUnion('kind', [
 ])
 export const schemaColumnSchema = z.object({ name, type: z.enum(columnTypes), nativeType: nativeTypeSchema.optional(), length: z.number().int().min(1).max(4000).default(255), precision: z.number().int().min(1).max(38).default(18), scale: z.number().int().min(0).max(38).default(2), nullable: z.boolean(), primaryKey: z.boolean().default(false), default: defaultSchema.default({ kind: 'none' }), generation: generationSchema.optional() }).strict()
 export type SchemaColumnInput = z.infer<typeof schemaColumnSchema>
+const columnTypeSchema = schemaColumnSchema.pick({ type: true, nativeType: true, length: true, precision: true, scale: true })
+export type SchemaColumnType = z.infer<typeof columnTypeSchema>
+const columnAlterationSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('type'), type: columnTypeSchema, using: z.string().min(1).max(4000).optional() }).strict(),
+  z.object({ kind: z.literal('nullability'), nullable: z.boolean() }).strict(),
+  z.object({ kind: z.literal('default'), default: defaultSchema }).strict()
+])
+export type ColumnAlteration = z.infer<typeof columnAlterationSchema>
 const referenceAction = z.enum(['no-action', 'restrict', 'cascade', 'set-null', 'set-default'])
 export const tableConstraintSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('check'), name, expression: z.string().min(1).max(4000) }).strict(),
@@ -33,6 +41,7 @@ const schemaChangeSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('create-schema'), location }).strict(),
   z.object({ action: z.literal('create-table'), location, name, columns: z.array(schemaColumnSchema).min(1).max(100), constraints: z.array(tableConstraintSchema).max(16).optional() }).strict(),
   z.object({ action: z.literal('add-column'), target: catalogObjectSchema, column: schemaColumnSchema }).strict(),
+  z.object({ action: z.literal('alter-column'), target: catalogObjectSchema, column: name, alteration: columnAlterationSchema }).strict(),
   z.object({ action: z.literal('add-constraint'), target: catalogObjectSchema, constraint: tableConstraintSchema }).strict(),
   z.object({ action: z.literal('drop-constraint'), target: catalogObjectSchema, name, kind: z.enum(['check', 'unique', 'foreign']) }).strict(),
   z.object({ action: z.literal('replace-constraint'), target: catalogObjectSchema, name, kind: z.enum(['check', 'unique', 'foreign']), constraint: tableConstraintSchema }).strict(),
@@ -59,7 +68,7 @@ export interface SchemaChangeResult {
   executedSql: string; durationMs: number
 }
 export const schemaActions: Record<SchemaChange['action'], string> = {
-  'create-schema': 'Create schema', 'create-table': 'Create table', 'add-column': 'Add column',
+  'create-schema': 'Create schema', 'create-table': 'Create table', 'add-column': 'Add column', 'alter-column': 'Alter column',
   'add-constraint': 'Add constraint', 'drop-constraint': 'Drop constraint', 'replace-constraint': 'Replace constraint',
   'rename-column': 'Rename column', 'drop-column': 'Drop column', 'rename-table': 'Rename table',
   'drop-table': 'Drop table', 'create-index': 'Create index', 'drop-index': 'Drop index'
