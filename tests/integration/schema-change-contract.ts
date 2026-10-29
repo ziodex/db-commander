@@ -13,7 +13,7 @@ export async function verifySchemaChanges(config: ConnectionConfig) {
   const driver = new DriverRegistry(event => { events.push(event) }, { workerPath: resolve('out/main/sqlite-worker.cjs') })
   const engine = config.engine, embedded = ['sqlite','duckdb'].includes(engine), transactional = transactionalDdl(engine)
   const local = embedded ? { ...config, filePath: join(directory,'schema.db'), sqliteMode: 'create' as const, duckdbMode: 'create' as const } : config
-  const session = await driver.connect(local), prefix = `ddl_${randomUUID().replaceAll('-','').slice(0,8)}`, name = prefix+" odd'", renamed = prefix+'_renamed'
+  const session = await driver.connect(local), prefix = `ddl_${randomUUID().replaceAll('-','').slice(0,8)}`, name = prefix+" odd'", renamed = prefix+'_renamed', generatedName = prefix+'_generated', identityAddName = prefix+'_identity_added', alwaysName = prefix+'_identity_always', generatedKeyName = prefix+'_generated_key'
   const schema = engine === 'postgres' ? 'public' : ['sqlserver','azure-sql'].includes(engine) ? 'dbo' : engine === 'oracle' ? config.user.toUpperCase() : embedded ? 'main' : session.database
   const location = { schema, ...(engine === 'duckdb' ? { catalog: session.database } : {}) }
   const q = (value: string) => quoteIdentifier(value, engine), full = (name: string) => [...(location.catalog ? [q(location.catalog)] : []),q(schema),q(name)].join('.')
@@ -57,6 +57,60 @@ export async function verifySchemaChanges(config: ConnectionConfig) {
     if (transactional) await change(create)
     other = await driver.connect(embedded ? { ...local, sqliteMode: 'read-write', duckdbMode: 'read-write' } : config)
     expect((await driver.schema(other.id)).catalog?.objects.some(o => o.name === name)).toBe(true)
+    const id = { ...column('generated_id', false), primaryKey: true, ...(engine === 'duckdb' ? {} : { generation: { kind: 'identity' as const, mode: ['postgres','oracle'].includes(engine) ? 'by-default' as const : 'auto' as const } }) }
+    const storage = ['postgres','mysql','mariadb','sqlserver','azure-sql'].includes(engine) ? 'stored' as const : 'virtual' as const
+    const computed = (name: string, amount: number) => schemaColumnSchema.parse({ name, type: 'integer', nullable: true, generation: { kind: 'computed', expression: `${q('quantity')} + ${amount}`, storage } })
+    await change({ action: 'create-table', location, name: generatedName, columns: [id, column('quantity'), computed('calculated', 1)] })
+    await run(engine === 'duckdb' ? `INSERT INTO ${full(generatedName)} (${q('generated_id')},${q('quantity')}) VALUES (1,2)` : `INSERT INTO ${full(generatedName)} (${q('quantity')}) VALUES (2)`)
+    if (engine === 'oracle') await run('COMMIT')
+    expect((await run(`SELECT ${q('generated_id')},${q('quantity')},${q('calculated')} FROM ${full(generatedName)}`)).rows).toEqual([['1','2','3']])
+    const gridResult = await driver.editGrid({ action: 'open', sessionId: session.id, table: { ...location, name: generatedName } })
+    expect(gridResult.error).toBeUndefined(); expect(gridResult.grid).toBeDefined()
+    const grid = gridResult.grid!, generatedIndex = grid.columns.findIndex(c => c.name === 'calculated')
+    expect(grid.columns[generatedIndex]?.generated).toBe(true)
+    const forbidden = await driver.editGrid({ action: 'apply', sessionId: session.id, snapshotId: grid.id, changes: [{ kind: 'update', row: 0, values: [{ column: generatedIndex, value: '99' }] }] })
+    expect(forbidden.error).toMatch(/Generated columns/)
+    const extra = computed('calculated_later', 2), generatedTarget = await object(generatedName)
+    if (engine === 'duckdb') await expect(prepare({ action: 'add-column', target: generatedTarget, column: extra })).rejects.toThrow(/cannot add/)
+    else {
+      await change({ action: 'add-column', target: generatedTarget, column: extra })
+      expect((await run(`SELECT ${q('calculated_later')} FROM ${full(generatedName)}`)).rows).toEqual([['4']])
+    }
+    await run(`UPDATE ${full(generatedName)} SET ${q('quantity')}=5`)
+    if (engine === 'oracle') await run('COMMIT')
+    expect((await run(`SELECT ${q('calculated')} FROM ${full(generatedName)}`)).rows).toEqual([['6']])
+    await change({ action: 'drop-table', target: await object(generatedName) })
+    if (['postgres','mysql','sqlserver','azure-sql','oracle'].includes(engine)) {
+      const generatedKey = { ...computed('calculated_key', 1), nullable: false, primaryKey: true }
+      await change({ action: 'create-table', location, name: generatedKeyName, columns: [column('quantity', false), generatedKey] })
+      await run(`INSERT INTO ${full(generatedKeyName)} (${q('quantity')}) VALUES (1)`)
+      if (engine === 'oracle') await run('COMMIT')
+      expect((await run(`SELECT ${q('calculated_key')} FROM ${full(generatedKeyName)}`)).rows).toEqual([['2']])
+      await change({ action: 'drop-table', target: await object(generatedKeyName) })
+    }
+    if (['postgres','mysql','mariadb','sqlserver','azure-sql','oracle'].includes(engine)) {
+      await change({ action: 'create-table', location, name: identityAddName, columns: [column('quantity')] })
+      await run(`INSERT INTO ${full(identityAddName)} (${q('quantity')}) VALUES (5)`)
+      if (engine === 'oracle') await run('COMMIT')
+      const identityColumn = { ...column('generated_id', false), generation: { kind: 'identity' as const, mode: ['postgres','oracle'].includes(engine) ? 'by-default' as const : 'auto' as const, ...(['mysql','mariadb'].includes(engine) ? { unique: true } : {}) } }
+      await change({ action: 'add-column', target: await object(identityAddName), column: identityColumn })
+      await run(`INSERT INTO ${full(identityAddName)} (${q('quantity')}) VALUES (6)`)
+      if (engine === 'oracle') await run('COMMIT')
+      expect((await run(`SELECT ${q('quantity')},${q('generated_id')} FROM ${full(identityAddName)} ORDER BY ${q('quantity')}`)).rows).toEqual([['5','1'],['6','2']])
+      await change({ action: 'drop-table', target: await object(identityAddName) })
+    }
+    if (['postgres','oracle'].includes(engine)) {
+      const always = { ...column('generated_id', false), primaryKey: true, generation: { kind: 'identity' as const, mode: 'always' as const } }
+      await change({ action: 'create-table', location, name: alwaysName, columns: [always, column('quantity')] })
+      await run(`INSERT INTO ${full(alwaysName)} (${q('quantity')}) VALUES (7)`)
+      if (engine === 'oracle') await run('COMMIT')
+      const rejectedId = driver.start({ sessionId: session.id, sql: `INSERT INTO ${full(alwaysName)} (${q('generated_id')},${q('quantity')}) VALUES (42,8)`, maxRows: 100 })
+      await driver.wait(session.id)
+      expect(events.find(e => e.type === 'complete' && e.queryId === rejectedId)).toMatchObject({ status: 'failed' })
+      if (engine === 'oracle') await run('ROLLBACK')
+      expect((await run(`SELECT ${q('generated_id')},${q('quantity')} FROM ${full(alwaysName)}`)).rows).toEqual([['1','7']])
+      await change({ action: 'drop-table', target: await object(alwaysName) })
+    }
     await run(`INSERT INTO ${full(name)} (${q('id')}) VALUES (1)`); await run(`INSERT INTO ${full(name)} (${q('id')}) VALUES (2)`)
     if (engine === 'oracle') await run('COMMIT')
     expect((await run(`SELECT ${q('label')} FROM ${full(name)} WHERE ${q('id')}=1`)).rows).toEqual([["quote'\\;-- 世界"]])
@@ -134,7 +188,7 @@ export async function verifySchemaChanges(config: ConnectionConfig) {
     expect(driver.getSession(other.id).transaction).toBe('idle')
   } finally {
     try { await run('ROLLBACK') } catch {}
-    for (const table of [name,renamed]) { try { await run(`DROP TABLE ${full(table)}`) } catch {} }
+    for (const table of [name,renamed,generatedName,identityAddName,alwaysName,generatedKeyName]) { try { await run(`DROP TABLE ${full(table)}`) } catch {} }
     await driver.close(); rmSync(directory, { recursive: true, force: true })
   }
 }

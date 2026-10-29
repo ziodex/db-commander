@@ -52,6 +52,12 @@ for (const engine of engineSchema.options) test(`schema changes ${engine}: revie
   async function create() {
     await databaseAction(page, 'Schema changes')
     await editor.getByLabel('New object name').fill(name)
+    if (engine !== 'duckdb') await editor.getByLabel('Column 1 generation').selectOption('identity')
+    await editor.getByRole('button', { name: 'Add another column', exact: true }).click()
+    await editor.getByLabel('Column 2 name').fill('computed_value')
+    await editor.getByLabel('Column 2 type').selectOption('integer')
+    await editor.getByLabel('Column 2 generation').selectOption('computed')
+    await editor.getByLabel('Column 2 generated expression').fill(['mysql','mariadb'].includes(engine) ? '2 + 3' : `${q('id')} + 1`)
     await review(); await approve(); await apply()
   }
   try {
