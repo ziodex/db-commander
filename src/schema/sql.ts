@@ -1,7 +1,7 @@
 import { quoteIdentifier } from '../shared/sql/common'
-import type { ObjectDetail } from '../shared/catalog'
+import { objectKey, type ObjectDetail } from '../shared/catalog'
 import type { SessionInfo } from '../shared/contracts'
-import { supportsCreateSchema, transactionalDdl, type SchemaChange, type SchemaColumnInput } from '../shared/schema-changes'
+import { supportsCreateSchema, transactionalDdl, type SchemaChange, type SchemaColumnInput, type TableConstraint } from '../shared/schema-changes'
 import { schemaExpression } from './expression'
 import { nativeIdentityCompatible, nativeTypeSql } from './native-types'
 
@@ -9,7 +9,7 @@ function columnNames(detail?: ObjectDetail): string[] {
   const section = detail?.sections.find(section => section.title === 'Columns'), position = section?.columns.indexOf('Name') ?? -1
   return position < 0 ? [] : section!.rows.map(row => row[position]!).filter(Boolean)
 }
-export function schemaSql(change: SchemaChange, session: SessionInfo, detail?: ObjectDetail) {
+export function schemaSql(change: SchemaChange, session: SessionInfo, detail?: ObjectDetail, references: ReadonlyMap<string, ObjectDetail> = new Map()) {
   const engine = session.engine, mssql = ['sqlserver','azure-sql'].includes(engine), mysql = ['mysql','mariadb'].includes(engine)
   const q = (name: string) => {
     const limit = engine === 'postgres' ? 63 : mysql ? 64 : engine === 'oracle' || mssql ? 128 : 255
@@ -79,6 +79,50 @@ export function schemaSql(change: SchemaChange, session: SessionInfo, detail?: O
   const full = target ? qualified(target.name) : '', names = columnNames(detail)
   function requireColumn(name: string) { if (!names.includes(name)) throw new Error(`Column ${name} is no longer visible. Refresh and review again.`) }
   function unique(names: string[]) { if (new Set(names.map(name => name.toLowerCase())).size !== names.length) throw new Error('Column names must be distinct, ignoring case.') }
+  function renderConstraint(constraint: TableConstraint, localNames: string[], place: { schema: string; catalog?: string }, tableName: string) {
+    q(constraint.name)
+    if (constraint.kind === 'check') {
+      if (mysql) {
+        const version = engine === 'mariadb' ? /(\d+)\.(\d+)\.(\d+)(?=[^0-9]*MariaDB)/i.exec(session.version) : /^(\d+)\.(\d+)\.(\d+)/.exec(session.version)
+        const actual = [Number(version?.[1] ?? 0), Number(version?.[2] ?? 0), Number(version?.[3] ?? 0)]
+        const minimum = engine === 'mysql' ? [8, 0, 16] : [10, 2, 1]
+        if (actual[0] < minimum[0] || actual[0] === minimum[0] && (actual[1] < minimum[1] || actual[1] === minimum[1] && actual[2] < minimum[2])) throw new Error('This server version may ignore CHECK constraints; use a version with enforced checks.')
+      }
+      return `CONSTRAINT ${q(constraint.name)} CHECK (${schemaExpression(constraint.expression, engine)})`
+    }
+    unique(constraint.columns)
+    for (const name of constraint.columns) if (!localNames.includes(name)) throw new Error(`Column ${name} is no longer visible. Refresh and review again.`)
+    if (constraint.kind === 'unique') return `CONSTRAINT ${q(constraint.name)} UNIQUE (${constraint.columns.map(q).join(', ')})`
+    unique(constraint.referencedColumns)
+    if (constraint.columns.length !== constraint.referencedColumns.length) throw new Error('Foreign-key columns and referenced columns must have the same count and matching order.')
+    const ref = constraint.reference.kind === 'self' ? undefined : constraint.reference.table
+    if (ref && ref.kind !== 'table') throw new Error('A foreign key must reference a visible base table.')
+    if (ref && engine !== 'duckdb' && ref.catalog) throw new Error('This engine does not accept a catalog qualifier here.')
+    if (ref && mysql && ref.schema !== session.database) throw new Error('The guided foreign-key editor references tables in the current database.')
+    if (ref && engine === 'oracle' && ref.schema !== session.user.toUpperCase()) throw new Error('The guided Oracle editor references tables in the connected user’s schema.')
+    if (ref && engine === 'sqlite' && ref.schema !== place.schema) throw new Error('SQLite foreign keys cannot reference a different attached database.')
+    if (engine === 'duckdb' && (place.catalog !== session.database || ref && ref.catalog !== place.catalog)) throw new Error('DuckDB foreign keys must use tables in the active catalog; switch to that catalog first.')
+    const refNames = ref ? columnNames(references.get(objectKey(ref))) : localNames
+    if (ref && !references.has(objectKey(ref))) throw new Error('Referenced-table metadata is unavailable. Refresh and review again.')
+    for (const name of constraint.referencedColumns) if (!refNames.includes(name)) throw new Error(`Referenced column ${name} is no longer visible. Refresh and review again.`)
+    const actions = [constraint.onDelete, constraint.onUpdate]
+    if (mysql && actions.includes('set-default')) throw new Error('MySQL/MariaDB storage engines do not support SET DEFAULT foreign-key actions here.')
+    if (mssql && actions.includes('restrict')) throw new Error('SQL Server uses NO ACTION instead of RESTRICT.')
+    if (engine === 'oracle' && (constraint.onUpdate !== 'no-action' || !['no-action','cascade','set-null'].includes(constraint.onDelete))) throw new Error('Oracle supports NO ACTION, CASCADE or SET NULL for delete and no update action.')
+    if (engine === 'duckdb' && actions.some(action => action !== 'no-action')) throw new Error('DuckDB supports only NO ACTION foreign-key rules here.')
+    const refName = ref?.name ?? tableName
+    const qualifiedRef = engine === 'sqlite' ? q(refName) : engine === 'duckdb' ? `${q(ref?.schema ?? place.schema)}.${q(refName)}` : ref ? [ref.schema, ref.name].map(q).join('.') : qualified(refName)
+    const actionSql = (action: typeof constraint.onDelete) => action.toUpperCase().replaceAll('-', ' ')
+    const rules = engine === 'oracle' ? (constraint.onDelete === 'no-action' ? '' : ` ON DELETE ${actionSql(constraint.onDelete)}`) : ` ON DELETE ${actionSql(constraint.onDelete)} ON UPDATE ${actionSql(constraint.onUpdate)}`
+    return `CONSTRAINT ${q(constraint.name)} FOREIGN KEY (${constraint.columns.map(q).join(', ')}) REFERENCES ${qualifiedRef} (${constraint.referencedColumns.map(q).join(', ')})${rules}`
+  }
+  function requireConstraint(name: string, kind: 'check' | 'unique' | 'foreign') {
+    const section = detail?.sections.find(section => section.title === 'Constraints and keys')
+    const namePos = section?.columns.indexOf('Name') ?? -1, kindPos = section?.columns.indexOf('Kind') ?? -1
+    const actual = section?.rows.find(row => row[namePos] === name)?.[kindPos]?.toLowerCase()
+    const expected = kind === 'check' ? ['c','check','check_constraint'] : kind === 'unique' ? ['u','unique','unique_constraint'] : ['f','r','foreign key','foreign_key_constraint']
+    if (namePos < 0 || kindPos < 0 || !actual || !expected.includes(actual)) throw new Error('The selected constraint is no longer visible or its kind changed. Refresh and review again.')
+  }
   const commands: string[] = []
   switch (change.action) {
     case 'create-schema':
@@ -93,7 +137,9 @@ export function schemaSql(change: SchemaChange, session: SessionInfo, detail?: O
       if (engine === 'sqlite' && identities.length && pk.length !== 1) throw new Error('SQLite AUTOINCREMENT cannot be combined with a composite primary key.')
       if (mysql && identities.length && !(identities[0].generation?.kind === 'identity' && identities[0].generation.unique) && pk[0] !== identities[0]) throw new Error('The AUTO_INCREMENT column must be first in the primary key or have its own unique key.')
       const inlineSqliteIdentity = engine === 'sqlite' && identities.length > 0
-      commands.push(`CREATE TABLE ${qualified(change.name)} (\n  ${[...change.columns.map(c => column(c)), ...(!inlineSqliteIdentity && pk.length ? [`PRIMARY KEY (${pk.map(c => q(c.name)).join(', ')})`] : [])].join(',\n  ')}\n)`); break
+      const constraints = change.constraints ?? []
+      if (new Set(constraints.map(c => c.name.toLowerCase())).size !== constraints.length) throw new Error('Constraint names must be distinct, ignoring case.')
+      commands.push(`CREATE TABLE ${qualified(change.name)} (\n  ${[...change.columns.map(c => column(c)), ...(!inlineSqliteIdentity && pk.length ? [`PRIMARY KEY (${pk.map(c => q(c.name)).join(', ')})`] : []), ...constraints.map(c => renderConstraint(c, change.columns.map(column => column.name), place, change.name))].join(',\n  ')}\n)`); break
     }
     case 'add-column':
       if (change.column.primaryKey) throw new Error('Adding a primary key is not supported by Add column.')
@@ -105,6 +151,22 @@ export function schemaSql(change: SchemaChange, session: SessionInfo, detail?: O
       commands.push(`ALTER TABLE ${full} ADD ${engine === 'oracle' ? `(${column(change.column)})` : `${mssql ? '' : 'COLUMN '}${column(change.column, engine === 'duckdb')}`}`)
       if (engine === 'duckdb' && !change.column.nullable) commands.push(`ALTER TABLE ${full} ALTER COLUMN ${q(change.column.name)} SET NOT NULL`)
       break
+    case 'add-constraint':
+      if (engine === 'sqlite' || engine === 'duckdb') throw new Error('This engine cannot add a table constraint with ALTER TABLE. Review a separate table migration.')
+      commands.push(`ALTER TABLE ${full} ADD ${renderConstraint(change.constraint, names, place, target!.name)}`); break
+    case 'drop-constraint':
+    case 'replace-constraint': {
+      if (engine === 'sqlite' || engine === 'duckdb') throw new Error('This engine cannot alter table constraints with ALTER TABLE. Review a separate table migration.')
+      requireConstraint(change.name, change.kind)
+      const drop = `DROP ${mysql ? change.kind === 'foreign' ? 'FOREIGN KEY' : change.kind === 'unique' ? 'INDEX' : engine === 'mysql' ? 'CHECK' : 'CONSTRAINT' : 'CONSTRAINT'} ${q(change.name)}`
+      if (change.action === 'drop-constraint') commands.push(`ALTER TABLE ${full} ${drop}`)
+      else {
+        const add = `ADD ${renderConstraint(change.constraint, names, place, target!.name)}`
+        if (mysql) commands.push(`ALTER TABLE ${full} ${drop}, ${add}`)
+        else commands.push(`ALTER TABLE ${full} ${drop}`, `ALTER TABLE ${full} ${add}`)
+      }
+      break
+    }
     case 'rename-column':
       requireColumn(change.column)
       q(change.name)
@@ -152,8 +214,10 @@ export function schemaSql(change: SchemaChange, session: SessionInfo, detail?: O
   const transactional = transactionalDdl(engine), begin = mssql ? 'BEGIN TRANSACTION' : engine === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN'
   const sql = [...(transactional ? [begin] : []), ...commands].map(sql => sql + ';').join('\n\n')
   if (sql.length > 1_000_000) throw new Error('The generated SQL exceeds the one-million-character limit. Use fewer or shorter column defaults.')
+  const constraints = change.action === 'create-table' ? change.constraints ?? [] : change.action === 'add-constraint' || change.action === 'replace-constraint' ? [change.constraint] : []
+  const cascading = constraints.some(c => c.kind === 'foreign' && [c.onDelete, c.onUpdate].some(action => ['cascade','set-null','set-default'].includes(action)))
   return { commands, begin: transactional ? begin : undefined, sql,
-    transaction: transactional ? 'transactional' as const : 'implicit-commit' as const, destructive: ['drop-table','drop-column','drop-index'].includes(change.action),
+    transaction: transactional ? 'transactional' as const : 'implicit-commit' as const, destructive: cascading || ['drop-table','drop-column','drop-index','drop-constraint','replace-constraint'].includes(change.action),
     warnings: [transactional ? 'Starts a new transaction and leaves successful changes uncommitted. Close this dialog, then Commit or Rollback in this tab. Failure or cancellation rolls back this change when the connection remains usable.' : 'DDL commits implicitly and cannot be rolled back. Existing transactions and manual-commit mode must be resolved first. An error or cancellation does not prove that the DDL was undone.',
       'DDL can lock tables and affect dependent objects. Database permissions and dependency rules still apply; no automatic CASCADE or table rebuild is added.',
       ...((change.action === 'create-table' && change.columns.some(c => c.nativeType?.kind === 'named') || change.action === 'add-column' && change.column.nativeType?.kind === 'named') ? ['User-defined types are resolved by the database when the change runs. Review their definitions and permissions separately; their definitions are not locked by this plan.'] : []),
@@ -161,6 +225,12 @@ export function schemaSql(change: SchemaChange, session: SessionInfo, detail?: O
       ...((change.action === 'create-table' && change.columns.some(c => c.generation?.kind === 'computed') || change.action === 'add-column' && change.column.generation?.kind === 'computed') ? ['Generated expressions are evaluated by the database; review dependencies, determinism and function effects. Generated values cannot be edited directly.'] : []),
       ...(change.action === 'add-column' && change.column.generation?.kind === 'identity' ? ['The database assigns identity values to existing rows when the column is added; their assignment order is not guaranteed.'] : []),
       ...(mssql && change.action === 'add-column' && change.column.nullable && !['none', 'null'].includes(change.column.default.kind) ? ['Existing rows remain NULL when adding a nullable column with a default. New rows use the default when no value is supplied.'] : []),
+      ...(constraints.length ? ['The database checks constraints against data and may lock the table. Review referenced columns, permissions and engine enforcement settings.'] : []),
+      ...(constraints.some(c => c.kind === 'check') ? ['Check expressions are SQL evaluated by the database; review functions and dependencies.'] : []),
+      ...(constraints.some(c => c.kind === 'foreign') && engine === 'sqlite' ? ['SQLite foreign-key enforcement depends on PRAGMA foreign_keys for each connection.'] : []),
+      ...(cascading ? ['The selected foreign-key actions can automatically modify or delete related rows in future operations.'] : []),
+      ...(['drop-constraint','replace-constraint'].includes(change.action) ? ['Removing a constraint removes a database safeguard and may remove its supporting index.'] : []),
+      ...(change.action === 'replace-constraint' && engine === 'oracle' ? ['Oracle commits each DDL statement. If the replacement fails after the drop, the old constraint is gone; inspect and repair it explicitly.'] : []),
       ...(change.action === 'create-index' && mysql && change.descending?.length ? ['Descending index behavior depends on the table storage engine; confirm that it supports descending key parts.'] : []),
       ...(change.action === 'create-index' && change.predicate ? ['The index predicate is SQL evaluated by the database. Review its scope, dependencies and function effects before applying.'] : []),
       ...(['rename-table','rename-column'].includes(change.action) ? ['Renaming may leave views, routines or application SQL referring to the old name. Review dependencies separately.'] : []),

@@ -14,7 +14,7 @@ export async function verifySchemaChanges(config: ConnectionConfig) {
   const driver = new DriverRegistry(event => { events.push(event) }, { workerPath: resolve('out/main/sqlite-worker.cjs') })
   const engine = config.engine, embedded = ['sqlite','duckdb'].includes(engine), transactional = transactionalDdl(engine)
   const local = embedded ? { ...config, filePath: join(directory,'schema.db'), sqliteMode: 'create' as const, duckdbMode: 'create' as const } : config
-  const session = await driver.connect(local), prefix = `ddl_${randomUUID().replaceAll('-','').slice(0,8)}`, name = prefix+" odd'", renamed = prefix+'_renamed', generatedName = prefix+'_generated', identityAddName = prefix+'_identity_added', alwaysName = prefix+'_identity_always', generatedKeyName = prefix+'_generated_key', methodTable = prefix+'_method_types', nativeTable = prefix+'_native', namedType = prefix+'_enum'
+  const session = await driver.connect(local), prefix = `ddl_${randomUUID().replaceAll('-','').slice(0,8)}`, name = prefix+" odd'", renamed = prefix+'_renamed', generatedName = prefix+'_generated', identityAddName = prefix+'_identity_added', alwaysName = prefix+'_identity_always', generatedKeyName = prefix+'_generated_key', methodTable = prefix+'_method_types', nativeTable = prefix+'_native', namedType = prefix+'_enum', constrainedTable = prefix+'_constraints', cascadeTable = prefix+'_cascade', compositeParent = prefix+'_composite_parent', compositeChild = prefix+'_composite_child'
   const schema = engine === 'postgres' ? 'public' : ['sqlserver','azure-sql'].includes(engine) ? 'dbo' : engine === 'oracle' ? config.user.toUpperCase() : embedded ? 'main' : session.database
   const location = { schema, ...(engine === 'duckdb' ? { catalog: session.database } : {}) }
   const q = (value: string) => quoteIdentifier(value, engine), full = (name: string) => [...(location.catalog ? [q(location.catalog)] : []),q(schema),q(name)].join('.')
@@ -167,6 +167,93 @@ export async function verifySchemaChanges(config: ConnectionConfig) {
     if (engine === 'oracle') await run('COMMIT')
     expect((await run(`SELECT ${q('label')} FROM ${full(name)} WHERE ${q('id')}=1`)).rows).toEqual([["quote'\\;-- 世界"]])
     expect((await run(`SELECT ${q('expression_default')} FROM ${full(name)} WHERE ${q('id')}=1`)).rows).toEqual([['3']])
+    const parent = await object(name)
+    const fk = { kind: 'foreign' as const, name: prefix+'_fk', columns: ['parent_id'], reference: { kind: 'table' as const, table: parent }, referencedColumns: ['id'], onDelete: 'no-action' as const, onUpdate: 'no-action' as const }
+    const check = { kind: 'check' as const, name: prefix+'_check', expression: `${q('quantity')} >= 0` }
+    const uniqueConstraint = { kind: 'unique' as const, name: prefix+'_uniq', columns: ['serial'] }
+    const constraintsCreate: SchemaChange = { action: 'create-table', location, name: constrainedTable, columns: [{ ...column('id', false), primaryKey: true }, column('parent_id'), column('quantity'), column('serial')], constraints: [fk, check, uniqueConstraint] }
+    const staleCreate = await prepare({ ...constraintsCreate, name: prefix+'_stale_child' })
+    await run(`ALTER TABLE ${full(name)} ADD ${q('create_ref_external')} INTEGER`, other.id)
+    const staleCreateResult = await apply(staleCreate)
+    expect(staleCreateResult.status).toBe('failed'); expect(staleCreateResult.message).toMatch(/referenced table changed/); expect(staleCreateResult.executedSql).toBe('')
+    await change(constraintsCreate)
+    await run(`INSERT INTO ${full(constrainedTable)} (${q('id')},${q('parent_id')},${q('quantity')},${q('serial')}) VALUES (1,1,2,10)`)
+    if (engine === 'oracle') await run('COMMIT')
+    async function reject(sql: string) {
+      const queryId = driver.start({ sessionId: session.id, sql, maxRows: 100 }); await driver.wait(session.id)
+      expect(events.find(event => event.type === 'complete' && event.queryId === queryId), sql).toMatchObject({ status: 'failed' })
+    }
+    await reject(`INSERT INTO ${full(constrainedTable)} (${q('id')},${q('parent_id')},${q('quantity')},${q('serial')}) VALUES (2,999,2,11)`)
+    await reject(`INSERT INTO ${full(constrainedTable)} (${q('id')},${q('parent_id')},${q('quantity')},${q('serial')}) VALUES (2,1,-1,11)`)
+    await reject(`INSERT INTO ${full(constrainedTable)} (${q('id')},${q('parent_id')},${q('quantity')},${q('serial')}) VALUES (2,1,2,10)`)
+    expect((await run(`SELECT ${q('id')} FROM ${full(constrainedTable)}`)).rows).toEqual([['1']])
+    const child = await object(constrainedTable)
+    if (['sqlite','duckdb'].includes(engine)) {
+      await expect(prepare({ action: 'add-constraint', target: child, constraint: check })).rejects.toThrow(/separate table migration/)
+      await expect(prepare({ action: 'drop-constraint', target: child, name: check.name, kind: 'check' })).rejects.toThrow(/separate table migration/)
+    } else {
+      for (const kind of ['check','unique','foreign'] as const) {
+        const item = kind === 'check' ? check : kind === 'unique' ? uniqueConstraint : fk
+        const drop = await prepare({ action: 'drop-constraint', target: await object(constrainedTable), name: item.name, kind })
+        await expect(apply(drop, { destructiveApproved: false })).rejects.toThrow(/destructive/)
+        expect((await apply(drop)).status).toBe('completed'); if (transactional) await run('COMMIT')
+        await change({ action: 'add-constraint', target: await object(constrainedTable), constraint: item })
+      }
+      const replacement = await prepare({ action: 'replace-constraint', target: await object(constrainedTable), name: check.name, kind: 'check', constraint: { ...check, expression: `${q('quantity')} >= 1` } })
+      expect(replacement.destructive).toBe(true)
+      if (engine === 'oracle') expect(replacement.warnings.join(' ')).toContain('old constraint is gone')
+      await expect(apply(replacement, { destructiveApproved: false })).rejects.toThrow(/destructive/)
+      const replaced = await apply(replacement); expect(replaced.status, replaced.message).toBe('completed'); if (transactional) await run('COMMIT')
+      await reject(`UPDATE ${full(constrainedTable)} SET ${q('quantity')}=0 WHERE ${q('id')}=1`)
+      expect((await run(`SELECT ${q('quantity')} FROM ${full(constrainedTable)}`)).rows).toEqual([['2']])
+      const impossible = await prepare({ action: 'replace-constraint', target: await object(constrainedTable), name: check.name, kind: 'check', constraint: { ...check, expression: `${q('quantity')} < 0` } })
+      const failedReplacement = await apply(impossible)
+      expect(['failed','unknown']).toContain(failedReplacement.status)
+      const constraintExists = () => driver.schema(session.id).then(snapshot => snapshot.catalog?.objects.some(object => object.kind === 'constraint' && object.parent === constrainedTable && object.name === check.name))
+      if (engine === 'oracle') {
+        expect(failedReplacement.executedSql).toContain('DROP CONSTRAINT'); expect(failedReplacement.message).toContain('DDL can commit implicitly')
+        expect(await constraintExists()).toBe(false)
+        await change({ action: 'add-constraint', target: await object(constrainedTable), constraint: { ...check, expression: `${q('quantity')} >= 1` } })
+      } else expect(await constraintExists()).toBe(true)
+      await reject(`UPDATE ${full(constrainedTable)} SET ${q('quantity')}=0 WHERE ${q('id')}=1`)
+      const staleForeign = await prepare({ action: 'add-constraint', target: await object(constrainedTable), constraint: { ...fk, name: prefix+'_fk_stale' } })
+      await run(`ALTER TABLE ${full(name)} ADD ${q('ref_external')} INTEGER`, other.id)
+      const staleForeignResult = await apply(staleForeign)
+      expect(staleForeignResult.status).toBe('failed'); expect(staleForeignResult.message).toMatch(/referenced table changed/); expect(staleForeignResult.executedSql).toBe('')
+    }
+    await change({ action: 'drop-table', target: await object(constrainedTable) })
+    await change({ action: 'create-table', location, name: compositeParent, columns: [{ ...column('a', false), primaryKey: true }, { ...column('b', false), primaryKey: true }] })
+    await run(`INSERT INTO ${full(compositeParent)} (${q('a')},${q('b')}) VALUES (1,2)`)
+    if (engine === 'oracle') await run('COMMIT')
+    const composite = { kind: 'foreign' as const, name: prefix+'_composite_fk', columns: ['x','y'], reference: { kind: 'table' as const, table: await object(compositeParent) }, referencedColumns: ['a','b'], onDelete: 'no-action' as const, onUpdate: 'no-action' as const }
+    await change({ action: 'create-table', location, name: compositeChild, columns: [column('x'), column('y')], constraints: [composite] })
+    await run(`INSERT INTO ${full(compositeChild)} (${q('x')},${q('y')}) VALUES (1,2)`)
+    await reject(`INSERT INTO ${full(compositeChild)} (${q('x')},${q('y')}) VALUES (2,1)`)
+    expect((await run(`SELECT ${q('x')},${q('y')} FROM ${full(compositeChild)}`)).rows).toEqual([['1','2']])
+    if (engine === 'oracle') await run('COMMIT')
+    await change({ action: 'drop-table', target: await object(compositeChild) })
+    await change({ action: 'drop-table', target: await object(compositeParent) })
+    const cascade = { ...fk, name: prefix+'_cascade_fk', onDelete: 'cascade' as const, onUpdate: engine === 'oracle' ? 'no-action' as const : 'cascade' as const }
+    const cascadeCreate: SchemaChange = { action: 'create-table', location, name: cascadeTable, columns: [{ ...column('id', false), primaryKey: true }, column('parent_id')], constraints: [cascade] }
+    if (engine === 'duckdb') await expect(prepare(cascadeCreate)).rejects.toThrow(/NO ACTION/)
+    else {
+      const cascadePlan = await prepare(cascadeCreate); expect(cascadePlan.destructive).toBe(true)
+      await expect(apply(cascadePlan, { destructiveApproved: false })).rejects.toThrow(/destructive/)
+      const created = await apply(cascadePlan); expect(created.status, created.message).toBe('completed'); if (transactional) await run('COMMIT')
+      await run(`INSERT INTO ${full(name)} (${q('id')}) VALUES (400)`)
+      await run(`INSERT INTO ${full(cascadeTable)} (${q('id')},${q('parent_id')}) VALUES (1,400)`)
+      await run(`DELETE FROM ${full(name)} WHERE ${q('id')}=400`)
+      expect((await run(`SELECT ${q('id')} FROM ${full(cascadeTable)}`)).rows).toEqual([])
+      if (engine !== 'oracle') {
+        await run(`INSERT INTO ${full(name)} (${q('id')}) VALUES (401)`)
+        await run(`INSERT INTO ${full(cascadeTable)} (${q('id')},${q('parent_id')}) VALUES (2,401)`)
+        await run(`UPDATE ${full(name)} SET ${q('id')}=402 WHERE ${q('id')}=401`)
+        expect((await run(`SELECT ${q('parent_id')} FROM ${full(cascadeTable)}`)).rows).toEqual([['402']])
+        await run(`DELETE FROM ${full(name)} WHERE ${q('id')}=402`)
+      }
+      if (engine === 'oracle') await run('COMMIT')
+      await change({ action: 'drop-table', target: await object(cascadeTable) })
+    }
     const expressionColumn = { ...column('added_expression'), default: { kind: 'expression' as const, value: '4 + 5' } }
     if (engine === 'sqlite') await expect(prepare({ action: 'add-column', target: await object(name), column: expressionColumn })).rejects.toThrow(/SQLite cannot add/)
     else {
@@ -271,7 +358,7 @@ export async function verifySchemaChanges(config: ConnectionConfig) {
     expect(driver.getSession(other.id).transaction).toBe('idle')
   } finally {
     try { await run('ROLLBACK') } catch {}
-    for (const table of [name,renamed,generatedName,identityAddName,alwaysName,generatedKeyName,methodTable,nativeTable]) { try { await run(`DROP TABLE ${full(table)}`) } catch {} }
+    for (const table of [compositeChild,compositeParent,cascadeTable,constrainedTable,name,renamed,generatedName,identityAddName,alwaysName,generatedKeyName,methodTable,nativeTable]) { try { await run(`DROP TABLE ${full(table)}`) } catch {} }
     if (['postgres','duckdb','sqlserver','azure-sql','oracle'].includes(engine)) { try { await run(`DROP TYPE ${full(namedType)}`) } catch {} }
     await driver.close(); rmSync(directory, { recursive: true, force: true })
   }

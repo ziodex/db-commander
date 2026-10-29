@@ -4,7 +4,7 @@ import { SchemaChanges } from '../../src/schema/changes'
 import { engineSchema, type SessionInfo } from '../../src/shared/contracts'
 import { prepareSchemaChangeSchema, schemaColumnSchema, transactionalDdl, type SchemaChange } from '../../src/shared/schema-changes'
 import type { Completion } from '../../src/driver/driver'
-import type { ObjectDetail } from '../../src/shared/catalog'
+import { objectKey, type ObjectDetail } from '../../src/shared/catalog'
 import { schemaExpression } from '../../src/schema/expression'
 
 const session: SessionInfo = { id: '00000000-0000-4000-8000-000000000001', engine: 'postgres', name: 'test', database: 'test', user: 'test', host: 'localhost', port: 1, tls: false, transaction: 'idle', version: '' }
@@ -150,6 +150,56 @@ describe('schema change plans', () => {
     expect(() => schemaSql({ ...change, include: [], predicate: undefined, method: undefined }, { ...session, engine: 'mariadb', version: '10.7.8-MariaDB' }, columns)).toThrow(/MariaDB 10.8/)
     expect(schemaSql({ ...change, include: [], predicate: undefined, method: undefined }, { ...session, engine: 'mariadb', version: '5.5.5-10.11.9-MariaDB' }, columns).commands[0]).toContain(' DESC')
     expect(() => prepareSchemaChangeSchema.parse({ sessionId: session.id, change: { ...change, method: 'btree; DROP TABLE t' } })).toThrow()
+  })
+  it('reviews named check, unique and foreign constraints and gates unsupported rules', () => {
+    const parent = { ...target, name: 'parent', identity: '2' }, parentDetail = { ...detail, object: parent }
+    const references = new Map([[objectKey(parent), parentDetail]])
+    const foreign = { kind: 'foreign' as const, name: 'fk', columns: ['id'], reference: { kind: 'table' as const, table: parent }, referencedColumns: ['id'], onDelete: 'cascade' as const, onUpdate: 'no-action' as const }
+    const check = { kind: 'check' as const, name: 'positive', expression: 'id > 0' }, unique = { kind: 'unique' as const, name: 'uniq', columns: ['id'] }
+    const plan = schemaSql({ ...create, constraints: [check, unique, foreign] }, session, undefined, references)
+    expect(plan.sql).toContain('CONSTRAINT "positive" CHECK (id > 0)')
+    expect(plan.sql).toContain('CONSTRAINT "uniq" UNIQUE ("id")')
+    expect(plan.sql).toContain('REFERENCES "test"."parent" ("id") ON DELETE CASCADE ON UPDATE NO ACTION')
+    expect(plan.destructive).toBe(true); expect(plan.warnings.join(' ')).toContain('automatically modify or delete')
+    expect(() => schemaSql({ ...create, constraints: [{ ...check, expression: '1); DROP TABLE x; --' }] }, session)).toThrow()
+    expect(() => schemaSql({ ...create, constraints: [foreign] }, session)).toThrow(/metadata is unavailable/)
+    expect(() => schemaSql({ ...create, constraints: [{ ...foreign, referencedColumns: ['missing'] }] }, session, undefined, references)).toThrow(/Referenced column/)
+    expect(() => schemaSql({ ...create, constraints: [{ ...foreign, onUpdate: 'restrict' }] }, { ...session, engine: 'sqlserver' }, undefined, references)).toThrow(/NO ACTION/)
+    expect(() => schemaSql({ ...create, constraints: [check] }, { ...session, engine: 'mysql', version: '5.7.44' })).toThrow(/ignore CHECK/)
+    expect(() => schemaSql({ action: 'add-constraint', target, constraint: check }, { ...session, engine: 'sqlite' }, detail)).toThrow(/separate table migration/)
+    const sqlite = schemaSql({ ...create, constraints: [{ ...foreign, reference: { kind: 'self' }, onDelete: 'no-action' }] }, { ...session, engine: 'sqlite' })
+    expect(sqlite.sql).toContain(`REFERENCES "odd'; DROP TABLE x;--" ("id")`); expect(sqlite.warnings.join(' ')).toContain('PRAGMA foreign_keys')
+  })
+  it('requires visible matching constraints and reviews replacement transaction boundaries', () => {
+    const targetDetail: ObjectDetail = { ...detail, sections: [...detail.sections, { title: 'Constraints and keys', columns: ['Name', 'Kind'], rows: [['guard', 'c']] }] }
+    const replacement = { action: 'replace-constraint' as const, target, name: 'guard', kind: 'check' as const, constraint: { kind: 'check' as const, name: 'guard', expression: 'id > 1' } }
+    const pg = schemaSql(replacement, session, targetDetail)
+    expect(pg.commands).toEqual(['ALTER TABLE "test"."t" DROP CONSTRAINT "guard"', 'ALTER TABLE "test"."t" ADD CONSTRAINT "guard" CHECK (id > 1)'])
+    expect(pg.destructive).toBe(true); expect(pg.begin).toBe('BEGIN')
+    expect(() => schemaSql({ ...replacement, kind: 'unique' }, session, targetDetail)).toThrow(/kind changed/)
+    const oracleTarget = { ...target, schema: 'TEST' }, oracleDetail = { ...targetDetail, object: oracleTarget, sections: [targetDetail.sections[0], { title: 'Constraints and keys', columns: ['Name','Kind'], rows: [['guard','C']] }] }
+    const oracle = schemaSql({ ...replacement, target: oracleTarget }, { ...session, engine: 'oracle' }, oracleDetail)
+    expect(oracle.commands).toHaveLength(2); expect(oracle.warnings.join(' ')).toContain('old constraint is gone')
+    const mysqlDetail = { ...targetDetail, sections: [targetDetail.sections[0], { title: 'Constraints and keys', columns: ['Name','Kind'], rows: [['guard','CHECK']] }] }
+    expect(schemaSql(replacement, { ...session, engine: 'mysql', version: '8.4.11' }, mysqlDetail).commands[0]).toContain('DROP CHECK `guard`, ADD CONSTRAINT')
+  })
+  it('refuses foreign keys when referenced metadata is incomplete', async () => {
+    const manager = new SchemaChanges(), parent = { ...target, name: 'parent', identity: '2' }
+    const driver = { getSession: () => ({ ...session }), explore: async (_id: string, object?: typeof target) => ({ detail: object?.identity === parent.identity ? { ...detail, object: parent, sections: [{ ...detail.sections[0], truncated: true }] } : detail }) }
+    const foreign = { kind: 'foreign' as const, name: 'fk', columns: ['id'], reference: { kind: 'table' as const, table: parent }, referencedColumns: ['id'], onDelete: 'no-action' as const, onUpdate: 'no-action' as const }
+    await expect(manager.prepare({ sessionId: session.id, change: { action: 'add-constraint', target, constraint: foreign } }, driver)).rejects.toThrow(/metadata is incomplete/)
+  })
+  it('rechecks referenced table fingerprints and consumes a stale foreign-key plan before execution', async () => {
+    const manager = new SchemaChanges(), parent = { ...target, name: 'parent', identity: '2' }, s = { ...session }
+    let parentDetail = { ...detail, object: parent }
+    const driver = { getSession: () => ({ ...s }), explore: async (_id: string, object?: typeof target) => ({ detail: structuredClone(object?.identity === parent.identity ? parentDetail : detail) }) }
+    const foreign = { kind: 'foreign' as const, name: 'fk', columns: ['id'], reference: { kind: 'table' as const, table: parent }, referencedColumns: ['id'], onDelete: 'no-action' as const, onUpdate: 'no-action' as const }
+    const plan = await manager.prepare({ sessionId: s.id, change: { action: 'add-constraint', target, constraint: foreign } }, driver)
+    parentDetail = { ...parentDetail, definition: { ...parentDetail.definition, sql: 'changed' } }
+    const executed: string[] = []
+    const result = await manager.apply({ sessionId: s.id, planId: plan.id, confirmed: true, implicitCommitApproved: false, destructiveApproved: false }, driver, async sql => { executed.push(sql); return { status: 'completed' } as Completion })
+    expect(result.status).toBe('failed'); expect(result.message).toContain('referenced table changed'); expect(executed).toEqual([])
+    await expect(manager.apply({ sessionId: s.id, planId: plan.id, confirmed: true, implicitCommitApproved: false, destructiveApproved: false }, driver, async () => ({ status: 'completed' } as Completion))).rejects.toThrow(/expired/)
   })
   it('requires a fresh, one-use plan and all relevant acknowledgments', async () => {
     const manager = new SchemaChanges(), s = { ...session, engine: 'mysql' as const }, driver = catalogSession(s)

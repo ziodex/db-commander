@@ -22,10 +22,20 @@ const nativeTypeSchema = z.discriminatedUnion('kind', [
 ])
 export const schemaColumnSchema = z.object({ name, type: z.enum(columnTypes), nativeType: nativeTypeSchema.optional(), length: z.number().int().min(1).max(4000).default(255), precision: z.number().int().min(1).max(38).default(18), scale: z.number().int().min(0).max(38).default(2), nullable: z.boolean(), primaryKey: z.boolean().default(false), default: defaultSchema.default({ kind: 'none' }), generation: generationSchema.optional() }).strict()
 export type SchemaColumnInput = z.infer<typeof schemaColumnSchema>
+const referenceAction = z.enum(['no-action', 'restrict', 'cascade', 'set-null', 'set-default'])
+export const tableConstraintSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('check'), name, expression: z.string().min(1).max(4000) }).strict(),
+  z.object({ kind: z.literal('unique'), name, columns: z.array(name).min(1).max(16) }).strict(),
+  z.object({ kind: z.literal('foreign'), name, columns: z.array(name).min(1).max(16), reference: z.discriminatedUnion('kind', [z.object({ kind: z.literal('self') }).strict(), z.object({ kind: z.literal('table'), table: catalogObjectSchema }).strict()]), referencedColumns: z.array(name).min(1).max(16), onDelete: referenceAction, onUpdate: referenceAction }).strict()
+])
+export type TableConstraint = z.infer<typeof tableConstraintSchema>
 const schemaChangeSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('create-schema'), location }).strict(),
-  z.object({ action: z.literal('create-table'), location, name, columns: z.array(schemaColumnSchema).min(1).max(100) }).strict(),
+  z.object({ action: z.literal('create-table'), location, name, columns: z.array(schemaColumnSchema).min(1).max(100), constraints: z.array(tableConstraintSchema).max(16).optional() }).strict(),
   z.object({ action: z.literal('add-column'), target: catalogObjectSchema, column: schemaColumnSchema }).strict(),
+  z.object({ action: z.literal('add-constraint'), target: catalogObjectSchema, constraint: tableConstraintSchema }).strict(),
+  z.object({ action: z.literal('drop-constraint'), target: catalogObjectSchema, name, kind: z.enum(['check', 'unique', 'foreign']) }).strict(),
+  z.object({ action: z.literal('replace-constraint'), target: catalogObjectSchema, name, kind: z.enum(['check', 'unique', 'foreign']), constraint: tableConstraintSchema }).strict(),
   z.object({ action: z.literal('rename-column'), target: catalogObjectSchema, column: name, name }).strict(),
   z.object({ action: z.literal('drop-column'), target: catalogObjectSchema, column: name }).strict(),
   z.object({ action: z.literal('rename-table'), target: catalogObjectSchema, name }).strict(),
@@ -50,6 +60,7 @@ export interface SchemaChangeResult {
 }
 export const schemaActions: Record<SchemaChange['action'], string> = {
   'create-schema': 'Create schema', 'create-table': 'Create table', 'add-column': 'Add column',
+  'add-constraint': 'Add constraint', 'drop-constraint': 'Drop constraint', 'replace-constraint': 'Replace constraint',
   'rename-column': 'Rename column', 'drop-column': 'Drop column', 'rename-table': 'Rename table',
   'drop-table': 'Drop table', 'create-index': 'Create index', 'drop-index': 'Drop index'
 }
