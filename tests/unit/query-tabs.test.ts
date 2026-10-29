@@ -3,6 +3,19 @@ import { applyDatabaseEvent, canCloseTab, emptyTabState } from '../../src/render
 import { SessionResultCache } from '../../src/driver/result-cache'
 import type { DatabaseEvent, SessionInfo } from '../../src/shared/contracts'
 const session = (id: string): SessionInfo => ({ id, engine: 'postgres', name: id, database: 'db', host: 'local', port: 1, user: 'user', tls: false, transaction: 'idle', version: '' })
+for (const status of ['completed', 'failed', 'cancelled', 'unknown'] as const) it(`keeps ${status} result completeness separate from transient status messages`, () => {
+  const state = { ...emptyTabState(), session: session('a'), queryId: 'q', running: true, resultPartial: true }
+  const finished = applyDatabaseEvent(state, { type: 'complete', sessionId: 'a', queryId: 'q', status, durationMs: 1, transaction: 'idle' })
+  expect({ ...finished, status: 'Fetched rows exported' }.resultPartial).toBe(status !== 'completed')
+  expect(applyDatabaseEvent(finished, { type: 'complete', sessionId: 'a', queryId: 'old', status: 'completed', durationMs: 1, transaction: 'idle' })).toBe(finished)
+})
+it('retains partial execution truth through session and host loss while preserving completed captures', () => {
+  for (const running of [false, true]) {
+    const state = { ...emptyTabState(), session: session('a'), running, resultPartial: false }
+    expect(applyDatabaseEvent(state, { type: 'host-lost', message: 'lost' }).resultPartial).toBe(running)
+    expect(applyDatabaseEvent(state, { type: 'session-lost', sessionId: 'a', message: 'lost' }).resultPartial).toBe(running)
+  }
+})
 it('shows count-only completion messages while preserving actual empty SELECT results', () => {
   const state = { ...emptyTabState(), session: session('a'), queryId: 'q', running: true, messages: ['2 rows affected.'] }
   const done: DatabaseEvent = { type: 'complete', sessionId: 'a', queryId: 'q', status: 'completed', durationMs: 1, transaction: 'idle' }

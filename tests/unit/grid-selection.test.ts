@@ -30,4 +30,18 @@ describe('result selection clipboard', () => {
     expect(selectionBounds(range(0, 2), [0, 1], 3)).toBeNull()
     expect(selectionBounds(range(2, 2, 0, 0), [2, 0], 3)).toEqual({ firstRow: 0, lastRow: 2, firstColumn: 0, lastColumn: 1 })
   })
+  it('copies CSV with quoted text and exact NULL, empty text, delimiters and displayed order', () => {
+    expect(copyGridSelection(result, [2, 1], range(0, 2, 1, 1), true, 'csv')).toBe('"note","label"\r\nNULL,"First"\r\n"","Tab\tand\n""quote"""')
+  })
+  it('keeps duplicate column names and exact strings separate from NULL in JSON', () => {
+    const duplicate = { ...result, columns: result.columns.map(column => ({ ...column, name: 'same' })) }
+    expect(JSON.parse(copyGridSelection(duplicate, [2, 0], range(0, 2, 1, 0), true, 'json'))).toEqual({ columns: ['same', 'same'], rows: [[null, '1'], ['', '2']] })
+  })
+  it('escapes Markdown table delimiters and HTML while preserving a header per displayed column', () => {
+    const data = { ...result, rows: [['a|b\n<script>&', null, '']] }
+    expect(copyGridSelection(data, [0, 2], range(0, 0, 0, 2), true, 'markdown')).toBe('| id | note |\r\n| --- | --- |\r\n| a\\|b<br>&lt;script&gt;&amp; |  |')
+  })
+  it.each(['csv', 'json', 'markdown'] as const)('rejects oversized %s copies before publication', format => {
+    expect(() => copyGridSelection({ ...result, rows: [['x'.repeat(1_000_001)]] }, [0], range(0, 0), true, format)).toThrow('too large to copy')
+  })
 })

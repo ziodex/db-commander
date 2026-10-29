@@ -2,6 +2,7 @@ import type { ResultSet } from '../shared/contracts'
 
 export interface GridPoint { row: number; column: number }
 export interface GridSelection { anchor: GridPoint; focus: GridPoint }
+export type GridCopyFormat = 'tsv' | 'csv' | 'json' | 'markdown'
 
 /** Columns are source indices, but a range always follows the visible order. */
 export function selectionBounds(selection: GridSelection | null, visible: number[], rowCount: number) {
@@ -15,24 +16,43 @@ export function selectionBounds(selection: GridSelection | null, visible: number
   }
 }
 
-export function copyGridSelection(result: ResultSet, visible: number[], selection: GridSelection, headers = false) {
+export function copyGridSelection(result: ResultSet, visible: number[], selection: GridSelection, headers = false, format: GridCopyFormat = 'tsv') {
   const bounds = selectionBounds(selection, visible, result.rows.length)
   if (!bounds) return ''
   const columns = visible.slice(bounds.firstColumn, bounds.lastColumn + 1)
-  const single = !headers && bounds.firstRow === bounds.lastRow && columns.length === 1
+  const single = format === 'tsv' && !headers && bounds.firstRow === bounds.lastRow && columns.length === 1
   const encode = (value: string | null) => {
     const text = value ?? 'NULL'
     return !single && /[\t\r\n"]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
   }
   const lines: string[] = []
   let length = 0
-  function append(values: (string | null)[]) {
-    const line = values.map(encode).join('\t')
-    length += line.length + (lines.length ? 2 : 0)
+  function line(text: string) {
+    length += text.length + (lines.length ? 2 : 0)
     if (length > 1_000_000) throw new Error('This selection is too large to copy. Select fewer cells or export the results.')
-    lines.push(line)
+    lines.push(text)
   }
-  if (headers) append(columns.map(column => result.columns[column].name))
-  for (let row = bounds.firstRow; row <= bounds.lastRow; row++) append(columns.map(column => result.rows[row][column]))
+  const names = columns.map(column => result.columns[column].name)
+  const values = (row: number) => columns.map(column => result.rows[row][column])
+  if (format === 'json') {
+    // Names are a separate array: duplicate SQL labels must not overwrite cells.
+    line(`{"columns":${JSON.stringify(names)},"rows":[`)
+    for (let row = bounds.firstRow; row <= bounds.lastRow; row++) line(`${row === bounds.firstRow ? '' : ','}${JSON.stringify(values(row))}`)
+    line(']}')
+    return lines.join('\r\n')
+  }
+  if (format === 'markdown') {
+    const escape = (value: string | null) => (value ?? 'NULL').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\r\n|\r|\n/g, '<br>')
+    const append = (cells: (string | null)[]) => line(`| ${cells.map(escape).join(' | ')} |`)
+    append(names); line(`| ${columns.map(() => '---').join(' | ')} |`)
+    for (let row = bounds.firstRow; row <= bounds.lastRow; row++) append(values(row))
+    return lines.join('\r\n')
+  }
+  function append(cells: (string | null)[]) {
+    const text = format === 'csv' ? cells.map(value => value === null ? 'NULL' : `"${value.replace(/"/g, '""')}"`).join(',') : cells.map(encode).join('\t')
+    line(text)
+  }
+  if (headers) append(names)
+  for (let row = bounds.firstRow; row <= bounds.lastRow; row++) append(values(row))
   return lines.join('\r\n')
 }

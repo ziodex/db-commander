@@ -7,7 +7,14 @@ import { join, resolve } from 'node:path'
 
 const modifier = process.platform === 'darwin' ? 'Meta' : 'Control'
 async function enter(page: Page, sql: string) {
-  await page.locator('.monaco-editor').click(); await page.keyboard.press(`${modifier}+A`); await page.keyboard.insertText(sql); await page.keyboard.press('Escape')
+  await page.bringToFront()
+  const editor = page.locator('.monaco-editor'), input = editor.locator('textarea.inputarea')
+  await expect(input).toBeEditable(); await editor.click(); await expect(input).toBeFocused()
+  await page.keyboard.press(`${modifier}+A`); await page.keyboard.insertText(sql); await page.keyboard.press('Escape')
+  await expect.poll(async () => {
+    const workspace = await page.evaluate(() => window.dbCommander.loadWorkspace())
+    return workspace?.tabs.find(tab => tab.id === workspace.activeTabId)?.sql
+  }).toBe(sql)
 }
 
 test('query tab pinning: group boundaries, close protection, file saves and restart recovery', async ({}, testInfo) => {

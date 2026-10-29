@@ -27,6 +27,8 @@ export interface QueryTabState {
   schemaStale: boolean
   tableSearch: string
   results: ResultSet[]
+  resultSource?: string
+  resultPartial?: boolean
   activeResult: number
   resultSelectionChanged: boolean
   queryId: string
@@ -61,9 +63,9 @@ export function canCloseTab(state: QueryTabState): string | undefined {
 }
 /** Session and execution identity, never the active tab, owns incoming data. */
 export function applyDatabaseEvent(state: QueryTabState, event: DatabaseEvent): QueryTabState {
-  if (event.type === 'host-lost') return state.session || state.connecting ? { ...state, databases: null, databasesLoading: false, databasesError: '', switching: false, gridBusy: false, backupBusy: false, transferBusy: false, gridExpired: true, session: null, tables: [], schema: null, schemaLoading: false, schemaError: '', schemaStale: false, running: false, connecting: false, closing: false, queryId: '', failure: undefined, error: event.message, status: 'Disconnected' } : state
+  if (event.type === 'host-lost') return state.session || state.connecting ? { ...state, databases: null, databasesLoading: false, databasesError: '', switching: false, gridBusy: false, backupBusy: false, transferBusy: false, gridExpired: true, session: null, tables: [], schema: null, schemaLoading: false, schemaError: '', schemaStale: false, running: false, connecting: false, closing: false, queryId: '', resultPartial: state.running || state.resultPartial, failure: undefined, error: event.message, status: 'Disconnected' } : state
   if (event.sessionId !== state.session?.id) return state
-  if (event.type === 'session-lost') return { ...state, databases: null, databasesLoading: false, databasesError: '', switching: false, gridBusy: false, backupBusy: false, transferBusy: false, gridExpired: true, session: null, tables: [], schema: null, schemaLoading: false, schemaError: '', schemaStale: false, running: false, queryId: '', failure: undefined, error: event.message, status: 'Disconnected' }
+  if (event.type === 'session-lost') return { ...state, databases: null, databasesLoading: false, databasesError: '', switching: false, gridBusy: false, backupBusy: false, transferBusy: false, gridExpired: true, session: null, tables: [], schema: null, schemaLoading: false, schemaError: '', schemaStale: false, running: false, queryId: '', resultPartial: state.running || state.resultPartial, failure: undefined, error: event.message, status: 'Disconnected' }
   if (event.queryId !== state.queryId) return state
   if (event.type === 'result') {
     const results = [...state.results]
@@ -80,6 +82,7 @@ export function applyDatabaseEvent(state: QueryTabState, event: DatabaseEvent): 
   return { ...state, failure: event.status === 'failed' ? event.failure ?? (state.execution ? { start: 0, end: state.execution.sql.length, scope: 'script' } : undefined) : undefined, running: false, duration: event.durationMs,
     activeResult: state.resultSelectionChanged ? state.activeResult : preferredResult(state.results, state.activeResult),
     showMessages: state.showMessages || !state.resultSelectionChanged && !state.results.some(Boolean) && (state.messages.length > 0 || Boolean(event.error)),
+    resultPartial: event.status !== 'completed',
     status: event.status === 'completed' ? 'Completed' : event.status === 'cancelled' ? 'Cancelled' : event.status === 'unknown' ? 'Outcome unknown' : 'Failed',
     session: { ...state.session!, transaction: event.transaction, autocommit: event.autocommit, database: event.database ?? state.session!.database, mysqlSqlMode: event.mysqlSqlMode ?? state.session!.mysqlSqlMode },
     messages: event.error ? [...state.messages.slice(-99), event.error] : state.messages,

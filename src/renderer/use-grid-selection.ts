@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState, type PointerEvent, type RefObject } from 'react'
 import { selectionBounds, type GridPoint, type GridSelection } from './grid-selection'
 
-export function useGridSelection(scroll: RefObject<HTMLDivElement | null>, visible: number[], rowCount: number, focusCell: (point: GridPoint) => void) {
+export function useGridSelection(scroll: RefObject<HTMLDivElement | null>, visible: number[], rowCount: number, focusCell: (point: GridPoint) => void, resetKey = '') {
   const [selection, setSelection] = useState<GridSelection | null>(null)
   const current = useRef(selection), frame = useRef(0)
   const dragging = useRef<{ id: number; x: number; y: number } | null>(null)
   // A changed column order starts a fresh range rather than silently changing what Copy includes.
-  const signature = visible.join(','), previous = useRef(signature)
+  const signature = `${visible.join(',')}:${resetKey}`, previous = useRef(signature)
   if (previous.current !== signature) { previous.current = signature; current.current = null; setSelection(null) }
   function select(point: GridPoint, extend = false) {
     const anchor = extend && current.current ? current.current.anchor : point
