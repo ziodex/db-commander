@@ -3,6 +3,7 @@ import type { ObjectDetail } from '../shared/catalog'
 import type { SessionInfo } from '../shared/contracts'
 import { supportsCreateSchema, transactionalDdl, type SchemaChange, type SchemaColumnInput } from '../shared/schema-changes'
 import { schemaExpression } from './expression'
+import { nativeIdentityCompatible, nativeTypeSql } from './native-types'
 
 function columnNames(detail?: ObjectDetail): string[] {
   const section = detail?.sections.find(section => section.title === 'Columns'), position = section?.columns.indexOf('Name') ?? -1
@@ -28,16 +29,16 @@ export function schemaSql(change: SchemaChange, session: SessionInfo, detail?: O
   }
   function column(c: SchemaColumnInput, omitNotNull = false) {
     const generation = c.generation
-    if (c.scale > c.precision && c.type === 'decimal' && !(mssql && generation?.kind === 'computed')) throw new Error('Decimal scale cannot exceed precision.')
+    if (!c.nativeType && c.scale > c.precision && c.type === 'decimal' && !(mssql && generation?.kind === 'computed')) throw new Error('Decimal scale cannot exceed precision.')
     if ((!c.nullable || c.primaryKey) && c.default.kind === 'null') throw new Error('A required column cannot default to NULL.')
     if (generation && c.default.kind !== 'none') throw new Error('Generated and identity columns cannot also have a default.')
     if (generation?.kind === 'identity') {
       if (engine === 'duckdb') throw new Error('DuckDB does not support identity columns. Use a reviewed sequence default instead.')
-      if (!['integer', 'bigint'].includes(c.type) && !((mssql || engine === 'oracle') && c.type === 'decimal' && c.scale === 0)) throw new Error('Identity columns require an integer type or an engine-supported zero-scale decimal.')
+      if (c.nativeType ? !nativeIdentityCompatible(c.nativeType, engine) : !['integer', 'bigint'].includes(c.type) && !((mssql || engine === 'oracle') && c.type === 'decimal' && c.scale === 0)) throw new Error('Identity columns require an integer type or an engine-supported zero-scale decimal.')
       if (c.nullable) throw new Error('Identity columns are not nullable.')
       if (['postgres', 'oracle'].includes(engine) ? generation.mode === 'auto' : generation.mode !== 'auto') throw new Error('Choose an identity mode supported by this engine.')
       if (generation.unique && !mysql) throw new Error('An inline identity unique key is supported here only for MySQL/MariaDB.')
-      if (engine === 'sqlite' && (c.type !== 'integer' || !c.primaryKey)) throw new Error('SQLite AUTOINCREMENT requires an INTEGER PRIMARY KEY.')
+      if (engine === 'sqlite' && ((!c.nativeType && c.type !== 'integer') || !c.primaryKey)) throw new Error('SQLite AUTOINCREMENT requires an INTEGER PRIMARY KEY.')
       if (mysql && !c.primaryKey && !generation.unique) throw new Error('MySQL/MariaDB AUTO_INCREMENT must be indexed. Choose the unique key or make it the first primary-key column.')
     }
     if (generation?.kind === 'computed') {
@@ -50,7 +51,8 @@ export function schemaSql(change: SchemaChange, session: SessionInfo, detail?: O
       }
       if ((engine === 'duckdb' || mssql && generation.storage === 'virtual') && !c.nullable) throw new Error('This generated column has database-inferred nullability. Leave Nullable selected.')
     }
-    const type = c.type === 'varchar' ? `${mssql ? 'NVARCHAR' : engine === 'oracle' ? 'VARCHAR2' : 'VARCHAR'}(${c.length}${engine === 'oracle' ? ' CHAR' : ''})`
+    if (mssql && generation?.kind === 'computed' && c.nativeType) throw new Error('SQL Server infers computed-column types; remove the native type selection.')
+    const type = c.nativeType ? nativeTypeSql(c.nativeType, engine, q, session.version) : c.type === 'varchar' ? `${mssql ? 'NVARCHAR' : engine === 'oracle' ? 'VARCHAR2' : 'VARCHAR'}(${c.length}${engine === 'oracle' ? ' CHAR' : ''})`
       : c.type === 'decimal' ? `DECIMAL(${c.precision},${c.scale})`
       : ({ integer: 'INTEGER', bigint: engine === 'oracle' ? 'NUMBER(19)' : 'BIGINT', text: engine === 'oracle' ? 'CLOB' : mssql ? 'NVARCHAR(MAX)' : mysql ? 'LONGTEXT' : 'TEXT', boolean: engine === 'oracle' ? 'NUMBER(1)' : mssql ? 'BIT' : 'BOOLEAN', date: 'DATE', timestamp: mssql ? 'DATETIME2' : mysql ? 'DATETIME' : 'TIMESTAMP' } as Record<string,string>)[c.type]
     if (generation?.kind === 'computed') {
@@ -154,6 +156,7 @@ export function schemaSql(change: SchemaChange, session: SessionInfo, detail?: O
     transaction: transactional ? 'transactional' as const : 'implicit-commit' as const, destructive: ['drop-table','drop-column','drop-index'].includes(change.action),
     warnings: [transactional ? 'Starts a new transaction and leaves successful changes uncommitted. Close this dialog, then Commit or Rollback in this tab. Failure or cancellation rolls back this change when the connection remains usable.' : 'DDL commits implicitly and cannot be rolled back. Existing transactions and manual-commit mode must be resolved first. An error or cancellation does not prove that the DDL was undone.',
       'DDL can lock tables and affect dependent objects. Database permissions and dependency rules still apply; no automatic CASCADE or table rebuild is added.',
+      ...((change.action === 'create-table' && change.columns.some(c => c.nativeType?.kind === 'named') || change.action === 'add-column' && change.column.nativeType?.kind === 'named') ? ['User-defined types are resolved by the database when the change runs. Review their definitions and permissions separately; their definitions are not locked by this plan.'] : []),
       ...((change.action === 'create-table' && change.columns.some(c => c.default.kind === 'expression') || change.action === 'add-column' && change.column.default.kind === 'expression') ? ['Default expressions are SQL evaluated by the database and can call functions. Review their behavior and side effects before applying.'] : []),
       ...((change.action === 'create-table' && change.columns.some(c => c.generation?.kind === 'computed') || change.action === 'add-column' && change.column.generation?.kind === 'computed') ? ['Generated expressions are evaluated by the database; review dependencies, determinism and function effects. Generated values cannot be edited directly.'] : []),
       ...(change.action === 'add-column' && change.column.generation?.kind === 'identity' ? ['The database assigns identity values to existing rows when the column is added; their assignment order is not guaranteed.'] : []),

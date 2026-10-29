@@ -58,7 +58,13 @@ for (const engine of engineSchema.options) test(`schema changes ${engine}: revie
     await editor.getByLabel('Column 2 type').selectOption('integer')
     await editor.getByLabel('Column 2 generation').selectOption('computed')
     await editor.getByLabel('Column 2 generated expression').fill(['mysql','mariadb'].includes(engine) ? '2 + 3' : `${q('id')} + 1`)
-    await review(); await approve(); await apply()
+    await editor.getByRole('button', { name: 'Add another column', exact: true }).click()
+    await editor.getByLabel('Column 3 name').fill('native_value')
+    const nativeType = engine === 'postgres' || engine === 'duckdb' ? 'UUID' : engine === 'mysql' || engine === 'mariadb' ? 'VARBINARY' : engine === 'sqlite' ? 'BLOB' : engine === 'oracle' ? 'RAW' : 'UNIQUEIDENTIFIER'
+    await editor.getByLabel('Column 3 type').selectOption(`builtin:${nativeType}`)
+    if (['mysql','mariadb','oracle'].includes(engine)) await editor.getByLabel('Column 3 native length').fill('16')
+    await page.screenshot({ path: testInfo.outputPath(`${engine}-native-type-form.png`) })
+    await review(); await expect(editor.getByLabel('Schema SQL preview')).toHaveValue(new RegExp(nativeType)); await approve(); await apply()
   }
   try {
     await waitForWorkspaceReady(page)
@@ -85,6 +91,10 @@ for (const engine of engineSchema.options) test(`schema changes ${engine}: revie
     await expect(editor.getByLabel('Schema SQL preview')).toHaveValue(/DEFAULT \(1 \+ 2\)/)
     await page.screenshot({ path: testInfo.outputPath(`${engine}-schema-expression-review.png`) })
     await expect(editor.getByRole('button', { name: 'Apply reviewed SQL', exact: true })).toBeDisabled()
+    const alternate = engine === 'oracle' ? 'BINARY_FLOAT' : engine === 'duckdb' ? 'HUGEINT' : engine === 'sqlite' ? 'REAL' : 'SMALLINT'
+    await editor.getByLabel('Column 1 type').selectOption(`builtin:${alternate}`)
+    await expect(editor.getByLabel('Schema SQL preview')).toHaveCount(0)
+    await editor.getByLabel('Column 1 type').selectOption('integer'); await review()
     expect((await page.evaluate(() => window.dbCommander.history())).length).toBe(history.length)
     await editor.getByLabel('Column 1 default expression').fill('1); DROP TABLE important; --')
     await expect(editor.getByLabel('Schema SQL preview')).toHaveCount(0)

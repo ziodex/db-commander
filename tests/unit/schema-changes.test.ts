@@ -73,6 +73,36 @@ describe('schema change plans', () => {
     expect(add.warnings.join(' ')).toContain('assigns identity values to existing rows')
     expect(() => schemaSql({ action: 'add-column', target, column: { ...mysqlIdentity, generation: { ...mysqlIdentity.generation, unique: false } } }, { ...session, engine: 'mysql' }, detail)).toThrow(/must be indexed/)
   })
+  it.each([
+    ['postgres', { kind: 'builtin', name: 'UUID' }, 'UUID'],
+    ['mysql', { kind: 'builtin', name: 'VARBINARY', length: 16 }, 'VARBINARY(16)'],
+    ['mariadb', { kind: 'builtin', name: 'DECIMAL', precision: 20, scale: 4 }, 'DECIMAL(20,4)'],
+    ['sqlserver', { kind: 'builtin', name: 'DATETIMEOFFSET', fractional: 3 }, 'DATETIMEOFFSET(3)'],
+    ['azure-sql', { kind: 'builtin', name: 'UNIQUEIDENTIFIER' }, 'UNIQUEIDENTIFIER'],
+    ['sqlite', { kind: 'builtin', name: 'BLOB' }, 'BLOB'],
+    ['duckdb', { kind: 'builtin', name: 'INTEGER', array: true }, 'INTEGER[]'],
+    ['oracle', { kind: 'builtin', name: 'TIMESTAMP WITH TIME ZONE', fractional: 3 }, 'TIMESTAMP(3) WITH TIME ZONE']
+  ] as const)('renders a structured native type on %s', (engine, nativeType, expected) => {
+    const value = schemaColumnSchema.parse({ name: 'value', type: 'text', nullable: true, nativeType })
+    const sql = schemaSql({ ...create, location: { schema: engine === 'oracle' ? 'TEST' : 'test' }, columns: [value] }, { ...session, engine }).commands[0]
+    expect(sql).toContain(expected)
+  })
+  it('quotes named types and rejects injected or inconsistent native type definitions', () => {
+    const named = schemaColumnSchema.parse({ name: 'value', type: 'text', nullable: true, nativeType: { kind: 'named', schema: 'odd schema', name: 'type"; DROP TABLE x;--', array: true } })
+    const sql = schemaSql({ ...create, columns: [named] }, session).commands[0]
+    expect(sql).toContain('"odd schema"."type""; DROP TABLE x;--"[]')
+    expect(schemaSql({ ...create, columns: [named] }, session).warnings.join(' ')).toContain('not locked by this plan')
+    expect(() => schemaSql({ ...create, columns: [{ ...named, nativeType: { kind: 'named', catalog: 'elsewhere', schema: 's', name: 't' } }] }, session)).toThrow(/Catalog-qualified/)
+    expect(schemaSql({ ...create, columns: [{ ...named, nativeType: { kind: 'named', catalog: 'db"x', schema: 's', name: 't' } }] }, { ...session, engine: 'duckdb' }).sql).toContain('"db""x"."s"."t"')
+    expect(() => schemaSql({ ...create, columns: [{ ...named, nativeType: { kind: 'builtin', name: 'INT); DROP TABLE x;--' } }] }, session)).toThrow(/native type supported/)
+    expect(() => schemaSql({ ...create, columns: [{ ...named, nativeType: { kind: 'builtin', name: 'UUID', precision: 5 } }] }, session)).toThrow(/does not take a modifier/)
+    expect(() => schemaSql({ ...create, columns: [{ ...named, nativeType: { kind: 'builtin', name: 'NUMERIC', precision: 3, scale: 4 } }] }, session)).toThrow(/valid scale/)
+    expect(schemaSql({ ...create, columns: [{ ...named, nativeType: { kind: 'builtin', name: 'NUMERIC', precision: 3, scale: -2 } }] }, { ...session, version: 'PostgreSQL 15.0' }).sql).toContain('NUMERIC(3,-2)')
+    expect(schemaSql({ ...create, location: { schema: 'TEST' }, columns: [{ ...named, nativeType: { kind: 'builtin', name: 'NUMBER', precision: 3, scale: 5 } }] }, { ...session, engine: 'oracle' }).sql).toContain('NUMBER(3,5)')
+    expect(() => schemaSql({ ...create, columns: [named] }, { ...session, engine: 'mysql' })).toThrow(/Array types/)
+    expect(() => schemaSql({ ...create, columns: [{ ...c, nativeType: { kind: 'builtin', name: 'TEXT' }, generation: { kind: 'identity', mode: 'by-default' } }] }, session)).toThrow(/integer type/)
+    expect(() => prepareSchemaChangeSchema.parse({ sessionId: session.id, change: { ...create, columns: [{ ...c, nativeType: { kind: 'builtin', name: 'UUID', sql: 'DROP TABLE x' } }] } })).toThrow()
+  })
   it('accepts structured operations and rejects arbitrary SQL, type injection and control characters', () => {
     const input = { sessionId: session.id, change: create }
     expect(prepareSchemaChangeSchema.parse(input).change).toEqual(create)

@@ -16,7 +16,11 @@ const generationSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('identity'), mode: z.enum(['always', 'by-default', 'auto']), unique: z.boolean().optional() }).strict(),
   z.object({ kind: z.literal('computed'), expression: z.string().min(1).max(4000), storage: z.enum(['virtual', 'stored']) }).strict()
 ])
-export const schemaColumnSchema = z.object({ name, type: z.enum(columnTypes), length: z.number().int().min(1).max(4000).default(255), precision: z.number().int().min(1).max(38).default(18), scale: z.number().int().min(0).max(38).default(2), nullable: z.boolean(), primaryKey: z.boolean().default(false), default: defaultSchema.default({ kind: 'none' }), generation: generationSchema.optional() }).strict()
+const nativeTypeSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('builtin'), name: z.string().min(1).max(64), length: z.number().int().min(1).max(10485760).optional(), precision: z.number().int().min(1).max(1000).optional(), scale: z.number().int().min(-1000).max(1000).optional(), fractional: z.number().int().min(0).max(9).optional(), array: z.boolean().optional() }).strict(),
+  z.object({ kind: z.literal('named'), catalog: name.optional(), schema: name, name, array: z.boolean().optional() }).strict()
+])
+export const schemaColumnSchema = z.object({ name, type: z.enum(columnTypes), nativeType: nativeTypeSchema.optional(), length: z.number().int().min(1).max(4000).default(255), precision: z.number().int().min(1).max(38).default(18), scale: z.number().int().min(0).max(38).default(2), nullable: z.boolean(), primaryKey: z.boolean().default(false), default: defaultSchema.default({ kind: 'none' }), generation: generationSchema.optional() }).strict()
 export type SchemaColumnInput = z.infer<typeof schemaColumnSchema>
 const schemaChangeSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('create-schema'), location }).strict(),

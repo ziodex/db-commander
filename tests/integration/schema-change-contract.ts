@@ -7,13 +7,14 @@ import { DriverRegistry } from '../../src/driver/registry'
 import { quoteIdentifier } from '../../src/shared/sql/common'
 import type { ConnectionConfig, DatabaseEvent } from '../../src/shared/contracts'
 import { schemaColumnSchema, transactionalDdl, supportsCreateSchema, type SchemaChange, type SchemaChangePlan } from '../../src/shared/schema-changes'
+import { nativeTypes } from '../../src/shared/schema-native-types'
 
 export async function verifySchemaChanges(config: ConnectionConfig) {
   const directory = mkdtempSync(join(tmpdir(), 'dbcommander-ddl-')), events: DatabaseEvent[] = []
   const driver = new DriverRegistry(event => { events.push(event) }, { workerPath: resolve('out/main/sqlite-worker.cjs') })
   const engine = config.engine, embedded = ['sqlite','duckdb'].includes(engine), transactional = transactionalDdl(engine)
   const local = embedded ? { ...config, filePath: join(directory,'schema.db'), sqliteMode: 'create' as const, duckdbMode: 'create' as const } : config
-  const session = await driver.connect(local), prefix = `ddl_${randomUUID().replaceAll('-','').slice(0,8)}`, name = prefix+" odd'", renamed = prefix+'_renamed', generatedName = prefix+'_generated', identityAddName = prefix+'_identity_added', alwaysName = prefix+'_identity_always', generatedKeyName = prefix+'_generated_key', methodTable = prefix+'_method_types'
+  const session = await driver.connect(local), prefix = `ddl_${randomUUID().replaceAll('-','').slice(0,8)}`, name = prefix+" odd'", renamed = prefix+'_renamed', generatedName = prefix+'_generated', identityAddName = prefix+'_identity_added', alwaysName = prefix+'_identity_always', generatedKeyName = prefix+'_generated_key', methodTable = prefix+'_method_types', nativeTable = prefix+'_native', namedType = prefix+'_enum'
   const schema = engine === 'postgres' ? 'public' : ['sqlserver','azure-sql'].includes(engine) ? 'dbo' : engine === 'oracle' ? config.user.toUpperCase() : embedded ? 'main' : session.database
   const location = { schema, ...(engine === 'duckdb' ? { catalog: session.database } : {}) }
   const q = (value: string) => quoteIdentifier(value, engine), full = (name: string) => [...(location.catalog ? [q(location.catalog)] : []),q(schema),q(name)].join('.')
@@ -57,6 +58,57 @@ export async function verifySchemaChanges(config: ConnectionConfig) {
     if (transactional) await change(create)
     other = await driver.connect(embedded ? { ...local, sqliteMode: 'read-write', duckdbMode: 'read-write' } : config)
     expect((await driver.schema(other.id)).catalog?.objects.some(o => o.name === name)).toBe(true)
+    const nativeName = engine === 'postgres' || engine === 'duckdb' ? 'UUID' : engine === 'mysql' || engine === 'mariadb' ? 'VARBINARY' : engine === 'sqlite' ? 'BLOB' : engine === 'oracle' ? 'RAW' : 'UNIQUEIDENTIFIER'
+    const payload = schemaColumnSchema.parse({ name: 'native_payload', type: 'text', nullable: true, nativeType: { kind: 'builtin', name: nativeName, ...(['mysql','mariadb','oracle'].includes(engine) ? { length: 16 } : {}) } })
+    const amount = schemaColumnSchema.parse({ name: 'native_amount', type: 'decimal', nullable: true, nativeType: engine === 'sqlite' ? { kind: 'builtin', name: 'NUMERIC' } : { kind: 'builtin', name: engine === 'postgres' ? 'NUMERIC' : engine === 'oracle' ? 'NUMBER' : 'DECIMAL', precision: 12, scale: 2 } })
+    const clockName = engine === 'postgres' || engine === 'oracle' ? 'TIMESTAMP WITH TIME ZONE' : engine === 'mysql' || engine === 'mariadb' ? 'DATETIME' : engine === 'sqlite' ? 'TEXT' : engine === 'duckdb' ? 'TIMESTAMPTZ' : 'DATETIMEOFFSET'
+    const clock = schemaColumnSchema.parse({ name: 'native_clock', type: 'timestamp', nullable: true, nativeType: { kind: 'builtin', name: clockName, ...(['postgres','oracle','mysql','mariadb','sqlserver','azure-sql'].includes(engine) ? { fractional: 3 } : {}) } })
+    const nativeIdentityName = engine === 'oracle' ? 'NUMBER' : engine === 'mysql' || engine === 'mariadb' ? 'BIGINT' : engine === 'sqlserver' || engine === 'azure-sql' ? 'INT' : engine === 'postgres' ? 'BIGINT' : 'INTEGER'
+    const nativeId = schemaColumnSchema.parse({ name: 'native_id', type: 'integer', nullable: false, primaryKey: true, nativeType: { kind: 'builtin', name: nativeIdentityName, ...(engine === 'oracle' ? { precision: 18, scale: 0 } : {}) }, ...(engine === 'duckdb' ? {} : { generation: { kind: 'identity', mode: ['postgres','oracle'].includes(engine) ? 'by-default' : 'auto' } }) })
+    const array = ['postgres','duckdb'].includes(engine) ? [schemaColumnSchema.parse({ name: 'native_array', type: 'integer', nullable: true, nativeType: { kind: 'builtin', name: 'INTEGER', array: true } })] : []
+    await change({ action: 'create-table', location, name: nativeTable, columns: [nativeId, payload, amount, clock, ...array] })
+    const value = engine === 'mysql' || engine === 'mariadb' || engine === 'sqlite' ? "X'00112233445566778899AABBCCDDEEFF'" : engine === 'oracle' ? "HEXTORAW('00112233445566778899AABBCCDDEEFF')" : "'00112233-4455-6677-8899-aabbccddeeff'"
+    const insertColumns = [...(engine === 'duckdb' ? ['native_id'] : []), 'native_payload', 'native_amount', 'native_clock', ...(array.length ? ['native_array'] : [])]
+    const values = [...(engine === 'duckdb' ? ['1'] : []), value, '12.34', 'CURRENT_TIMESTAMP', ...(array.length ? ['ARRAY[1,2]'] : [])]
+    await run(`INSERT INTO ${full(nativeTable)} (${insertColumns.map(q).join(',')}) VALUES (${values.join(',')})`)
+    if (engine === 'oracle') await run('COMMIT')
+    expect((await run(`SELECT ${q('native_id')} FROM ${full(nativeTable)} WHERE ${q('native_payload')} IS NOT NULL AND ${q('native_amount')}=12.34 AND ${q('native_clock')} IS NOT NULL`)).rows).toEqual([['1']])
+    await change({ action: 'drop-table', target: await object(nativeTable) })
+    const allNative = nativeTypes[engine].map((option, i) => schemaColumnSchema.parse({ name: `native_${i}`, type: 'text', nullable: true, nativeType: { kind: 'builtin', name: option.name, ...(option.modifier === 'length' ? { length: 16 } : option.modifier === 'numeric' ? { precision: 10, scale: 2 } : option.modifier === 'temporal' ? { fractional: 3 } : {}) } }))
+    if (['postgres','oracle'].includes(engine)) {
+      const name = engine === 'oracle' ? 'NUMBER' : 'NUMERIC'
+      allNative.push(schemaColumnSchema.parse({ name: 'small_fraction', type: 'decimal', nullable: true, nativeType: { kind: 'builtin', name, precision: 3, scale: 5 } }))
+      allNative.push(schemaColumnSchema.parse({ name: 'rounded_hundreds', type: 'decimal', nullable: true, nativeType: { kind: 'builtin', name, precision: 3, scale: -2 } }))
+    }
+    await change({ action: 'create-table', location, name: nativeTable, columns: allNative })
+    await run(`SELECT ${allNative.map(value => q(value.name)).join(',')} FROM ${full(nativeTable)}`)
+    if (['postgres','oracle'].includes(engine)) {
+      await run(`INSERT INTO ${full(nativeTable)} (${q('small_fraction')},${q('rounded_hundreds')}) VALUES (0.00123,140)`)
+      if (engine === 'oracle') await run('COMMIT')
+      expect((await run(`SELECT ${q('rounded_hundreds')} FROM ${full(nativeTable)} WHERE ${q('small_fraction')}=0.00123`)).rows).toEqual([['100']])
+    }
+    await change({ action: 'drop-table', target: await object(nativeTable) })
+    if (['postgres','duckdb'].includes(engine)) {
+      await run(`CREATE TYPE ${full(namedType)} AS ENUM ('first', 'second')`)
+      const named = schemaColumnSchema.parse({ name: 'state', type: 'text', nullable: true, nativeType: { kind: 'named', schema, name: namedType, ...(engine === 'duckdb' ? { catalog: session.database } : {}) } })
+      const namedArray = schemaColumnSchema.parse({ ...named, name: 'state_history', nativeType: { ...named.nativeType, array: true } })
+      await change({ action: 'create-table', location, name: nativeTable, columns: [column('id'), named, namedArray] })
+      await run(`INSERT INTO ${full(nativeTable)} (${q('id')},${q('state')},${q('state_history')}) VALUES (1,'first',CAST(ARRAY['first','second'] AS ${full(namedType)}[]))`)
+      expect((await run(`SELECT ${q('state')},array_length(${q('state_history')},1) FROM ${full(nativeTable)}`)).rows).toEqual([['first','2']])
+      await change({ action: 'drop-table', target: await object(nativeTable) })
+      await run(`DROP TYPE ${full(namedType)}`)
+    }
+    if (['sqlserver','azure-sql','oracle'].includes(engine)) {
+      await run(engine === 'oracle' ? `CREATE TYPE ${full(namedType)} AS OBJECT (value NUMBER)` : `CREATE TYPE ${full(namedType)} FROM INT NULL`)
+      const named = schemaColumnSchema.parse({ name: 'typed_value', type: 'text', nullable: true, nativeType: { kind: 'named', schema, name: namedType } })
+      await change({ action: 'create-table', location, name: nativeTable, columns: [column('id'), named] })
+      if (engine !== 'oracle') {
+        await run(`INSERT INTO ${full(nativeTable)} (${q('id')},${q('typed_value')}) VALUES (1,42)`)
+        expect((await run(`SELECT ${q('typed_value')} FROM ${full(nativeTable)}`)).rows).toEqual([['42']])
+      }
+      await change({ action: 'drop-table', target: await object(nativeTable) })
+      await run(`DROP TYPE ${full(namedType)}`)
+    }
     const id = { ...column('generated_id', false), primaryKey: true, ...(engine === 'duckdb' ? {} : { generation: { kind: 'identity' as const, mode: ['postgres','oracle'].includes(engine) ? 'by-default' as const : 'auto' as const } }) }
     const storage = ['postgres','mysql','mariadb','sqlserver','azure-sql'].includes(engine) ? 'stored' as const : 'virtual' as const
     const computed = (name: string, amount: number) => schemaColumnSchema.parse({ name, type: 'integer', nullable: true, generation: { kind: 'computed', expression: `${q('quantity')} + ${amount}`, storage } })
@@ -219,7 +271,8 @@ export async function verifySchemaChanges(config: ConnectionConfig) {
     expect(driver.getSession(other.id).transaction).toBe('idle')
   } finally {
     try { await run('ROLLBACK') } catch {}
-    for (const table of [name,renamed,generatedName,identityAddName,alwaysName,generatedKeyName,methodTable]) { try { await run(`DROP TABLE ${full(table)}`) } catch {} }
+    for (const table of [name,renamed,generatedName,identityAddName,alwaysName,generatedKeyName,methodTable,nativeTable]) { try { await run(`DROP TABLE ${full(table)}`) } catch {} }
+    if (['postgres','duckdb','sqlserver','azure-sql','oracle'].includes(engine)) { try { await run(`DROP TYPE ${full(namedType)}`) } catch {} }
     await driver.close(); rmSync(directory, { recursive: true, force: true })
   }
 }
