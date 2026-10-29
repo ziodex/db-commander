@@ -1,7 +1,7 @@
 import { executionUnits } from '../language/execution'
 import type { ObjectDetail } from '../shared/catalog'
 import type { SessionInfo } from '../shared/contracts'
-import { objectScripts } from '../shared/object-scripts'
+import { objectScripts, oracleTriggerSource } from '../shared/object-scripts'
 import type { SchemaChange } from '../shared/schema-changes'
 import { transactionalDdl } from '../shared/schema-changes'
 import { lexSql, type Token } from '../shared/sql/lexer'
@@ -77,7 +77,9 @@ export function objectSourceSql(change: SourceEdit, session: SessionInfo, detail
   if (replaceByDrop && first !== 'CREATE') throw new Error('This engine replaces this object using a reviewed DROP followed by CREATE. Supply its CREATE declaration.')
   const drop = replaceByDrop ? objectScripts(engine, target, detail).drop : undefined
   if (replaceByDrop && !drop) throw new Error('A safe drop script is unavailable for this object. Use separately reviewed SQL.')
-  const commands = [...(drop ? [drop] : []), sql]
+  const triggerState = engine === 'oracle' && target.kind === 'trigger' ? oracleTriggerSource(target, detail.definition.sql) : undefined
+  if (engine === 'oracle' && target.kind === 'trigger' && !triggerState) throw new Error('The original Oracle trigger state cannot be verified. Inspect the definition and use explicit SQL.')
+  const commands = [...(drop ? [drop] : []), sql, ...(triggerState ? [triggerState.stateSql] : [])]
   const transactional = transactionalDdl(engine), begin = ['sqlserver', 'azure-sql'].includes(engine) ? 'BEGIN TRANSACTION' : engine === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN'
   return {
     commands, begin: transactional ? begin : undefined,
@@ -93,6 +95,7 @@ export function objectSourceSql(change: SourceEdit, session: SessionInfo, detail
       ...(target.kind === 'macro' && engine === 'duckdb' ? ['DuckDB exposes the macro body and parameter names but not a complete declaration here. Parameter defaults and types may be omitted; review and restore them explicitly.'] : []),
       ...(drop ? ['Replacement explicitly drops the existing object before recreating it. Dependencies, triggers, permissions or grants can be lost or prevent the drop. Review the complete SQL and dependencies.'] : []),
       ...(drop && !transactional ? ['Each DDL statement commits independently. If creation fails or is interrupted after the drop, the original object is gone; inspect and repair it explicitly.'] : []),
+      ...(triggerState ? ['Oracle trigger state is restored by the separately reviewed ALTER statement. Each DDL statement commits independently; if restoration fails or is interrupted, inspect the trigger and its enabled state.'] : []),
       transactional ? 'The change is applied in this tab’s transaction. Commit or roll back explicitly.' : 'The database can commit DDL implicitly, including on error; it cannot be assumed rolled back.'
     ]
   }

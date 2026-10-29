@@ -45,9 +45,13 @@ export function routineCall(engine: DatabaseEngine, detail: ObjectDetail): Routi
       if (!kind || !(object.kind === 'procedure' ? ['P','PC'] : ['FN','FS','IF','TF','FT']).includes(kind)) return none('The SQL Server routine kind is unavailable. Inspect its definition before calling it.')
       table = ['IF','TF','FT'].includes(kind)
     }
+    let lastPosition = -1
     for (const row of section.rows) {
       const positionText = value(section, row, 'Position'), position = Number(positionText)
       if (!positionText || !/^\d+$/.test(positionText) || !Number.isSafeInteger(position)) return none('Routine parameter positions are incomplete. Inspect the definition before calling it.')
+      if (position !== (lastPosition < 0 && position === 0 ? 0 : Math.max(lastPosition, 0) + 1)) return none('Routine parameter positions are ambiguous or incomplete. Inspect the definition before calling it.')
+      lastPosition = position
+      if (engine === 'oracle' && (value(section, row, 'Overload') !== null || value(section, row, 'Data level') !== '0')) return none('Overloaded or nested Oracle arguments cannot be called safely from this template. Inspect the definition and use explicit SQL.')
       if (position === 0) continue
       const output = value(section, row, 'Output')
       const mode = engine === 'postgres' ? value(section, row, 'Mode') : engine === 'oracle' ? value(section, row, 'Mode') : ['sqlserver','azure-sql'].includes(engine) ? ['1','true'].includes(output ?? '') ? 'OUT' : ['0','false'].includes(output ?? '') ? 'IN' : null : value(section, row, 'Mode')

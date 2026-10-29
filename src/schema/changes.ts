@@ -121,7 +121,7 @@ export class SchemaChanges {
       }
       if (!dispatched) return response(cancelled ? 'cancelled' : 'failed', `${failure.message} No schema SQL was executed.`)
       const concurrentNotice = plan.review.transaction === 'nontransactional' ? ' A failed or cancelled concurrent build can leave an invalid index; inspect it before any retry.' : ''
-      const sourceNotice = sourceEdit && !plan.generated.begin && plan.generated.commands.length > 1 ? ' The original object may have been dropped before recreation failed or was interrupted.' : ''
+      const sourceNotice = sourceEdit && ['mysql', 'mariadb'].includes(session.engine) && plan.generated.commands.length > 1 ? ' The original object may have been dropped before recreation failed or was interrupted.' : sourceEdit && session.engine === 'oracle' && plan.generated.commands.length > 1 ? ' The declaration or trigger state may have changed; inspect both before retrying.' : ''
       if (unknown || !plan.generated.begin && cancelled) return response('unknown', `${failure.message} The outcome is unknown. Reconnect if needed and inspect the target before retrying; nothing will be replayed.${concurrentNotice}${sourceNotice}`)
       return response(cancelled ? 'cancelled' : 'failed', `${failure.message}${plan.generated.begin ? '' : plan.review.transaction === 'nontransactional' ? concurrentNotice : ' DDL can commit implicitly even on error. Inspect the target before retrying.'}${sourceNotice}`)
     } finally { this.controllers.delete(session.id) }

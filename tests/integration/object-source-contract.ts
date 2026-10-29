@@ -84,7 +84,8 @@ export async function verifyRoutineSource(config: ConnectionConfig) {
     const draft = original.replace(/\+\s*1/, '+ 2')
     const plan = await driver.prepareSchemaChange({ sessionId: session.id, change: { action: 'edit-source', target: object!, baseDefinition: detail.definition.sql!, sql: draft } })
     const result = await driver.applySchemaChange({ sessionId: session.id, planId: plan.id, confirmed: true, implicitCommitApproved: true, destructiveApproved: true })
-    expect(result.status, result.message).toBe('completed')
+    const diagnostics = result.status !== 'completed' && engine === 'oracle' ? (await driver.inspectObject({ sessionId: session.id, object: object! })).sections.find(section => section.title === 'Compilation diagnostics')?.rows : undefined
+    expect(result.status, `${result.message}\nReviewed SQL: ${plan.sql}\nDiagnostics: ${JSON.stringify(diagnostics)}`).toBe('completed')
     if (result.session.transaction === 'transaction') await run('COMMIT')
     expect((await run(`SELECT ${full}(10)${engine === 'oracle' ? ' FROM dual' : ''}`)).map(row => row[0])).toEqual(['12'])
     const latest = (await driver.schema(session.id)).catalog?.objects.find(item => item.name === name && item.schema === schema && item.kind === 'function')!
@@ -116,7 +117,7 @@ export async function verifyRoutineSource(config: ConnectionConfig) {
   }
 }
 
-export async function verifyTriggerSource(config: ConnectionConfig) {
+export async function verifyTriggerSource(config: ConnectionConfig, disabled = false) {
   const events: DatabaseEvent[] = [], driver = new DriverRegistry(event => { events.push(event) }, { workerPath: resolve('out/main/sqlite-worker.cjs') })
   const local = config.engine === 'sqlite' ? { ...config, sqliteMode: 'memory' as const } : config
   const session = await driver.connect(local), engine = session.engine, suffix = randomUUID().replaceAll('-', '').slice(0, 10), table = `source_table_${suffix}`, name = `source_trigger_${suffix}`, fn = `source_trigger_fn_${suffix}`
@@ -126,6 +127,7 @@ export async function verifyTriggerSource(config: ConnectionConfig) {
     const id = driver.start({ sessionId: session.id, sql, maxRows: 10 }); await driver.wait(session.id)
     const complete = events.find(event => event.type === 'complete' && event.queryId === id) as Extract<DatabaseEvent, { type: 'complete' }>
     expect(complete, `${sql}: ${complete?.error}`).toMatchObject({ status: 'completed' })
+    return events.flatMap(event => event.type === 'rows' && event.queryId === id ? event.rows : [])
   }
   try {
     await run(`CREATE TABLE ${full(table)} (id INTEGER)`)
@@ -136,6 +138,7 @@ export async function verifyTriggerSource(config: ConnectionConfig) {
       : engine === 'oracle' ? `CREATE TRIGGER ${full(name)} BEFORE INSERT ON ${full(table)} FOR EACH ROW BEGIN :NEW.id := :NEW.id + 1; END;\n/`
       : `CREATE TRIGGER ${full(name)} ON ${full(table)} AFTER INSERT AS BEGIN SET NOCOUNT ON; END`
     await run(initial)
+    if (engine === 'oracle' && disabled) await run(`ALTER TRIGGER ${full(name)} DISABLE`)
     const object = (await driver.schema(session.id)).catalog?.objects.find(object => object.name === name && object.kind === 'trigger')
     expect(object).toBeDefined()
     const detail = await driver.inspectObject({ sessionId: session.id, object: object! }), scripts = objectScripts(engine, object!, detail)
@@ -145,12 +148,14 @@ export async function verifyTriggerSource(config: ConnectionConfig) {
     const draft = original.replace(marker, engine === 'postgres' ? 'BEFORE UPDATE' : engine === 'sqlite' ? 'SELECT 2' : ['sqlserver','azure-sql'].includes(engine) ? 'NOCOUNT OFF' : '+ 2')
     const plan = await driver.prepareSchemaChange({ sessionId: session.id, change: { action: 'edit-source', target: object!, baseDefinition: detail.definition.sql!, sql: draft } })
     const result = await driver.applySchemaChange({ sessionId: session.id, planId: plan.id, confirmed: true, implicitCommitApproved: true, destructiveApproved: true })
-    expect(result.status, result.message).toBe('completed')
+    const diagnostics = result.status !== 'completed' && engine === 'oracle' ? (await driver.inspectObject({ sessionId: session.id, object: object! })).sections.find(section => section.title === 'Compilation diagnostics')?.rows : undefined
+    expect(result.status, `${result.message}\nReviewed SQL: ${plan.sql}\nDiagnostics: ${JSON.stringify(diagnostics)}`).toBe('completed')
     if (result.session.transaction === 'transaction') await run('COMMIT')
     const updated = (await driver.schema(session.id)).catalog?.objects.find(item => item.name === name && item.kind === 'trigger')
     expect(updated).toBeDefined()
     const after = await driver.inspectObject({ sessionId: session.id, object: updated! })
     expect(after.definition.sql).toMatch(engine === 'postgres' ? /BEFORE UPDATE/i : engine === 'sqlite' ? /SELECT 2/i : ['sqlserver','azure-sql'].includes(engine) ? /NOCOUNT OFF/i : /\+\s*2/)
+    if (engine === 'oracle') expect((await run(`SELECT status FROM user_triggers WHERE trigger_name = '${name}'`))[0]?.[0]).toBe(disabled ? 'DISABLED' : 'ENABLED')
   } finally {
     try { if (driver.getSession(session.id).transaction !== 'idle') await run('ROLLBACK') } catch {}
     try { await run(`DROP TABLE ${full(table)}`) } catch {}

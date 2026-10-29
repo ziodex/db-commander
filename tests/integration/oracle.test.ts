@@ -78,6 +78,7 @@ describe('Docker Oracle driver contracts', () => {
   it('explores rich catalog objects and definitions without changing session state', async () => { await verifyCatalog(config) }, 180000)
   it('reviews source edits and refuses stale definitions', async () => { await verifyObjectSource(config) }, 180000)
   it('reviews and applies a trigger source edit', async () => { await verifyTriggerSource(config) }, 180000)
+  it('preserves a disabled trigger when applying its reviewed source', async () => { await verifyTriggerSource(config, true) }, 180000)
   it('reviews and applies a routine source edit', async () => { await verifyRoutineSource(config) }, 180000)
   it('calls a procedure with discovered bound parameters', async () => { await verifyProcedureCall(config) }, 180000)
   it('keeps large server catalogs navigable with bounded metadata and preserved transactions', async () => { await verifyLargeServerCatalog(config) }, 360000)

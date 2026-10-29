@@ -41,6 +41,13 @@ it('wraps a MySQL routine containing semicolons with a safe client delimiter', (
   const source = { ...detail, definition: { source: 'native' as const, sql: 'CREATE PROCEDURE test.p() BEGIN SELECT 1; SELECT 2; END' } }
   expect(objectScripts('mysql', procedure, source).create).toBe('DELIMITER $$\nCREATE PROCEDURE test.p() BEGIN SELECT 1; SELECT 2; END\n$$\nDELIMITER ;')
 })
+it('separates the Oracle trigger declaration from its metadata state command', () => {
+  const trigger = { ...object, kind: 'trigger' as const, parent: 't' }
+  const source = { ...detail, object: trigger, definition: { source: 'native' as const, sql: 'CREATE TRIGGER "odd""schema"."find""it" BEFORE INSERT ON "odd""schema"."t" BEGIN NULL; END;\nALTER TRIGGER "odd""schema"."find""it" DISABLE' } }
+  const scripts = objectScripts('oracle', trigger, source)
+  expect(scripts.alter).toBe('CREATE OR REPLACE TRIGGER "odd""schema"."find""it" BEFORE INSERT ON "odd""schema"."t" BEGIN NULL; END;')
+  expect(scripts.notice).toContain('enabled state')
+})
 it('reconstructs a DuckDB macro without pretending its defaults are known', () => {
   const macro = { ...object, schema: 'main', name: 'f', kind: 'macro' as const, catalog: 'data' }
   const value = { ...detail, object: macro, definition: { source: 'native' as const, sql: '(x + y)' }, sections: [{ title: 'Macro', columns: ['Body','Parameters','Kind','Return type','Parameter names (JSON)'], rows: [['(x + y)','[x, y]','macro',null,'["x","y"]']] }] }

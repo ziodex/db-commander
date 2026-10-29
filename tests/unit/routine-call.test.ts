@@ -20,6 +20,20 @@ it('refuses incomplete or unsafe metadata and does not embed a type as arbitrary
   expect(routineCall('postgres', { ...detail, sections: [{ ...section, truncated: true }] }).sql).toBeUndefined()
   expect(routineCall('postgres', { ...detail, sections: [{ ...section, rows: [['x','i','integer',null]] }] }).sql).toBeUndefined()
 })
+it('refuses ambiguous, missing or unordered parameter positions', () => {
+  const section = detail.sections[0]
+  for (const positions of [['1','1'], ['1','3'], ['2'], ['2','1'], ['0','0'], ['1','0']]) {
+    const rows = positions.map(position => ['x','i','integer',position])
+    expect(routineCall('postgres', { ...detail, sections: [{ ...section, rows }] }).sql, positions.join(',')).toBeUndefined()
+  }
+})
+it('refuses overloaded or nested Oracle arguments instead of guessing their order', () => {
+  const oracle: ObjectDetail = { ...detail, object: { ...detail.object, schema: 'APP', kind: 'procedure' }, sections: [{ title: 'Arguments', columns: ['Routine','Overload','Argument','Mode','Type','Position','Data level'], rows: [['F',null,'VALUE','IN','NUMBER','1','0']] }] }
+  expect(routineCall('oracle', oracle).sql).toBe('CALL "APP"."f"(:arg1);')
+  for (const row of [['F','1','VALUE','IN','NUMBER','1','0'], ['F',null,'VALUE','IN','NUMBER','1','1'], ['F',null,'VALUE','IN','NUMBER','1',null]]) {
+    expect(routineCall('oracle', { ...oracle, sections: [{ ...oracle.sections[0], rows: [row] }] }).sql).toBeUndefined()
+  }
+})
 it('builds table-valued DuckDB macro calls using discovered names', () => {
   const macro: ObjectDetail = { ...detail, object: { ...detail.object, catalog: 'db', schema: 'main', kind: 'macro' }, sections: [{ title: 'Macro', columns: ['Kind','Parameter names (JSON)'], rows: [['table_macro','["id"]']] }] }
   expect(routineCall('duckdb', macro)).toMatchObject({ sql: 'SELECT * FROM "db"."main"."f"(:arg1);', arguments: [{ name: 'id' }] })

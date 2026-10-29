@@ -5,6 +5,16 @@ import { lexSql } from './sql/lexer'
 
 export interface ObjectScripts { create?: string; alter?: string; drop?: string; notice: string }
 
+/** DBMS_METADATA appends a separate ALTER to a trigger declaration. */
+export function oracleTriggerSource(object: CatalogObject, source: string) {
+  if (object.kind !== 'trigger') return undefined
+  const qualified = `${quoteIdentifier(object.schema, 'oracle')}.${quoteIdentifier(object.name, 'oracle')}`
+  const escaped = qualified.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const suffix = new RegExp(`\\s+ALTER\\s+TRIGGER\\s+${escaped}\\s+(ENABLE|DISABLE)\\s*;?\\s*$`, 'i').exec(source)
+  if (!suffix) return undefined
+  return { declaration: source.slice(0, suffix.index).trimEnd(), stateSql: `ALTER TRIGGER ${qualified} ${suffix[1].toUpperCase()}` }
+}
+
 /** Catalogs can omit the namespace in their CREATE text. Make an unqualified
  * draft point at the selected object without changing the rest of the source. */
 export function qualifySourceDeclaration(engine: DatabaseEngine, object: CatalogObject, sql: string) {
@@ -31,7 +41,9 @@ function safePostgresSignature(signature: string | undefined) {
 export function objectScripts(engine: DatabaseEngine, object: CatalogObject, detail: ObjectDetail): ObjectScripts {
   const q = (value: string) => quoteIdentifier(value, engine)
   const qualified = [...(engine === 'duckdb' && object.catalog ? [q(object.catalog)] : []), q(object.schema), q(object.name)].join('.')
-  const source = detail.definition.sql && !detail.definition.truncated ? detail.definition.sql : undefined
+  const original = detail.definition.sql && !detail.definition.truncated ? detail.definition.sql : undefined
+  const triggerSource = engine === 'oracle' && original ? oracleTriggerSource(object, original) : undefined
+  const source = triggerSource?.declaration ?? original
   const kind = object.kind
   const applicable = ['view', 'function', 'procedure', 'trigger', 'macro'].includes(kind)
   if (!applicable) return { notice: 'Create, alter and drop scripting is available for views, routines and triggers.' }
@@ -76,5 +88,5 @@ export function objectScripts(engine: DatabaseEngine, object: CatalogObject, det
     const delimiter = ['$$', '//', '@@', '%%', '!!', '^^', '||'].find(candidate => !create!.includes(candidate))
     if (delimiter) create = `DELIMITER ${delimiter}\n${create}\n${delimiter}\nDELIMITER ;`
   }
-  return { create, alter, drop, notice: `${detail.definition.source === 'generated' ? 'The definition is a generated summary; metadata or options may be omitted. ' : ''}${kind === 'macro' && engine === 'duckdb' ? 'Macro declarations are reconstructed; parameter defaults and types may be omitted. Review them before use. ' : ''}Scripts open in a query tab and do not run until you execute them. Drop may affect dependent objects; review the database behavior first.${!alter ? ' This engine or definition has no automatic alter script; edit explicit SQL instead.' : ''}` }
+  return { create, alter, drop, notice: `${detail.definition.source === 'generated' ? 'The definition is a generated summary; metadata or options may be omitted. ' : ''}${kind === 'macro' && engine === 'duckdb' ? 'Macro declarations are reconstructed; parameter defaults and types may be omitted. Review them before use. ' : ''}${triggerSource ? 'The source editor separately reviews restoration of the Oracle trigger enabled state; scripts opened in a query tab contain the declaration only. ' : ''}Scripts open in a query tab and do not run until you execute them. Drop may affect dependent objects; review the database behavior first.${!alter ? ' This engine or definition has no automatic alter script; edit explicit SQL instead.' : ''}` }
 }
