@@ -31,6 +31,25 @@ Keep state with its feature. Extract a controller or hook when a feature has its
 
 The explorer derives its catalog tree only when catalog/filter inputs change. Its memoized tree does not rebuild thousands of rows for SQL edits. Visible object collections consume current inspection actions and busy state through context; collapsed collections are created when expanded. Catalog actions still validate the current session before inspecting or changing anything.
 
+## Renderer workflow ownership — 28 October 2026
+
+The workspace root previously owned connection, execution, tab-closing, table-editing and schema-tool lifecycles in one component. These workflows now have explicit owners while `App` keeps workspace recovery, editor/layout coordination, commands and view composition.
+
+| Module | Owns |
+| --- | --- |
+| `use-tab-runtime` | Volatile tab state, synchronous state references and the existing shared-session reconciliation path |
+| `use-workspace-sessions` | Connection generations, lost-session cleanup, saved-profile/password operations, catalog loading and database switching |
+| `use-query-execution` | Execution source, parameters, plans, history, event subscription and cached preview export |
+| `use-workspace-tabs` | Shared/independent tab creation, pinning, close confirmation and sequential view release |
+| `use-table-data` | Table loading, staged edits, inspection/navigation and saved column layouts |
+| `use-schema-tools` | Object inspection and reviewed schema changes |
+
+`WorkspaceRuntime` is the narrow shared mutation interface, not another feature controller. It exposes the existing workspace reference/save path and tab mutations; each feature keeps its own asynchronous operations and presentation state. Feature dependencies are explicit, with type-only imports for their contracts. The existing `query-tabs` transitions, `shared-sessions` policies, profile-library and SQL-file hooks remain authoritative.
+
+Connection generation checks still reject late connections after host loss. Session/query/view identities still determine where asynchronous responses belong. Closing one shared tab releases its view; the last owner disconnects the physical session. Persisting a profile still precedes password storage. No SQL is replayed by recovery, preview export or these extractions. W3 result exploration, snapshot storage and pane presentation remain owned by the existing result components.
+
+The controller regressions in `tests/unit/workspace-controllers.test.tsx` exercise late events and acknowledgments, stale connection/clone/switch responses, shared closes, staged-edit and transaction guards, credential save ordering/failure and partial-result provenance without rendering the whole application. Existing native workflows cover the composed application. This change preserves behavior and runtime topology; formatting and broader UI decomposition remain separate work.
+
 ## Backend ownership
 
 Main serializes credential operations. `CredentialWorkspace` commits workspace references and a journal of credential IDs in one SQLite transaction before deleting OS-store entries. Cleanup is retried on saves and workspace opening; password replacement waits for pending removals to settle. The journal holds IDs only, stays outside renderer workspace writes, and is acknowledged only after both current and legacy credential namespaces are cleared. Failed workspace persistence never removes a credential.
