@@ -280,6 +280,14 @@ for (const engine of engineSchema.options) test(`schema changes ${engine}: revie
       await editor.getByLabel('Index column native_value', { exact: true }).check()
       await editor.getByLabel('Index prefix length native_value').fill('4')
     }
+    const idKey = editor.getByLabel('Index column id', { exact: true })
+    await expect(idKey).toHaveAttribute('aria-description', `Column 1 of ${['mysql','mariadb'].includes(engine) ? 2 : 1} in selected order`)
+    await expect(idKey.locator('..')).toContainText('column 1')
+    if (['mysql','mariadb'].includes(engine)) {
+      const nativeKey = editor.getByLabel('Index column native_value', { exact: true })
+      await expect(nativeKey).toHaveAttribute('aria-description', 'Column 2 of 2 in selected order')
+      await expect(nativeKey.locator('..')).toContainText('column 2')
+    }
     if (engine !== 'duckdb') await editor.getByLabel('Descending id', { exact: true }).check()
     if (['postgres','sqlserver','azure-sql'].includes(engine)) await editor.getByLabel('Include new_value', { exact: true }).check()
     if (['postgres','sqlite','sqlserver','azure-sql'].includes(engine)) await editor.getByLabel('Index predicate').fill(`${q('id')} > 0`)
