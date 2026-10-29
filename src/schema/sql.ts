@@ -201,6 +201,23 @@ export function schemaSql(change: SchemaChange, session: SessionInfo, detail?: O
         identity = /auto_increment/i.test(extra); generated = /(?:virtual|stored) generated/i.test(extra)
       }
       if (alter.kind !== 'type' && alter.kind !== 'nullability' && alter.kind !== 'default') {
+        if (engine === 'oracle' && (alter.kind === 'identity-mode' || alter.kind === 'identity-drop')) {
+          if (!identity || generated) throw new Error('This column is not an editable identity column.')
+          const info = detail?.sections.find(section => section.title === 'Identity columns')
+          const nameIndex = info?.columns.indexOf('Column') ?? -1, modeIndex = info?.columns.indexOf('Generation') ?? -1
+          const rows = info?.rows.filter(row => row[nameIndex] === change.column) ?? []
+          const mode = rows[0]?.[modeIndex]
+          if (!info || info.truncated || nameIndex < 0 || modeIndex < 0 || rows.length !== 1 || !['ALWAYS','BY DEFAULT','BY DEFAULT ON NULL'].includes(mode ?? '')) throw new Error('Oracle identity metadata is incomplete. Inspect the column before changing it.')
+          if (alter.kind === 'identity-mode') {
+            const onNull = metadata.get('Default on null')
+            if (!isTrue(onNull) && !isFalse(onNull)) throw new Error('Oracle DEFAULT ON NULL metadata is unavailable. Inspect the column before changing it.')
+            if (mode === 'ALWAYS' && isTrue(onNull)) throw new Error('Oracle identity mode metadata is inconsistent. Inspect the column before changing it.')
+            const requested = alter.mode === 'always' ? 'ALWAYS' : 'BY DEFAULT'
+            if (mode === requested && !isTrue(onNull)) throw new Error('The column already has this identity mode.')
+            commands.push(`ALTER TABLE ${full} MODIFY (${col} GENERATED ${requested} AS IDENTITY)`)
+          } else commands.push(`ALTER TABLE ${full} MODIFY (${col} DROP IDENTITY)`)
+          break
+        }
         if (engine !== 'postgres') throw new Error('This generation change requires a separately reviewed migration for this engine.')
         const id = metadata.get('Identity'), gen = metadata.get('Generated')
         if (!['', 'a', 'd'].includes(id ?? '?') || !['', 's', 'v'].includes(gen ?? '?')) throw new Error('Generation metadata is incomplete or unsupported. Inspect the column before changing it.')
@@ -367,8 +384,8 @@ export function schemaSql(change: SchemaChange, session: SessionInfo, detail?: O
       ...(change.action === 'alter-column' && change.alteration.kind === 'type' ? ['Type conversion can rewrite data, lose precision or change collation where the new type does not support it. Review conversions and dependencies before applying.'] : []),
       ...(change.action === 'alter-column' && change.alteration.kind === 'type' && mssql ? ['SQL Server can reject a type change when a default constraint or other object depends on the column. Dependencies are not removed automatically.'] : []),
       ...(change.action === 'alter-column' && change.alteration.kind === 'identity-add' ? ['The new identity sequence starts independently of existing values. Review its starting value and uniqueness before inserting; existing rows are not changed.'] : []),
-      ...(change.action === 'alter-column' && change.alteration.kind === 'identity-drop' ? ['Dropping identity removes its sequence. Existing values remain, but future inserts must supply values or use a separately reviewed default.'] : []),
-      ...(change.action === 'alter-column' && change.alteration.kind === 'identity-mode' ? ['Changing identity mode changes whether future inserts may provide explicit values. Existing rows are not changed.'] : []),
+      ...(change.action === 'alter-column' && change.alteration.kind === 'identity-drop' ? [engine === 'oracle' ? 'Dropping identity removes its sequence and identity-imposed NOT NULL and NOT DEFERRABLE constraints. Existing values remain; inspect safeguards before future inserts.' : 'Dropping identity removes its sequence. Existing values remain, but future inserts must supply values or use a separately reviewed default.'] : []),
+      ...(change.action === 'alter-column' && change.alteration.kind === 'identity-mode' ? [engine === 'oracle' ? 'Changing identity mode alters handling of explicit values and can remove BY DEFAULT ON NULL behavior. Existing rows are not changed.' : 'Changing identity mode changes whether future inserts may provide explicit values. Existing rows are not changed.'] : []),
       ...(change.action === 'alter-column' && change.alteration.kind === 'generated-expression' ? ['The new SQL expression is evaluated by the database; stored values are rewritten and statistics are removed. Review dependencies and function effects.'] : []),
       ...(change.action === 'alter-column' && change.alteration.kind === 'generated-drop' ? ['Existing stored values remain, but future changes will no longer recompute this column.'] : []),
       ...(change.action === 'alter-column' && change.alteration.kind === 'type' && engine === 'duckdb' ? ['DuckDB can reject a conversion because of previously deleted or updated values. No automatic cleanup or retry is performed.'] : []),

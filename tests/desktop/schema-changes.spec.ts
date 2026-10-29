@@ -150,10 +150,13 @@ for (const engine of engineSchema.options) test(`schema changes ${engine}: revie
       await editor.getByLabel('I understand this can remove data or database safeguards.', { exact: true }).check()
       await page.screenshot({ path: testInfo.outputPath('postgres-generated-alter-review.png') })
       await apply(); await settle()
+    }
+    if (['postgres','oracle'].includes(engine)) {
       await tableAction(page, `${name}`, 'Alter table')
       await editor.getByLabel('Schema operation').selectOption('alter-column'); await editor.getByLabel('Existing column').selectOption('id')
       await editor.getByLabel('Column change').selectOption('identity-mode'); await editor.getByLabel('New identity mode').selectOption('always')
-      await review(); await expect(editor.getByLabel('Schema SQL preview')).toHaveValue(/SET GENERATED ALWAYS/); await approve()
+      await review(); await expect(editor.getByLabel('Schema SQL preview')).toHaveValue(engine === 'oracle' ? /GENERATED ALWAYS AS IDENTITY/ : /SET GENERATED ALWAYS/); await approve()
+      await page.screenshot({ path: testInfo.outputPath(`${engine}-identity-alter-review.png`) })
       await editor.getByLabel('I understand this can remove data or database safeguards.', { exact: true }).check(); await apply(); await settle()
     }
     await tableAction(page, `${name}`, 'Alter table')
