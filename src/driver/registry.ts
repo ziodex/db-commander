@@ -106,6 +106,7 @@ export class DriverRegistry {
   startTransfer(input: TransferRequest) { return this.transfers.start(input) }
   listTransferJobs() { return this.transfers.list() }
   cancelTransfer(id: string) { return this.transfers.cancel(id) }
+  discardTransferCapture(id: string) { return this.transfers.discardCapture(id) }
   waitTransfer(id: string) { return this.transfers.wait(id) }
   async connect(config: ConnectionConfig) {
     config = connectionSchema.parse(config)
@@ -478,5 +479,5 @@ export class DriverRegistry {
     if (!driver) throw new Error('This result is no longer available. Execute the query again explicitly.')
     return driver.exportCsv(id, index, path)
   }
-  async close() { await Promise.allSettled(this.activityReads.values()); await Promise.allSettled(this.operations.values()); await Promise.allSettled(this.editing.values()); await Promise.allSettled(Object.values(this.drivers).map(driver => driver.close())); for (const tunnel of this.tunnels.values()) tunnel.close(); this.tunnels.clear(); this.protection.clear(); this.activityTargets.clear(); this.activityReviews.clear(); this.rollbackInspections.clear(); this.migrations.clear(); this.sessions.clear(); this.queries.clear(); this.latest.clear(); this.configs.clear(); this.running.clear() }
+  async close() { await Promise.allSettled(this.activityReads.values()); await Promise.allSettled(this.operations.values()); await Promise.allSettled(this.editing.values()); await Promise.allSettled([this.transfers.close()]); await Promise.allSettled(Object.values(this.drivers).map(driver => driver.close())); for (const tunnel of this.tunnels.values()) tunnel.close(); this.tunnels.clear(); this.protection.clear(); this.activityTargets.clear(); this.activityReviews.clear(); this.rollbackInspections.clear(); this.migrations.clear(); this.sessions.clear(); this.queries.clear(); this.latest.clear(); this.configs.clear(); this.running.clear() }
 }

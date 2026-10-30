@@ -10,14 +10,19 @@ export function diskImageDevice(report: { 'system-entities'?: { 'dev-entry'?: st
   return device
 }
 
-export function verifyDiskImageDetached(image: string, mount: string, execute = execFileSync) {
-  const plist = execute('hdiutil', ['info', '-plist'], { stdio: 'pipe', timeout: 5000, maxBuffer: 1024 * 1024 })
-  const report = JSON.parse(String(execute('plutil', ['-convert', 'json', '-o', '-', '-'], { input: plist, stdio: 'pipe', timeout: 5000, maxBuffer: 1024 * 1024 })))
+export function verifyDiskImageDetached(image: string, mount: string, execute = execFileSync, deadline = Date.now() + 10000, now = Date.now) {
+  const timeout = () => {
+    const remaining = deadline - now()
+    if (remaining <= 0) throw new Error('Cannot verify owned disk-image detachment within its deadline.')
+    return Math.min(5000, remaining)
+  }
+  const plist = execute('hdiutil', ['info', '-plist'], { stdio: 'pipe', timeout: timeout(), maxBuffer: 1024 * 1024 })
+  const report = JSON.parse(String(execute('plutil', ['-convert', 'json', '-o', '-', '-'], { input: plist, stdio: 'pipe', timeout: timeout(), maxBuffer: 1024 * 1024 })))
   if (!Array.isArray(report.images) || report.images.some((entry: any) => typeof entry['image-path'] !== 'string' || !Array.isArray(entry['system-entities']))) throw new Error('Cannot verify owned disk-image detachment.')
   return !report.images.some((entry: any) => entry['image-path'] === image || entry['system-entities'].some((entity: any) => entity['mount-point'] === mount))
 }
 
-export function detachDiskImage(mount: string, execute = execFileSync, pause = (ms: number) => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms) }, verifyDetached?: () => boolean, now = Date.now) {
+export function detachDiskImage(mount: string, execute = execFileSync, pause = (ms: number) => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms) }, verifyDetached?: (deadline: number) => boolean, now = Date.now) {
   const deadline = now() + 30000
   for (;;) {
     try { execute('hdiutil', ['detach', mount], { stdio: 'pipe', timeout: 5000 }); return }
@@ -25,7 +30,19 @@ export function detachDiskImage(mount: string, execute = execFileSync, pause = (
       // An earlier native detach can already have removed the mount. Accept
       // that result only after hdiutil confirms both this image and mount are
       // absent. Never delete a fixture whose image may still be attached.
-      if (/No such file or directory/i.test(String((error as { stderr?: unknown }).stderr)) && verifyDetached?.()) return
+      if (/No such file or directory/i.test(String((error as { stderr?: unknown }).stderr)) && verifyDetached?.(deadline)) return
+      // The native ejection can settle after its command client times out.
+      // Observe only: never repeat that ambiguous detach or remove an image
+      // until both its path and mount are independently absent. Verification
+      // shares the existing teardown deadline; unknown state remains failure.
+      if ((error as NodeJS.ErrnoException).code === 'ETIMEDOUT' && verifyDetached) {
+        while (now() < deadline) {
+          if (verifyDetached(deadline)) return
+          const remaining = deadline - now()
+          if (remaining > 0) pause(Math.min(500, remaining))
+        }
+        throw error
+      }
       // Native filesystem handles can outlast app exit on hosted macOS. Allow
       // bounded teardown time for this owned volume, without forced eject or
       // relaxing any application recovery/performance assertion.
@@ -60,7 +77,7 @@ export function diskFullFixture() {
     // A full HFS+ volume can lose its mount path while its image stays attached.
     // Detach the device returned by our own attach, retaining identity checks.
     if (mounted) {
-      try { detachDiskImage(device ?? mount, execFileSync, undefined, () => verifyDiskImageDetached(image, mount)); mounted = false }
+      try { detachDiskImage(device ?? mount, execFileSync, undefined, deadline => verifyDiskImageDetached(image, mount, execFileSync, deadline)); mounted = false }
       catch (error) {
         // Retain the image on failure and identify only this fixture's handles.
         let handles: string

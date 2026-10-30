@@ -198,7 +198,7 @@ Start from an idle session with staged grid edits resolved. PostgreSQL, SQL Serv
 
 ## Data import and export
 
-Use **Query tools → Data import and export** to append CSV, TSV or Db Commander JSON data to an existing table with a preview and column mapping. Successful imports stay in the tab's transaction for explicit **Commit** or **Rollback**; failed or cancelled imports roll back the batch.
+Use **Query tools → Data import and export** to append CSV, TSV, Db Commander JSON or JSON Lines data to a reviewed table with a preview and column mapping. Successful imports stay in the tab's transaction for explicit **Commit** or **Rollback**; failed or cancelled imports roll back the batch.
 
 JSON import reads the same columns-and-rows format as full-result JSON export. Keep `columns` before `rows`, give each column a unique name, and use strings or `null` for cells. Quote numbers to retain exact integer and decimal values; `typeId` and `typeName` metadata are optional and do not override the target table's types.
 
@@ -206,9 +206,9 @@ JSON import reads the same columns-and-rows format as full-result JSON export. K
 {"columns":[{"name":"id"},{"name":"note"}],"rows":[["9223372036854775807",null],["1",""]]}
 ```
 
-The preview reads ten rows; the rest is validated during import. Files are streamed, with limits of 100 columns, 16,384 characters per string and 1,048,576 raw JSON characters per header, row or separator region. Empty strings differ from NULL (except in Oracle); `"\\N"` is literal text in JSON. Alias duplicate query columns before exporting for import. JSON Lines, arrays of objects, nested cells and raw numeric/boolean cells are not accepted. Imports use the existing scalar-column restrictions; binary/complex values require conversion before import. Changed files require a new preview.
+The preview reads ten rows; the rest is validated during import. Files are streamed, with limits of 100 columns, 16,384 characters per string and 1,048,576 raw JSON characters per header, row or separator region. Empty strings differ from NULL (except in Oracle); `"\\N"` is literal text in JSON. Alias duplicate query columns before exporting for import. Arrays of objects, nested cells and raw numeric/boolean cells are not accepted. Imports use the existing scalar-column restrictions; binary/complex values require conversion before import. Changed files require a new preview.
 
-Choose **Export preview** in the results toolbar to save the selected result's already-fetched rows as CSV. It never runs SQL again, including when the preview is limited. **Export all rows** opens a review of that result's source SQL and connection, independently of later editor changes. Choose CSV, TSV, JSON or SQL INSERT, review the single SELECT/CTE and new destination, then confirm **Run and export**. This runs the reviewed query again and streams beyond the preview limits; current data may differ. Existing files are refused. Bound parameter values must be entered again and are never recovered from an earlier run.
+Choose **Export preview** in the results toolbar to save the selected result's already-fetched rows as CSV. It never runs SQL again, including when the preview is limited. **Export all rows** opens a review of that result's source SQL and connection, independently of later editor changes. Choose CSV, TSV, JSON, JSON Lines or SQL INSERT, review the single SELECT/CTE and new destination, then confirm **Run and export**. This runs the reviewed query again and streams beyond the preview limits; current data may differ. Existing files are refused. Bound parameter values must be entered again and are never recovered from an earlier run.
 
 A result can belong to an entire SQL Server batch or have no safely mapped source SQL. In that case, review and isolate one read query explicitly; scripts and mutations cannot be exported by rerunning them. **Query tools → Data import and export** remains available for an explicit editor selection or buffer review. Both full-export entry points retain transaction/connection protections, cancellation and complete-file publication. See [formats, transaction behavior and limits](IMPLEMENTATION.md#data-import-and-full-result-export).
 
@@ -217,6 +217,38 @@ A result can belong to an entire SQL Server batch or have no safely mapped sourc
 INSERT export supports known scalar types with exact numeric strings, engine-specific text/binary literals and explicit temporal conversions. Unknown/complex types, ambiguous SQLite expressions/storage and excessive values fail without publishing a partial file. Limits include 100 columns, 16,384 characters per value and engine-specific identifier/literal limits. MySQL/MariaDB TIMESTAMP replay requires the intended session timezone. See [SQL INSERT export details and validation status](IMPLEMENTATION.md#sql-insert-export).
 
 Queries containing `:name` parameters open a values prompt before export. Choose **Export with parameters** after entering typed parameter values. Cancel returns to the reviewed transfer without running SQL or creating a file. Values must be entered again for each export; history and workspace recovery never save them. Exported rows can contain the supplied values. The query-plan dialog also supports bound parameters.
+
+### Reuse column mappings
+
+After previewing, name and **Save mapping**. Choose a saved mapping to restore the reviewed assignments, then confirm the transfer again. Compatibility requires the same engine, exact source headers and exact destination column names/types. Update or remove the selected mapping in this dialog. Up to 50 mappings are stored in the local workspace; they contain names, column metadata and assignments only. File paths, rows, SQL and credentials are not stored in mappings. A saved mapping never bypasses file, schema, type, session or transaction checks.
+
+### Import into a new table
+
+Choose an import file and **Create table from file preview**. Suggestions use at most ten rows: canonical signed 64-bit integers become BIGINT, exact decimals within supported precision become DECIMAL where safe, and lowercase boolean words are suggested only on compatible engines. Leading-zero, empty-sample and ambiguous values remain text. SQLite decimals remain text to avoid affinity rounding. Oracle defaults to VARCHAR(4000); all suggested columns allow NULL. A sample cannot prove later rows fit, so review names, types and sizes. Headers that cannot be used as SQL column names receive editable `column_N` suggestions; map those source headers explicitly after creation.
+
+**Review CREATE TABLE SQL** shows the existing schema-change review, warnings and transaction behavior. Confirm creation separately. On transactional-DDL engines, **Commit created table and continue** commits only that empty table before previewing rows. On implicit-commit engines, explicitly approve that behavior. Then preview, map and import the file normally. A failed/cancelled row import rolls back its rows; an already committed empty table remains. Drop it explicitly if unwanted. No rows are automatically imported or retried after table creation.
+
+### JSON Lines
+
+Db Commander JSON Lines is a streaming format with one columns object on the first nonblank line and one array of string/null cells on each later nonblank line. It uses the same optional column metadata and exact-value rules as JSON. Multiline values use JSON escapes. It is not an array-of-objects format.
+
+```jsonl
+{"columns":[{"name":"id"},{"name":"note"}]}
+["9223372036854775807",null]
+["1","line one\nline two"]
+```
+
+The same column/cell limits apply; each physical line is limited to 1,048,576 UTF-16 characters. Export publishes only a completed file and refuses an existing destination.
+
+### Copy between connections
+
+Open the dialog in the **destination** tab and choose **Copy from another connection**. Choose a distinct physical source connection, review one SELECT (and bound values if needed), and select an existing destination table. Shared tabs on the same physical connection cannot be used as both ends. Both connections must be idle, without staged edits, with autocommit enabled where required. Existing protected-connection approval remains required.
+
+**Capture source rows** reserves both connections while streaming the full source result to a private temporary file; nothing is inserted yet. Review **captured rows**, scope, destination and mappings before **Import into transaction**. Copy imports those captured bytes once and never reruns the source query. Later source changes therefore do not alter the reviewed copy. This is the source query's normal database consistency, not a cross-database transaction or a schema/native-binary migration; destination types and constraints still apply. SELECT functions can have side effects. Parameter values are not saved, but returned rows can contain them.
+
+At most two captures are retained for ten minutes. **Discard captured rows**, expiry, consumption and normal application shutdown remove their private temporary files. Captures do not recover after restart. An abrupt process/OS failure can leave a `dbcommander-transfer-*` folder in the OS temporary directory; remove it when the app is closed. Captures contain full returned data, with private directory/file permissions where supported by the OS. Avoid capturing data that should not be written temporarily to disk.
+
+Capture cancellation publishes no usable capture. Copy errors/cancellation roll back the destination batch; success leaves it in a transaction for explicit **Commit** or **Rollback**. A consumed capture cannot be retried: capture and review again deliberately. If a database connection is lost and rollback cannot be verified, the outcome is reported as unknown; inspect it before any further action. No job resumes or replays SQL automatically.
 
 ## Update notifications
 

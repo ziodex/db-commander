@@ -67,6 +67,40 @@ it('does not retry unrelated detach failures or command timeouts', () => {
   }
 })
 
+it('observes an ambiguous native detach timeout without retrying the detach command', () => {
+  const timedOut = Object.assign(new Error('timeout'), { code: 'ETIMEDOUT' })
+  let time = 0, inspections = 0
+  const execute = vi.fn(() => { time += 5000; throw timedOut })
+  const pause = vi.fn((ms: number) => { time += ms })
+  const verify = vi.fn((deadline: number) => { expect(deadline).toBe(30000); return ++inspections === 3 })
+  expect(() => detachDiskImage('/private/fixture/volume', execute, pause, verify, () => time)).not.toThrow()
+  expect(execute).toHaveBeenCalledOnce(); expect(verify).toHaveBeenCalledTimes(3); expect(time).toBe(6000)
+})
+
+it('retains an attached image and the timeout failure when absence cannot be proven within the same budget', () => {
+  const timedOut = Object.assign(new Error('timeout'), { code: 'ETIMEDOUT' })
+  let time = 0
+  const execute = vi.fn(() => { time += 5000; throw timedOut })
+  const pause = vi.fn((ms: number) => { time += ms }), verify = vi.fn(() => false)
+  expect(() => detachDiskImage('/private/fixture/volume', execute, pause, verify, () => time)).toThrow(timedOut)
+  expect(execute).toHaveBeenCalledOnce(); expect(time).toBe(30000)
+  const failedInspection = vi.fn(() => { throw new Error('Cannot inspect native state') })
+  expect(() => detachDiskImage('/private/fixture/volume', execute, pause, failedInspection, () => time)).toThrow('Cannot inspect native state')
+})
+
+it('limits both native inspection commands to the remaining teardown time and fails closed at the deadline', () => {
+  let time = 28000
+  const execute = vi.fn().mockImplementation((_file, _args, options) => {
+    if (options.timeout > 30000 - time) throw new Error('Inspection exceeded remaining budget')
+    time += 1000
+    return Buffer.from(time === 29000 ? 'native plist' : '{"images":[]}')
+  })
+  expect(verifyDiskImageDetached('/private/fixture/volume.dmg', '/private/fixture/volume', execute, 30000, () => time)).toBe(true)
+  expect(execute.mock.calls.map(call => call[2].timeout)).toEqual([2000, 1000])
+  expect(() => verifyDiskImageDetached('/private/fixture/volume.dmg', '/private/fixture/volume', execute, 30000, () => time)).toThrow(/deadline/)
+  expect(execute).toHaveBeenCalledTimes(2)
+})
+
 it('accepts an absent mount only when the owned image and mount are independently verified detached', () => {
   const absent = Object.assign(new Error('missing mount'), { stderr: 'hdiutil: detach failed - No such file or directory' })
   const execute = vi.fn(() => { throw absent }), pause = vi.fn(), verify = vi.fn(() => true)

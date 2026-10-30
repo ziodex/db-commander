@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path'
 import { expect } from 'vitest'
 import { DriverRegistry } from '../../src/driver/registry'
 import { quoteIdentifier } from '../../src/shared/sql/common'
+import { openImport } from '../../src/transfer/import'
 import { delimitedRow, openDelimited } from '../../src/transfer/delimited'
 import type { ConnectionConfig, DatabaseEvent, GridTable } from '../../src/shared/contracts'
 import type { TransferJob, TransferRequest } from '../../src/shared/transfer'
@@ -61,7 +62,7 @@ export async function verifyDataTransfer(config: ConnectionConfig) {
     // Preview caps are unchanged. Export goes beyond both 1,000 rows and 8 MiB.
     expect(await run(`SELECT * FROM ${q(name)} ORDER BY ${q('id')}`, session.id, 2)).toHaveLength(2)
     const previewQuery = events.filter(event => event.type === 'complete' && event.sessionId === session.id).at(-1)! as Extract<DatabaseEvent, { type: 'complete' }>
-    for (const format of ['csv', 'tsv', 'json'] as const) {
+    for (const format of ['csv', 'tsv', 'json', 'jsonl'] as const) {
       const output = join(directory, `full.${format}`), before = events.length
       job = await transfer({ action: 'export', sessionId: session.id, file: output, format, sql: `SELECT * FROM ${q(name)} ORDER BY ${q('id')}`, confirmed: true })
       expect(job, job.phase).toMatchObject({ status: 'completed', rows: rows.length, session: { transaction: 'idle' } })
@@ -72,7 +73,7 @@ export async function verifyDataTransfer(config: ConnectionConfig) {
         expect(data.columns.map((column: any) => column.name)).toEqual(['id', 'label', 'note', 'exact'])
         expect(data.rows).toHaveLength(rows.length); expect(data.rows[0]).toEqual(rows[0])
       } else {
-        const source = await openDelimited(output, format)
+        const source = await openImport(output, format)
         try {
           expect(source.headers).toEqual(['id', 'label', 'note', 'exact'])
           let count = 0

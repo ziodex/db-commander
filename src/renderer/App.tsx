@@ -104,9 +104,13 @@ export function App() {
 
   const [transfer, setTransfer] = useState<{ tabId: string; sessionId?: string; sql: string; sourceLabel?: string } | null>(null)
   const transferJobs = useJobFeed(api.onTransferJob, api.transferJobs, job => {
-    const owner = Object.keys(statesRef.current).find(id => statesRef.current[id]?.session?.id === job.sessionId)
-    if (owner) patchState(owner, { transferBusy: job.status === 'running', gridExpired: true, ...(job.session ? { session: job.session } : {}) })
-    if (job.status !== 'running') cleanupLostSession(job.sessionId)
+    if (job.reviewOnly) return
+    for (const sessionId of job.relatedSessionIds ?? [job.sessionId]) {
+      const owner = Object.keys(statesRef.current).find(id => statesRef.current[id]?.session?.id === sessionId)
+      const info = job.relatedSessions?.find(info => info.id === sessionId) ?? (job.session?.id === sessionId ? job.session : undefined)
+      if (owner) patchState(owner, { transferBusy: job.status === 'running', gridExpired: true, ...(info ? { session: info } : {}) })
+      if (job.status !== 'running') cleanupLostSession(sessionId)
+    }
   })
   const backupJobs = useJobFeed(api.onBackupJob, api.backupJobs, job => {
     const owner = Object.keys(statesRef.current).find(id => statesRef.current[id]?.session?.id === job.sessionId)
@@ -397,7 +401,7 @@ export function App() {
       <span className="dialect-label" title={session ? `${session.name} / ${session.database || 'Server connection'}` : 'Not connected'}>{hasConfiguredConnection(tab, session) ? engineNames[session?.engine ?? profile.engine] : 'SQL'}</span>
     </footer>
     {explainText !== null && session && <ExplainDialog key={session.id} session={session} sql={explainText} previous={state.plan} onRun={explainQuery} onClose={() => setExplainText(null)} />}
-    {transfer?.tabId === tabId && transfer.sessionId === session?.id && <TransferDialog key={`${tabId}:${transfer.sourceLabel ?? 'editor'}`} session={session} tables={state.tables.filter(table => table.kind === 'table')} sql={transfer.sql} sourceLabel={transfer.sourceLabel} jobs={transferJobs} blocked={!session || tabOperationBusy(state) || Boolean(state.gridChanges.length) || inTransaction || session.engine !== 'oracle' && session.autocommit === false} onClose={() => setTransfer(null)} />}
+    {transfer?.tabId === tabId && transfer.sessionId === session?.id && <TransferDialog key={`${tabId}:${transfer.sourceLabel ?? 'editor'}`} session={session} sources={connectionGroups(workspace.tabs, states).map(group => ({ session: group.session, title: group.tabs[0].title, disabled: group.tabs.some(tab => tabOperationBusy(states[tab.id]) || Boolean(states[tab.id].gridChanges.length)) || group.session.transaction !== 'idle' || group.session.engine !== 'oracle' && group.session.autocommit === false }))} onPrepareTable={prepareSchemaChange} onApplyTable={applySchemaChange} onCommitTable={() => void run('COMMIT')} tables={state.tables.filter(table => table.kind === 'table')} sql={transfer.sql} sourceLabel={transfer.sourceLabel} jobs={transferJobs} blocked={!session || tabOperationBusy(state) || Boolean(state.gridChanges.length) || inTransaction || session.engine !== 'oracle' && session.autocommit === false} onClose={() => setTransfer(null)} />}
     {schemaEditor?.tabId === tabId && schemaEditor.sessionId === session?.id && session && <SchemaChangeDialog key={`${tabId}:${session.id}`} session={session} snapshot={state.schema} initialTarget={schemaEditor.target} blocked={schemaChangeBlocked()} onClose={() => setSchemaEditor(null)} onPrepare={prepareSchemaChange} onApply={applySchemaChange} />}
     {activityOpen?.tabId===tabId && activityOpen.sessionId===session?.id && <ActivityDialog key={session.id} session={session} onClose={()=>setActivityOpen(null)}/>}
     {builderOpen?.tabId===tabId && builderOpen.sessionId===session?.id && <QueryBuilderDialog key={session.id} session={session} snapshot={state.schema} initialTable={builderOpen.table} blocked={schemaChangeBlocked() ?? (!session.database ? 'Select a database before reviewing builder SQL.' : undefined)} onClose={()=>setBuilderOpen(null)} onRefresh={async()=>{await refreshTables(tabId,session.id);const error=statesRef.current[tabId]?.schemaError;if(error)throw new Error(error)}} onReview={async query=>{

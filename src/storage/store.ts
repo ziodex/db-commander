@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { chmodSync, mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { randomUUID, createHash } from 'node:crypto'
+import { transferMappingSchema, type TransferMapping } from '../shared/transfer-mappings'
 import { planSnippetImport, type PortableSnippet, type SnippetImportRequest } from '../shared/snippet-files'
 import type { HistoryEntry, Workspace } from '../shared/contracts'
 import { DEFAULT_PROFILE, legacyWorkspaceSchema, workspaceSchema } from '../shared/contracts'
@@ -15,6 +16,24 @@ import { DEFAULT_HISTORY_SETTINGS, historySearchSchema, historySettingsSchema, s
 /** Accessed exclusively in the utility process. No credentials or result rows. */
 export class WorkspaceStore {
   private db: DatabaseSync
+  transferMappings(): TransferMapping[] {
+    if (!this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='transfer_mappings'").get()) return []
+    return this.db.prepare('SELECT value FROM transfer_mappings ORDER BY id').all().map(row => transferMappingSchema.parse(JSON.parse(String(row.value))))
+  }
+  saveTransferMapping(input: TransferMapping) {
+    const value = transferMappingSchema.parse(input)
+    this.db.exec('BEGIN IMMEDIATE')
+    try {
+      this.db.exec('CREATE TABLE IF NOT EXISTS transfer_mappings(id TEXT PRIMARY KEY,value TEXT NOT NULL)')
+      if (this.transferMappings().filter(item => item.id !== value.id).length >= 50) throw new Error('Remove a saved mapping before adding another. Up to 50 mappings can be saved.')
+      this.db.prepare('INSERT INTO transfer_mappings VALUES(?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value').run(value.id, JSON.stringify(value))
+      this.db.exec('COMMIT')
+    } catch (error) { try { this.db.exec('ROLLBACK') } catch { /* preserve write failure */ } throw error }
+    return value
+  }
+  removeTransferMapping(id: string) {
+    if (this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='transfer_mappings'").get()) this.db.prepare('DELETE FROM transfer_mappings WHERE id=?').run(id)
+  }
   private historyCleanupDeferred = false
   get recoveryNotice(): string | undefined {
     return this.historyCleanupDeferred ? 'Query history cleanup was deferred because the workspace disk is full. Saved SQL buffers are available. Free disk space and retry saving. No SQL was replayed.' : undefined
