@@ -1,7 +1,7 @@
 import type * as Monaco from 'monaco-editor'
 import type { RefObject } from 'react'
 import { defaultColumns, withColumnView, type ColumnLayout } from '../shared/column-layout'
-import type { DesktopApi, GridQueryOptions, GridSnapshot, GridTable, SessionInfo, Workspace, WorkspaceTab } from '../shared/contracts'
+import { gridChangesSchema, type DesktopApi, type GridQueryOptions, type GridSnapshot, type GridTable, type SessionInfo, type Workspace, type WorkspaceTab } from '../shared/contracts'
 import { DEFAULT_LAYOUT, type WorkspaceLayout } from '../shared/layout'
 import { tablePreviewSql } from '../shared/sql/common'
 import { matchingTableLayout, saveTableLayout, tableColumns, tableColumnViewKey, tableLayoutKey } from '../shared/table-layouts'
@@ -145,9 +145,12 @@ export function useTableData({ api, runtime, workspace, tab, ready, readyRef, ed
     const current = statesRef.current[tabId]
     if (!current?.session || !current.grid || tabOperationBusy(current) || current.gridExpired || !current.gridChanges.length || current.switching || current.databasesLoading) return
     const sessionId = current.session.id
+    const request = { action: 'apply' as const, sessionId, viewId: tabId, snapshotId: current.grid.id, changes: current.gridChanges }
+    const validation = gridChangesSchema.safeParse(request.changes)
+    if (!validation.success) { patchState(tabId, { error: validation.error.issues[0]?.message ?? 'Staged edits exceed the supported limits.', status: 'Edits not applied' }); return }
     patchState(tabId, { gridBusy: true, error: '', status: 'Applying edits' })
     try {
-      const response = await api.editGrid({ action: 'apply', sessionId, viewId: tabId, snapshotId: current.grid.id, changes: current.gridChanges })
+      const response = await api.editGrid(request)
       if (statesRef.current[tabId]?.session?.id !== sessionId) return
       patchState(tabId, { session: response.session, gridExpired: true, gridChanges: response.applied === undefined ? current.gridChanges : [],
         status: response.applied === undefined ? 'Edits not applied' : `${response.applied} row edits applied · Commit or Rollback`, error: response.error ?? '' })
@@ -155,5 +158,23 @@ export function useTableData({ api, runtime, workspace, tab, ready, readyRef, ed
     finally { patchState(tabId, { gridBusy: false }) }
   }
 
-  return { appendSelect, openGrid, browseTable, saveColumnView, savedTableColumns, inspectGrid, backGrid, applyGrid }
+  async function previewGrid() {
+    const current = statesRef.current[tabId]
+    if (!current?.session || !current.grid || tabOperationBusy(current) || current.gridExpired || !current.gridChanges.length || current.switching || current.databasesLoading) throw new Error('Reload the table and stage edits before reviewing SQL.')
+    const sessionId = current.session.id, snapshotId = current.grid.id, changes = structuredClone(current.gridChanges)
+    const request = { action: 'preview' as const, sessionId, viewId: tabId, snapshotId, changes }
+    const validation = gridChangesSchema.safeParse(request.changes)
+    if (!validation.success) throw new Error(validation.error.issues[0]?.message ?? 'Staged edits exceed the supported limits.')
+    patchState(tabId, { gridBusy: true })
+    try {
+      const response = await api.editGrid(request)
+      const latest = statesRef.current[tabId]
+      if (!latest?.session || latest.session.id !== sessionId || latest.grid?.id !== snapshotId || JSON.stringify(latest.gridChanges) !== JSON.stringify(changes)) throw new Error('The staged edits changed. Review the SQL again.')
+      patchState(tabId, { session: response.session, ...(response.session.transaction === 'unknown' ? { gridExpired: true } : {}) })
+      if (response.error || !response.preview) throw new Error(response.error ?? 'SQL preview is unavailable.')
+      return response.preview
+    } finally { if (statesRef.current[tabId]?.session?.id === sessionId) patchState(tabId, { gridBusy: false }) }
+  }
+
+  return { appendSelect, openGrid, browseTable, saveColumnView, savedTableColumns, inspectGrid, backGrid, applyGrid, previewGrid }
 }

@@ -293,10 +293,16 @@ fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .grid-edit-toolbar { display: flex; flex-shrink: 0; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 13px; }
 .grid-edit-toolbar strong { min-width: 0; max-width: 230px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .grid-edit-toolbar button { padding: 5px 8px; white-space: nowrap; }
+.connection-dialog.grid-preview-dialog { width: min(760px, 94vw); }
+.grid-preview-dialog ol { padding-left: 28px; }
+.grid-preview-dialog li { margin: 16px 0; }
+.grid-preview-dialog pre { max-width: 100%; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.5 monospace; }
+.connection-dialog.grid-value-dialog { width: min(760px, 94vw); }
+.grid-value-dialog textarea { width: 100%; min-height: 220px; resize: vertical; font: 13px/1.5 monospace; }
 .grid-edit-hint { padding: 7px 12px; color: var(--text); background: var(--surface-raised); font-size: 13px; }
 .editable-row { align-items: stretch; }
 .editable-row > .editable-cell { padding: 3px 6px; display: flex; flex-direction: column; justify-content: center; }
-.editable-cell textarea { width: 100%; min-width: 0; border: 1px solid transparent; background: transparent; color: inherit; border-radius: 3px; padding: 2px 4px; font: inherit; }
+.editable-cell textarea { width: 100%; min-width: 0; border: 1px solid transparent; background: transparent; color: inherit; border-radius: 3px; padding: 2px 54px 2px 4px; font: inherit; }
 .editable-cell textarea:focus { outline: 1px solid var(--info-border); background: var(--surface-hover); }
 .editable-cell textarea[readonly] { color: var(--muted); }
 .editable-cell textarea::placeholder { color: var(--muted); font-style: italic; }
@@ -307,6 +313,8 @@ fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .deleted-row textarea { text-decoration: line-through; }
 .editable-row > .row-edit-action { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 2px; }
 .row-edit-action button { font-size: 12px; color: var(--danger); }
+.row-edit-buttons { display: flex; align-items: center; gap: 2px; }
+.row-edit-action .duplicate-row { display: inline-flex; align-items: center; color: var(--text); padding: 2px; }
 .staged-cell { box-shadow: inset 0 -2px var(--success-border); }
 
 .editable-cell textarea { resize: none; white-space: pre; height: 23px; overflow: auto; }
@@ -338,6 +346,11 @@ fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .query-panes { display: flex; flex-direction: column; flex: 1; min-height: 406px; overflow: hidden; }
 .query-panes:has(.results-region[hidden]) { min-height: 160px; }
 .query-panes:has(.results-region.maximized) { min-height: 240px; }
+/* At very high zoom the toolbar can wrap over several lines. Let the workspace
+   scroll rather than clipping its actions or shrinking the editable table. */
+@media (max-width: 600px) and (max-height: 500px) {
+  .query-panes:has(.results-region.maximized .editable-result) { min-height: 520px; }
+}
 .query-panes .editor-region { flex: 1; min-height: 0; overflow: hidden; }
 .query-editor-views { display: flex; height: 100%; min-width: 0; min-height: 0; }
 .query-editor-views.horizontal { flex-direction: column; }
