@@ -14,6 +14,7 @@ type Forwarded =
   | 'run' | 'cancel' | 'editGrid' | 'explain' | 'cancelExplain'
   | 'sessionSafety' | 'lockSession' | 'prepareSchemaChange' | 'applySchemaChange' | 'cancelSchemaChange'
   | 'inspectImport' | 'startTransfer' | 'cancelTransfer' | 'startBackup' | 'cancelBackup'
+  | 'inspectDataFile' | 'transferMappings' | 'saveTransferMapping' | 'removeTransferMapping' | 'discardTransferCapture'
   | 'compareData' | 'compareSchemas' | 'prepareMigration' | 'prepareQueryBuilder'
   | 'prepareActivityAction' | 'applyActivityAction' | 'inspectRollback' | 'inspectActivity'
   | 'diagram' | 'inspectObject' | 'saveWorkspace' | 'history' | 'clearHistory'

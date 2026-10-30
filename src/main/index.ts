@@ -44,7 +44,8 @@ import { layoutCommands, layoutCommandForInput } from '../shared/layout-commands
 import { backupCapabilities, backupRequestSchema, type BackupJob } from '../shared/backup'
 import { BackupJournal } from '../backup/journal'
 import { BackupHistory } from '../backup/history'
-import { importSourceSchema, transferRequestSchema, type TransferJob } from '../shared/transfer'
+import { dataFileSchema, importSourceSchema, transferRequestSchema, type TransferJob } from '../shared/transfer'
+import { transferMappingSchema } from '../shared/transfer-mappings'
 import { switchDatabaseSchema, gridRequestSchema, connectionSchema, profileSchema, idSchema, runSchema, workspaceSchema, type ConnectionConfig, type Workspace, type SavedConnectionProfile, type DesktopApi, type SessionInfo } from '../shared/contracts'
 
 app.setName('Db Commander')
@@ -170,11 +171,12 @@ const transferJobs = new Map<string, TransferJob>()
 function publishTransfer(job: TransferJob) {
   transferJobs.set(job.id, job)
   for (const [id, previous] of transferJobs) if (transferJobs.size > 40 && previous.status !== 'running') transferJobs.delete(id)
-  if (job.status === 'running') running.set(job.sessionId, `transfer:${job.id}`)
-  else {
-    if (running.get(job.sessionId) === `transfer:${job.id}`) running.delete(job.sessionId)
-    if (job.session && sessions.has(job.sessionId)) sessions.set(job.sessionId, job.session)
+  if (job.reviewOnly) { window?.webContents.send('sql:transfer-job', job); return }
+  for (const id of job.relatedSessionIds ?? [job.sessionId]) {
+    if (job.status === 'running') running.set(id, `transfer:${job.id}`)
+    else if (running.get(id) === `transfer:${job.id}`) running.delete(id)
   }
+  for (const info of job.relatedSessions ?? (job.session ? [job.session] : [])) if (sessions.has(info.id)) sessions.set(info.id, info)
   window?.webContents.send('sql:transfer-job', job)
 }
 const rendererPath = join(__dirname, '../renderer/index.html')
@@ -325,17 +327,23 @@ function registerIpc(): void {
     running.set(request.sessionId, 'inspect-import')
     try { return await rpc('inspectImport', request) } finally { running.delete(request.sessionId) }
   })
+  handle('inspectDataFile', async value => rpc('inspectDataFile', dataFileSchema.parse(value)))
+  handle('transferMappings', async () => rpc('transferMappings'))
+  handle('saveTransferMapping', async value => rpc('saveTransferMapping', transferMappingSchema.parse(value)))
+  handle('removeTransferMapping', async value => rpc('removeTransferMapping', idSchema.parse(value)))
+  handle('discardTransferCapture', async value => rpc('discardTransferCapture', idSchema.parse(value)))
   handle('startTransfer', async value => {
     const request = transferRequestSchema.parse(value)
-    if (running.has(request.sessionId)) throw new Error('This tab already has a running operation.')
-    running.set(request.sessionId, 'start-transfer')
+    const ids = request.action === 'capture' ? [request.sessionId, request.targetSessionId] : [request.sessionId]
+    if (ids.some(id => running.has(id))) throw new Error('A transfer connection already has a running operation.')
+    for (const id of ids) running.set(id, 'start-transfer')
     try { return await rpc('startTransfer', request) }
-    catch (error) { if (running.get(request.sessionId) === 'start-transfer') running.delete(request.sessionId); throw error }
+    catch (error) { for (const id of ids) if (running.get(id) === 'start-transfer') running.delete(id); throw error }
   })
   handle('transferJobs', async () => [...transferJobs.values()])
   handle('cancelTransfer', async value => rpc('cancelTransfer', idSchema.parse(value)))
   handle('chooseTransferFile', async value => {
-    const request = z.object({ save: z.boolean(), format: z.enum(['csv', 'tsv', 'json', 'sql']) }).strict().parse(value)
+    const request = z.object({ save: z.boolean(), format: z.enum(['csv', 'tsv', 'json', 'jsonl', 'sql']) }).strict().parse(value)
     if (!request.save && request.format === 'sql') throw new Error('Open SQL scripts through the File menu; data import accepts CSV, TSV or JSON.')
     const filters = [{ name: request.format.toUpperCase(), extensions: [request.format] }]
     if (request.save) { const result = await dialog.showSaveDialog(window!, { title: 'Export full result to a new file', defaultPath: `result.${request.format}`, filters }); return result.canceled ? null : result.filePath ?? null }

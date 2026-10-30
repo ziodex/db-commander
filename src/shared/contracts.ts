@@ -152,6 +152,11 @@ export interface DesktopApi {
   applySchemaChange(request: import('./schema-changes').ApplySchemaChange): Promise<import('./schema-changes').SchemaChangeResult>
   cancelSchemaChange(sessionId: string): Promise<{ requested: boolean }>
   inspectImport(source: import('./transfer').ImportSource): Promise<import('./transfer').ImportPreview>
+  inspectDataFile(source: { file: string; format: 'csv' | 'tsv' | 'json' | 'jsonl' }): Promise<import('./transfer').DataFilePreview>
+  transferMappings(): Promise<import('./transfer-mappings').TransferMapping[]>
+  saveTransferMapping(input: import('./transfer-mappings').TransferMapping): Promise<import('./transfer-mappings').TransferMapping>
+  removeTransferMapping(id: string): Promise<void>
+  discardTransferCapture(id: string): Promise<void>
   startTransfer(request: import('./transfer').TransferRequest): Promise<import('./transfer').TransferJob>
   transferJobs(): Promise<import('./transfer').TransferJob[]>
   cancelTransfer(jobId: string): Promise<{ requested: boolean }>

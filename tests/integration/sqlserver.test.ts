@@ -1,3 +1,4 @@
+import { verifyTransferWorkflows } from './transfer-workflows-contract'
 import { verifyLargeServerCatalog } from './server-catalog-contract'
 import { verifyCatalogPerformance } from './catalog-performance-contract'
 import { verifyInsertExport } from './insert-export-contract'
@@ -113,6 +114,7 @@ describe('Docker SQL Server driver contracts', () => {
   it('exports Azure SQL INSERT scripts', async () => { await verifyInsertExport({ ...config, engine: 'azure-sql' }) }, 240000)
   it('imports JSON exports with exact values, source validation and atomic rollback', async () => { await verifyJsonImport(config) }, 240000)
   it('imports JSON exports for Azure SQL profiles', async () => { await verifyJsonImport({ ...config, engine: 'azure-sql' }) }, 240000)
+  it('reviews new-table imports, JSON Lines and captured database copies without replay', async () => { await verifyTransferWorkflows(config) }, 240000)
   it('imports data atomically and streams full-result exports', async () => { await verifyDataTransfer(config) }, 240000)
   it('pages, filters and sorts live table data while preserving edit safety', async () => { await verifyTableBrowsing(config) }, 120000)
   it('edits rows atomically with primary keys, bound values and optimistic conflicts', async () => { await verifyEditableGrid(config) })

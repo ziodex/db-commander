@@ -378,11 +378,19 @@ body[data-resizing=horizontal], body[data-resizing=horizontal] * { cursor: row-r
 .transfer-dialog::backdrop { background: var(--overlay); backdrop-filter: blur(4px); }
 .transfer-dialog .dialog-heading { position: sticky; top: -24px; background: var(--surface-raised); padding: 16px 0; z-index: 1; }
 .transfer-dialog fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.transfer-dialog .form-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.transfer-dialog .form-row > label { min-width: 0; }
+.transfer-dialog input, .transfer-dialog select { min-width: 0; max-width: 100%; }
+@media (max-width: 600px) { .transfer-dialog .form-row { grid-template-columns: 1fr; } }
 .transfer-dialog p { line-height: 1.5; }
 .transfer-dialog label { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; }
 .transfer-dialog .save-profile-option { flex-direction: row; align-items: center; }
 .transfer-sql { min-height: 100px; width: 100%; resize: vertical; font-family: monospace; }
 .transfer-mapping { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0 16px; max-height: 240px; overflow: auto; }
+.transfer-dialog .transfer-saved-mappings { border-top: 1px solid var(--border); margin-top: 24px; padding-top: 16px; }
+.transfer-saved-mappings legend { font-weight: 600; padding: 0; }
+.transfer-dialog pre.transfer-sql { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow: auto; }
+.transfer-mapping > div { min-width: 0; }
 .transfer-preview { overflow: auto; max-height: 220px; border: 1px solid var(--border); }
 .transfer-preview table { border-collapse: collapse; width: 100%; font-size: 14px; }
 .transfer-preview th, .transfer-preview td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: pre; }

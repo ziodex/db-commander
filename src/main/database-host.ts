@@ -23,6 +23,8 @@ import { workspaceStartupError } from '../storage/startup-error'
 import { SnippetExchange } from '../storage/snippet-exchange'
 import { backupRequestSchema } from '../shared/backup'
 import { importSourceSchema, transferRequestSchema } from '../shared/transfer'
+import { inspectDataFile } from '../transfer/preview'
+import { transferMappingSchema } from '../shared/transfer-mappings'
 import { switchDatabaseSchema, gridRequestSchema, connectionSchema, idSchema, runSchema, workspaceSchema, type DatabaseEvent } from '../shared/contracts'
 
 const port = (process as unknown as { parentPort: { postMessage(value: HostMessage): void; on(event: string, listener: (event: { data: HostInput }) => void): void } }).parentPort
@@ -70,6 +72,11 @@ function initialize(): void {
       return result;
     },
     inspectImport: payload => driver.inspectImport(importSourceSchema.parse(payload)),
+    inspectDataFile: payload => inspectDataFile(payload),
+    transferMappings: () => store.transferMappings(),
+    saveTransferMapping: payload => store.saveTransferMapping(transferMappingSchema.parse(payload)),
+    removeTransferMapping: payload => store.removeTransferMapping(idSchema.parse(payload)),
+    discardTransferCapture: payload => driver.discardTransferCapture(idSchema.parse(payload)),
     startTransfer: payload => driver.startTransfer(transferRequestSchema.parse(payload)),
     cancelTransfer: payload => driver.cancelTransfer(idSchema.parse(payload)),
     startBackup: payload => driver.startBackup(backupRequestSchema.parse(payload)),

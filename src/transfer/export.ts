@@ -24,13 +24,13 @@ export async function exportFile(request: Extract<TransferRequest, { action: 'ex
           if (index === undefined) {
             index = event.result.index
             if (request.format === 'sql') inserts = insertWriter(engine!, request.insertTarget!, event.result.columns)
-            await file.writeFile(inserts ? inserts.header : request.format === 'json' ? `{"columns":${JSON.stringify(event.result.columns)},"rows":[\n` : delimitedRow(event.result.columns.map(column => column.name), request.format === 'tsv' ? '\t' : ','))
+            await file.writeFile(inserts ? inserts.header : request.format === 'json' ? `{"columns":${JSON.stringify(event.result.columns)},"rows":[\n` : request.format === 'jsonl' ? `{"columns":${JSON.stringify(event.result.columns)}}\n` : delimitedRow(event.result.columns.map(column => column.name), request.format === 'tsv' ? '\t' : ','))
           }
         } else if (event.type === 'rows') {
           if (index === undefined || index !== event.index) throw new Error('Export received rows without matching column metadata.')
           for (const row of event.rows) {
             context.signal.throwIfAborted()
-            await file.writeFile(inserts ? inserts.row(row) : request.format === 'json' ? `${rows ? ',\n' : ''}${JSON.stringify(row)}` : delimitedRow(row, request.format === 'tsv' ? '\t' : ','))
+            await file.writeFile(inserts ? inserts.row(row) : request.format === 'json' ? `${rows ? ',\n' : ''}${JSON.stringify(row)}` : request.format === 'jsonl' ? `${JSON.stringify(row)}\n` : delimitedRow(row, request.format === 'tsv' ? '\t' : ','))
             rows++
           }
           context.progress(rows)
