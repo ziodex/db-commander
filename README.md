@@ -6,9 +6,9 @@ An open-source desktop SQL workbench for macOS, Windows and Linux, built with El
 
 ## Support the project
 
-[Buy me a coffee](https://www.buymeacoffee.com/ziodex)
-
-<script type="text/javascript" src="https://cdnjs.buymeacoffee.com/1.0.0/button.prod.min.js" data-name="bmc-button" data-slug="ziodex" data-color="#FFDD00" data-emoji="☕"  data-font="Cookie" data-text="Buy me a coffee" data-outline-color="#000000" data-font-color="#000000" data-coffee-color="#ffffff" ></script>
+<a href="https://www.buymeacoffee.com/ziodex">
+  <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy me a coffee" width="217" height="60">
+</a>
 
 | Database | Support |
 | --- | --- |
