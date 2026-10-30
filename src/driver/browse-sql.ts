@@ -1,20 +1,21 @@
 import { gridQuerySchema, type Cell, type GridColumn, type GridQueryOptions, type GridTable } from '../shared/contracts'
 import { GridSql } from './grid-sql'
+import { GRID_CELL_LIMIT, GRID_FETCH_CHAR_BUDGET, GRID_PREVIEW_CELL_LIMIT } from '../shared/grid-limits'
 
 export function browseColumn(d: GridSql, column: GridColumn): GridColumn {
   const textual = /^(?:text|tinytext|mediumtext|longtext|varchar|varchar2|nvarchar|nvarchar2|char|nchar|character)(?:\b|\()/i.test(column.type)
   const filterable = displayable(d, column) && !/^(?:jsonb?|blob|binary|varbinary|bytea)(?:\b|\()/i.test(column.type) && !(d.mssql && /^(text|ntext|rowversion|timestamp)$/i.test(column.type))
-  return { ...column, textual, filterable, sortable: filterable }
+  return { ...column, textual, filterable, sortable: filterable, ...(d.binary(column) ? { encoding: 'hex' as const } : {}) }
 }
 
 export function displayable(d: GridSql, column: GridColumn) {
-  return d.supported(column) || d.engine === 'sqlite' || /^(?:real|float|double|double precision|binary_float|binary_double)(?:\(\d+\))?$/i.test(column.type)
+  return !d.binary(column) && d.supported(column) || d.engine === 'sqlite' || /^(?:real|float|double|double precision|binary_float|binary_double)(?:\(\d+\))?$/i.test(column.type)
 }
 
 /** Only catalog-verified identifiers, fixed operators and bound values reach SQL.
  * Sort native values (never display casts); append every PK column to break ties.
  * Read one extra row to detect a next page without a whole-table COUNT. */
-export function browseSelect(d: GridSql, table: GridTable, columns: GridColumn[], input?: GridQueryOptions) {
+export function browseSelect(d: GridSql, table: GridTable, columns: GridColumn[], input?: GridQueryOptions, editable = false) {
   const query = gridQuerySchema.parse(input ?? {}), values: Cell[] = []
   const column = (name: string) => {
     const result = columns.find(c => c.name === name)
@@ -55,10 +56,11 @@ export function browseSelect(d: GridSql, table: GridTable, columns: GridColumn[]
     const name = d.q(item.column), nullable = columns.find(c => c.name === item.column)!.nullable
     return [...(nullable ? [`CASE WHEN ${name} IS NULL THEN 1 ELSE 0 END ASC`] : []), `${name} ${item.direction === 'desc' ? 'DESC' : 'ASC'}`]
   }).join(',') || '1'
-  const expressions = columns.map((c, index) => `${displayable(d, c) ? d.expression(c) : `CASE WHEN ${d.q(c.name)} IS NULL THEN NULL ELSE '[Use SQL to inspect this type]' END`} AS ${d.q(`sc_${index}`)}`)
+  const cellLimit = editable && d.engine !== 'oracle' ? Math.min(GRID_CELL_LIMIT, Math.max(GRID_PREVIEW_CELL_LIMIT, Math.floor(GRID_FETCH_CHAR_BUDGET / ((query.pageSize + 1) * columns.length)) - 16)) : GRID_PREVIEW_CELL_LIMIT
+  const expressions = columns.map((c, index) => `${displayable(d, c) || editable && d.binary(c) && d.supported(c) ? d.expression(c, editable ? cellLimit : false) : `CASE WHEN ${d.q(c.name)} IS NULL THEN NULL ELSE '[Use SQL to inspect this type]' END`} AS ${d.q(`sc_${index}`)}`)
   const limit = query.pageSize + 1
   const paging = d.mssql || d.engine === 'oracle' ? `OFFSET ${query.offset} ROWS FETCH NEXT ${limit} ROWS ONLY` : `LIMIT ${limit} OFFSET ${query.offset}`
   const from = `FROM ${d.table(table)}${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY ${order}`
-  return { sql: `SELECT ${expressions.join(',')} ${from} ${paging}`, statement: `SELECT * ${from} ${paging}`, from, values, query,
+  return { sql: `SELECT ${expressions.join(',')} ${from} ${paging}`, statement: `SELECT * ${from} ${paging}`, from, values, query, cellLimit,
     notice: `${keys.length ? 'Primary-key columns break sort ties.' : 'No sortable primary key: rows tied by the sort may move between pages.'} Pages are live reads; concurrent changes can move rows. Filters use the database’s comparison and collation rules. NULLs sort last.` }
 }

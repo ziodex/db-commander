@@ -4,15 +4,22 @@ import { gridRequestSchema } from '../../src/shared/contracts'
 import { GridSql } from '../../src/driver/grid-sql'
 import { duckdbGeneratedColumns } from '../../src/driver/table-editor'
 import { applyDatabaseEvent, canCloseTab, emptyTabState } from '../../src/renderer/query-tabs'
+import { GRID_CELL_LIMIT } from '../../src/shared/grid-limits'
 
 it('accepts explicit NULL but rejects forged originals, SQL fragments and out-of-range edits at IPC', () => {
   const request = { action: 'apply', sessionId: randomUUID(), snapshotId: randomUUID(), changes: [{ kind: 'update', row: 0, values: [{ column: 1, value: null }] }] }
   expect(gridRequestSchema.parse(request)).toEqual(request)
   for (const bad of [ { ...request, sql: 'DELETE FROM t' }, { ...request, originals: [['forged']] },
     { ...request, changes: [{ kind: 'delete', row: -1 }] }, { ...request, changes: [{ kind: 'update', row: 0, values: [{ column: 100, value: 'x' }] }] },
-    { ...request, changes: [{ kind: 'insert', values: [{ column: 1, value: 'x'.repeat(16385) }] }] }, { ...request, changes: [] } ]) {
+    { ...request, changes: [{ kind: 'insert', values: [{ column: 1, value: 'x'.repeat(GRID_CELL_LIMIT + 1) }] }] }, { ...request, changes: [] } ]) {
     expect(gridRequestSchema.safeParse(bad).success).toBe(false)
   }
+})
+it('keeps the total staged value limit while permitting bounded large cells', () => {
+  const request = { action: 'preview', sessionId: randomUUID(), snapshotId: randomUUID(), changes: [{ kind: 'insert', values: [{ column: 1, value: 'Ω'.repeat(20_000) }] }] }
+  expect(gridRequestSchema.safeParse(request).success).toBe(true)
+  const changes = Array.from({ length: 33 }, () => ({ kind: 'insert', values: [{ column: 1, value: 'x'.repeat(GRID_CELL_LIMIT) }] }))
+  expect(gridRequestSchema.safeParse({ ...request, changes }).success).toBe(false)
 })
 it('keeps database identifiers quoted and catalog filters bound on every dialect', () => {
   for (const engine of ['postgres', 'mysql', 'mariadb', 'sqlserver', 'azure-sql', 'oracle', 'sqlite', 'duckdb'] as const) {

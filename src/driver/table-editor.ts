@@ -4,6 +4,8 @@ import { randomUUID, createHash } from 'node:crypto'
 import type { Cell, DatabaseEngine, GridChange, GridColumn, GridResponse, GridSnapshot, GridTable, SessionInfo } from '../shared/contracts'
 import { MAX_TABS } from '../shared/contracts'
 import { GridSql } from './grid-sql'
+import { gridDml } from './grid-dml'
+import { GRID_CELL_LIMIT, GRID_PAGE_BYTES, GRID_PREVIEW_CELL_LIMIT } from '../shared/grid-limits'
 import { browseColumn, browseSelect, displayable } from './browse-sql'
 import { inspectExpression } from './inspection-sql'
 import { foreignKeys } from './foreign-keys'
@@ -63,6 +65,7 @@ export class TableEditor {
     return { columns: columns.map(column => browseColumn(this.dialect, column)), fingerprint: JSON.stringify([rows, physicalDefinition]) }
   }
   private validate(changes: GridChange[], snapshot: GridSnapshot) {
+    if (Buffer.byteLength(JSON.stringify(changes)) > GRID_PAGE_BYTES) throw new Error('Staged edits exceed 8 MiB. Apply a smaller batch.')
     const seen = new Set<number>()
     for (const change of changes) {
       if (change.kind !== 'insert') {
@@ -77,6 +80,8 @@ export class TableEditor {
         columns.add(value.column)
         if (column.generated || change.kind === 'update' && column.primaryKey) throw new Error('Generated columns and existing primary keys cannot be edited.')
         if (value.value === null && (!column.nullable || column.primaryKey)) throw new Error(`“${column.name}” cannot be NULL.`)
+        if (column.encoding === 'hex' && value.value !== null && (!/^(?:[0-9a-f]{2})*$/i.test(value.value))) throw new Error(`“${column.name}” requires complete hexadecimal byte pairs.`)
+        if (this.dialect.engine === 'oracle' && value.value !== null && value.value.length > GRID_PREVIEW_CELL_LIMIT) throw new Error('Oracle grid values are limited to 16,384 characters. Use SQL for larger values.')
       }
       if (change.kind === 'insert') for (let index = 0; index < snapshot.columns.length; index++) {
         const column = snapshot.columns[index]
@@ -97,6 +102,7 @@ export class TableEditor {
     }
     try {
       const definition = await this.definition(table, false, false)
+      if (definition.columns.some(column => column.encoding === 'hex')) throw new Error('Binary columns are not supported by file import. Use explicit SQL for this table.')
       const signature = createHash('sha256').update(JSON.stringify([table, request.file, request.format, source.identity, source.headers, definition.fingerprint])).digest('hex')
       if (request.action === 'inspect-import') {
         const rows: Cell[][] = []
@@ -181,6 +187,12 @@ export class TableEditor {
     }
     if (this.readOnly && !['browse','inspect-cell','foreign-keys','follow-reference','compare-data'].includes(request.action)) throw new Error('This connection was opened read-only.')
     if (info.transaction !== 'idle' || info.engine !== 'oracle' && info.autocommit === false) throw new Error('Commit or roll back the current transaction and enable autocommit before opening or applying table edits. Apply starts its own transaction.')
+    if (this.dialect.mssql && (request.action === 'open' || request.action === 'apply')) {
+      // TEXTSIZE is measured in bytes and can silently truncate nvarchar(max)
+      // before the oversized sentinel or the optimistic comparison arrives.
+      const size = (await this.query('SELECT @@TEXTSIZE')).rows[0]?.[0]
+      if (size === undefined || size === null || !Number.isFinite(Number(size)) || Number(size) < 2 * (GRID_CELL_LIMIT + 1)) throw new Error('Run SET TEXTSIZE 2147483647 before editing data to prevent truncated originals.')
+    }
     if (request.action === 'compare-data') {
       if (this.dialect.mssql) {
         const size = (await this.query('SELECT @@TEXTSIZE')).rows[0]?.[0]
@@ -247,28 +259,30 @@ export class TableEditor {
       const table = { ...request.table }
       if (this.dialect.engine === 'duckdb' && !table.catalog) table.catalog = info.database
       const definition = await this.definition(table, browse)
-      const selection = browseSelect(this.dialect, table, definition.columns, request.query)
+      const selection = browseSelect(this.dialect, table, definition.columns, request.query, !browse)
       const { rows: rawRows } = await this.query(selection.sql, selection.values)
       const rows = this.dialect.engine === 'sqlite' ? rawRows.map(row => row.map(value => {
+        if (!browse && value === 'nul:') throw new Error('This SQLite row contains text with a NUL character. Use SQL to edit it; the grid cannot retain a complete original.')
         if (value?.startsWith('blob:')) {
           if (browse) return '0x' + value.slice(5)
           throw new Error('This SQLite row contains binary storage. Use SQL to edit it; the grid cannot safely edit this value.')
         }
         return value === null ? null : value.slice(value.indexOf(':') + 1)
       })) : rawRows
-      const oversized = rows.some(row => row.some(value => value !== null && value.length > 16384))
-      if (!browse && oversized) throw new Error('An editable cell exceeds 16,384 characters. Use SQL to edit this table; no truncated originals are retained.')
-      if (Buffer.byteLength(JSON.stringify(rows)) > 8 * 1024 * 1024) throw new Error('This page exceeds 8 MiB. Choose a smaller page size or use SQL to select fewer columns.')
+      const cellLimit = selection.cellLimit
+      const oversized = rows.some(row => row.some(value => value !== null && value.length > cellLimit))
+      if (!browse && oversized) throw new Error(`An editable cell exceeds this page's ${cellLimit.toLocaleString()}-character limit. Choose a smaller page or use SQL; no truncated originals are retained.`)
+      if (Buffer.byteLength(JSON.stringify(rows)) > GRID_PAGE_BYTES) throw new Error('This page exceeds 8 MiB. Choose a smaller page size or use SQL to select fewer columns.')
       if (!browse && rows.some(row => definition.columns.some((c, index) => c.primaryKey && row[index] === null))) throw new Error('NULL primary keys cannot identify rows safely. This table remains read-only.')
       const grid: GridSnapshot = { id: randomUUID(), table, columns: definition.columns,
         statement: selection.values.length ? undefined : selection.statement,
         rows: rows.slice(0, selection.query.pageSize).map(row => row.map(value => browse && value && value.length > 16384 ? value.slice(0, 16384) + '…' : value)),
         truncated: rows.length > selection.query.pageSize, query: selection.query, mode: browse ? 'browse' : 'edit',
-        notice: selection.notice + (oversized ? ' Large cells are truncated to 16,384 characters.' : '') + (definition.columns.some(c => !displayable(this.dialect, c)) ? ' Some types require SQL inspection and are shown as placeholders.' : '') }
+        notice: selection.notice + (oversized ? ' Large cells are truncated to 16,384 characters.' : '') + (browse && definition.columns.some(c => !displayable(this.dialect, c)) ? ' Some types require SQL inspection and are shown as placeholders.' : '') }
       const cellMarks: CellMark[] = []
       for (let row = 0; row < grid.rows.length; row++) for (let column = 0; column < grid.columns.length; column++) {
-        const value = rows[row][column], unavailable = value !== null && !displayable(this.dialect,grid.columns[column]), binary = this.dialect.engine === 'sqlite' && rawRows[row][column]?.startsWith('blob:')
-        if (unavailable || binary || value !== null && value.length > 16384) cellMarks.push({row,column,unavailable,binary:Boolean(binary),truncated:value !== null && value.length > 16384})
+        const value = rows[row][column], unavailable = browse && value !== null && !displayable(this.dialect,grid.columns[column]), binary = browse && Boolean(this.dialect.engine === 'sqlite' && rawRows[row][column]?.startsWith('blob:'))
+        if (unavailable || binary || browse && value !== null && value.length > 16384) cellMarks.push({row,column,unavailable,binary:Boolean(binary),truncated:browse && value !== null && value.length > 16384})
       }
       grid.cellMarks = cellMarks
       // Browsing never authorizes mutations; Edit this page fetches new originals.
@@ -281,6 +295,10 @@ export class TableEditor {
     const snapshot = this.snapshot
     if (!snapshot || snapshot.id !== request.snapshotId || snapshot.mode !== 'edit') throw new Error('This edit snapshot has expired. Reload the table before applying edits.')
     this.validate(request.changes, snapshot)
+    if (request.action === 'preview') {
+      if ((await this.definition(snapshot.table)).fingerprint !== this.fingerprint) throw new Error('The table definition changed. Reload the table before reviewing edits.')
+      return { preview: { statements: request.changes.map(change => { const statement = gridDml(this.dialect, snapshot, change); return { sql: statement.sql, parameterCount: statement.values.length } }), notice: 'Preview only: values are bound separately and are not shown here. Apply starts a transaction, rechecks the table and original row values, and may execute additional locking and comparison statements. Triggers and constraints can have effects beyond these statements.' } }
+    }
     // Consume before any write. Neither a timeout nor an RPC retry replays DML.
     const originals = this.originals
     this.invalidate()
@@ -305,20 +323,8 @@ export class TableEditor {
           const current = await this.query(d.select(snapshot.table, snapshot.columns, where, true), values)
           if (current.rows.length !== 1 || current.rows[0].some((cell, index) => cell !== originals[change.row][index])) throw new Error(`Concurrency conflict in row ${change.row + 1}: the row was changed or deleted. The entire batch was rolled back. Reload and review your edits.`)
         }
-        let sql: string
-        if (change.kind === 'delete') sql = `DELETE FROM ${target} WHERE ${where}`
-        else if (change.kind === 'update') {
-          // Rebuild parameters in SQL appearance order for positional connectors.
-          values.length = 0
-          const set = change.values.map(value => `${d.q(snapshot.columns[value.column].name)}=${bind(snapshot.columns[value.column], value.value)}`).join(',')
-          where = snapshot.columns.flatMap((column, index) => column.primaryKey ? [`${d.q(column.name)}=${bind(column, snapshot.rows[change.row][index])}`] : []).join(' AND ')
-          sql = `UPDATE ${target} SET ${set} WHERE ${where}`
-        } else {
-          const columns = change.values.map(value => d.q(snapshot.columns[value.column].name))
-          const placeholders = change.values.map(value => bind(snapshot.columns[value.column], value.value))
-          sql = columns.length ? `INSERT INTO ${target} (${columns.join(',')}) VALUES (${placeholders.join(',')})` : d.mysql ? `INSERT INTO ${target} () VALUES ()` : d.engine === 'oracle' ? `INSERT INTO ${target} (${d.q(snapshot.columns[0].name)}) VALUES (DEFAULT)` : `INSERT INTO ${target} DEFAULT VALUES`
-        }
-        const result = await this.query(sql, values)
+        const statement = gridDml(d, snapshot, change)
+        const result = await this.query(statement.sql, statement.values)
         if (result.warnings) throw new Error('The server reported a conversion warning. The entire batch was rolled back; correct the values before retrying.')
         if (result.affected !== 1) throw new Error(`Expected to change exactly one row, but the server reported ${result.affected}. The entire batch was rolled back.`)
       }

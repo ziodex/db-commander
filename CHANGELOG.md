@@ -2,7 +2,9 @@
 
 ## Unreleased — beta preparation
 
-No beta release has been declared. Package version 0.2.1 remains a developer preview; signed distribution and the final beta version are pending the [release gates](docs/PLAN.md#beta-release-checklist).
+No beta release has been declared. Package version 0.2.3 remains a developer preview; signed distribution and the final beta version are pending the [release gates](docs/PLAN.md#beta-release-checklist).
+
+- Expanded safe table editing with parameterized SQL previews, row duplication, spreadsheet paste, full-value text and JSON editing, PostgreSQL/DuckDB hexadecimal binary editing, and fresh source-table editing for eligible simple queries. Original-value and transaction checks remain in force.
 
 - Shortened the SQL opened by Browse data to `SELECT *`, retaining identifier quoting, sorting and paging. Browser display conversions still preserve exact values.
 - Added SQL Server Windows Authentication with the current Windows account, using the Windows SQL client without storing a password. This mode requires a direct connection and uses the Windows certificate store for TLS.

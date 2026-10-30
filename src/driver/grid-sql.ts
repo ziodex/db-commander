@@ -1,5 +1,6 @@
 import type { DatabaseEngine, GridColumn, GridTable } from '../shared/contracts'
 import { quoteIdentifier } from '../shared/sql/common'
+import { GRID_CELL_LIMIT, GRID_PREVIEW_CELL_LIMIT } from '../shared/grid-limits'
 
 export class GridSql {
   constructor(readonly engine: DatabaseEngine) {}
@@ -8,6 +9,7 @@ export class GridSql {
   q(name: string) { return quoteIdentifier(name, this.engine) }
   table(table: GridTable) { return [...(this.engine === 'duckdb' && table.catalog ? [table.catalog] : []), table.schema, table.name].map(name => this.q(name)).join('.') }
   p(index: number) { return this.engine === 'postgres' ? `$${index}` : this.engine === 'oracle' ? `:p${index}` : this.mssql ? `@p${index}` : '?' }
+  binary(column: GridColumn) { return this.engine === 'postgres' && column.type.toLowerCase() === 'bytea' || this.engine === 'duckdb' && column.type.toLowerCase() === 'blob' }
   /** All catalog filters are bound, including names containing SQL syntax. */
   metadata(table: GridTable, browse = false): { sql: string; values: string[] } {
     const a = this.p(1), b = this.p(2)
@@ -51,6 +53,7 @@ export class GridSql {
   }
   supported(column: GridColumn) {
     const t = column.type.toLowerCase()
+    if (this.binary(column)) return !column.primaryKey
     if (['postgres', 'mysql', 'mariadb', 'oracle'].includes(this.engine) && /^(real|float|double|binary_float|binary_double)/.test(t)) return false
     if (this.mysql && /^bit/.test(t)) return false
     if (['postgres', 'duckdb', 'mysql', 'mariadb'].includes(this.engine) && /^(json|jsonb)$/.test(t)) return true
@@ -59,20 +62,25 @@ export class GridSql {
     // and LOBs need dedicated editors before they can be compared losslessly.
     return /^(?:smallint|integer|int|int2|int4|int8|bigint|tinyint|mediumint|hugeint|uhugeint|utinyint|usmallint|uinteger|ubigint|numeric|decimal|number|real|float|double|double precision|binary_float|binary_double|boolean|bool|bit|uuid|uniqueidentifier|text|varchar|varchar2|nvarchar|nvarchar2|char|nchar|character varying|character|date|datetime|datetime2|smalldatetime|datetimeoffset|timestamp|timestamp_s|timestamp_ms|timestamp_ns|timestamptz|time|timetz)(?:\([\d, ]+\))?(?: unsigned)?(?: with(?:out)? time zone)?$/i.test(t) || (this.mssql && /^(?:timestamp|rowversion)$/.test(t))
   }
-  expression(column: GridColumn) {
+  expression(column: GridColumn, editable: boolean | number = false) {
     const name = this.q(column.name), t = column.type.toLowerCase()
     let value: string
-    if (this.engine === 'oracle') {
+    if (this.binary(column)) value = this.engine === 'postgres' ? `encode(${name},'hex')` : `hex(${name})`
+    else if (this.engine === 'oracle') {
       value = t === 'date' ? `TO_CHAR(${name},'SYYYY-MM-DD HH24:MI:SS')` : t.startsWith('timestamp') ? `TO_CHAR(${name},'SYYYY-MM-DD HH24:MI:SS.FF9${t.includes('TIME ZONE'.toLowerCase()) ? ' TZR TZD' : ''}')` : `CAST(${name} AS VARCHAR2(4000))`
     } else if (this.engine === 'sqlite') {
-      value = `CASE WHEN ${name} IS NULL THEN NULL WHEN typeof(${name})='real' THEN 'real:'||printf('%!.26g',${name}) WHEN typeof(${name})='blob' THEN 'blob:'||hex(${name}) ELSE typeof(${name})||':'||CAST(${name} AS TEXT) END`
+      // SQLite's text SUBSTR stops at NUL. Signal it instead of retaining a
+      // partial original which could hide a concurrent change after the NUL.
+      value = `CASE WHEN ${name} IS NULL THEN NULL ${editable ? `WHEN typeof(${name})='text' AND instr(${name},char(0))>0 THEN 'nul:'` : ''} WHEN typeof(${name})='real' THEN 'real:'||printf('%!.26g',${name}) WHEN typeof(${name})='blob' THEN 'blob:'||hex(${name}) ELSE typeof(${name})||':'||CAST(${name} AS TEXT) END`
     } else if (this.mssql) value = /^(rowversion|timestamp)$/.test(t) ? `CONVERT(varchar(max),${name},2)` : `CONVERT(nvarchar(max),${name},${/^(real|float)$/.test(t) ? '3' : '126'})`
     else value = `CAST(${name} AS ${this.mysql ? 'CHAR CHARACTER SET utf8mb4' : this.engine === 'duckdb' ? 'VARCHAR' : 'TEXT'})`
     // Detect oversize cells instead of silently retaining partial originals.
-    return this.mssql ? `SUBSTRING(${value},1,16385)` : `SUBSTR(${value},1,${this.engine === 'sqlite' ? 16400 : 16385})`
+    const limit = editable && this.engine !== 'oracle' ? typeof editable === 'number' ? editable : GRID_CELL_LIMIT : GRID_PREVIEW_CELL_LIMIT
+    return this.mssql ? `SUBSTRING(${value},1,${limit + 1})` : `SUBSTR(${value},1,${limit + (this.engine === 'sqlite' ? 16 : 1)})`
   }
   value(column: GridColumn, index: number) {
     const p = this.p(index)
+    if (this.binary(column)) return this.engine === 'postgres' ? `decode(${p},'hex')` : `from_hex(${p})`
     if (this.mssql && /^(timestamp|rowversion)$/i.test(column.type)) return `CONVERT(binary(8),${p},2)`
     if (this.engine === 'postgres' || this.engine === 'duckdb') return `CAST(${p} AS ${column.type})` // type came from the whitelist above
     if (this.engine === 'oracle' && column.type === 'DATE') return `TO_DATE(${p},'SYYYY-MM-DD HH24:MI:SS')`
@@ -82,6 +90,6 @@ export class GridSql {
   select(table: GridTable, columns: GridColumn[], where = '', lock = false) {
     const from = `${this.table(table)}${lock && this.mssql ? ' WITH (UPDLOCK,HOLDLOCK)' : ''}`
     const order = where ? '' : ` ORDER BY ${columns.filter(c => c.primaryKey).map(c => this.q(c.name)).join(',')}`
-    return `SELECT ${this.mssql ? 'TOP (201) ' : ''}${columns.map(c => this.expression(c)).join(',')} FROM ${from}${where ? ` WHERE ${where}` : ''}${order}${this.mssql ? '' : this.engine === 'oracle' ? (lock ? '' : ' FETCH FIRST 201 ROWS ONLY') : ' LIMIT 201'}${lock && (this.mysql || ['postgres', 'oracle'].includes(this.engine)) ? ` FOR UPDATE${this.engine === 'oracle' ? ' NOWAIT' : ''}` : ''}`
+    return `SELECT ${this.mssql ? 'TOP (201) ' : ''}${columns.map(c => this.expression(c, true)).join(',')} FROM ${from}${where ? ` WHERE ${where}` : ''}${order}${this.mssql ? '' : this.engine === 'oracle' ? (lock ? '' : ' FETCH FIRST 201 ROWS ONLY') : ' LIMIT 201'}${lock && (this.mysql || ['postgres', 'oracle'].includes(this.engine)) ? ` FOR UPDATE${this.engine === 'oracle' ? ' NOWAIT' : ''}` : ''}`
   }
 }
