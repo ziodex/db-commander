@@ -139,13 +139,13 @@ export function useWorkspaceSessions({ api, runtime, tab, readyRef, sqlFiles, ed
     finally { patchState(id, { connecting: false }) }
   }
 
-  async function openIndependentConnection(id: string, sourceSession: string) {
+  async function openIndependentConnection(id: string, sourceSession: string, restoreJobId?: string) {
     const epoch = generation.current
     patchState(id, { connecting: true, status: 'Connecting' })
     try {
       // Authentication stays in the main process. A clone opens a physical
       // connection; it never copies temporary objects, locks or transactions.
-      const connected = await api.cloneSession(sourceSession)
+      const connected = restoreJobId ? await api.connectBackupTarget(restoreJobId) : await api.cloneSession(sourceSession)
       if (generation.current !== epoch || !workspaceRef.current.tabs.some(tab => tab.id === id)) { await api.disconnect(connected.id).catch(() => {}); return }
       patchState(id, { ...emptyTabState(), connecting: true, session: connected, connectionDatabase: connected.database, status: 'Connected' })
       await refreshDatabases(id, connected.id); await refreshTables(id, connected.id)

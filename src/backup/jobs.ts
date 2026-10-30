@@ -4,12 +4,13 @@ import { backupCapabilities, backupRequestSchema, type BackupJob, type BackupReq
 import { logicalBackup } from './logical'
 import { oracleBackup, sqlServerBackup } from './server'
 import type { BackupOptions } from './tools'
+import { inspectBackup } from './inspection'
 
 export class BackupJobs {
   private jobs = new Map<string, BackupJob>()
   private controllers = new Map<string, AbortController>()
   constructor(private access: SessionAccess, private options: BackupOptions = {}, private publishJob: (job: BackupJob) => void = () => {}) {}
-  start(input: BackupRequest): BackupJob {
+  private prepare(input: BackupRequest) {
     const request = backupRequestSchema.parse(input), driver = this.access.driver(request.sessionId), session = driver.getSession(request.sessionId)
     if (request.action === 'restore' || session.engine === 'azure-sql') this.access.protect(session.id)
     if (this.access.running(session.id)) throw new Error('Stop the running query before backup or restore.')
@@ -19,6 +20,25 @@ export class BackupJobs {
     if (request.content !== 'all' && (!backupCapabilities[session.engine].schemaOnly || request.action === 'restore')) throw new Error('Schema-only mode is not supported for this operation.')
     const config = { ...this.access.config(session.id), database: session.database }
     if (config.ssh && ['mysql', 'mariadb'].includes(config.engine)) throw new Error('Native MySQL/MariaDB backup tools do not yet support managed SSH tunnels with verified database hostnames. Use a direct connection for backup/restore.')
+    return { request, driver, session, config }
+  }
+  async inspect(input: BackupRequest) {
+    const { request, session, config } = this.prepare(input)
+    return this.access.operation(session.id, async () => {
+      const controller = new AbortController(), timer = setTimeout(() => controller.abort(new Error('The backup checks timed out. Check connectivity and run them again.')), 15000)
+      try {
+        const result = await inspectBackup(config, request, { signal: controller.signal, log() {} }, this.options)
+        // Inspection diagnostics must not disclose native connection secrets.
+        for (const secret of [config.password, config.accessToken]) if (secret) for (const value of [secret, encodeURIComponent(secret), JSON.stringify(secret).slice(1, -1)]) {
+          for (const item of result.checks) item.detail = item.detail.split(value).join('[redacted]')
+          for (const item of result.metadata) item.value = item.value.split(value).join('[redacted]')
+        }
+        return result
+      } finally { clearTimeout(timer) }
+    })
+  }
+  start(input: BackupRequest): BackupJob {
+    const { request, driver, session, config } = this.prepare(input)
     const controller = new AbortController()
     const job: BackupJob = { id: randomUUID(), sessionId: session.id, engine: session.engine, action: request.action, database: session.database, server: session.port ? `${session.host}:${session.port}` : session.host, artifact: request.artifact, target: request.target, status: 'running', phase: 'Checking backup requirements', startedAt: new Date().toISOString(), log: [] }
     this.jobs.set(job.id, job); this.controllers.set(job.id, controller)
@@ -36,7 +56,7 @@ export class BackupJobs {
         else if (['postgres', 'mysql', 'mariadb'].includes(session.engine)) await logicalBackup(config, request, context, this.options)
         else if (session.engine === 'oracle') await oracleBackup(config, request, context)
         else await sqlServerBackup(config, request, context)
-        job.status = 'completed'; log('Completed. Verify the restored database before using it for production.')
+        job.status = 'completed'; log(request.action === 'backup' ? 'Backup completed. Test a restore before relying on it.' : 'Restore completed. Inspect its schema and data before using it.')
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Backup operation failed.'
         const unknown = (error as { outcomeUnknown?: boolean })?.outcomeUnknown || /connection.*(?:closed|lost)|worker.*closed|ECONN|socket|NJS-5|DPI-10/i.test(message) || controller.signal.aborted && session.engine === 'azure-sql'

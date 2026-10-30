@@ -28,7 +28,8 @@ import { SystemTray } from './system-tray'
 import { applicationProfile } from './application-profile'
 import { applicationMenu, executeApplicationMenu, installMenuKeys, updateTitleBar, windowsTitleBar } from './application-menu'
 import { menuPathSchema, titleBarAppearanceSchema } from '../shared/application-menu'
-import { join, basename } from 'node:path'
+import { join, basename, dirname } from 'node:path'
+import { lstat } from 'node:fs/promises'
 import { mkdirSync, realpathSync } from 'node:fs'
 import { rendererOrigin } from './renderer-origin'
 import { writeGeneratedFile } from './generated-file'
@@ -351,19 +352,50 @@ function registerIpc(): void {
     return result.canceled ? null : result.filePaths[0] ?? null
   })
   handle('startBackup', async value => rpc('startBackup', backupRequestSchema.parse(value)))
+  handle('inspectBackup', async value => rpc('inspectBackup', backupRequestSchema.parse(value)))
   handle('backupJobs', async () => backupJobs.list())
   handle('retryBackupHistory', async () => backupJobs.retry())
   handle('cancelBackup', async value => rpc('cancelBackup', idSchema.parse(value)))
-  handle('chooseBackupFile', async value => {
-    const request = z.object({ sessionId: idSchema, save: z.boolean() }).strict().parse(value)
+  handle('chooseBackupFile', value => fileOperation(async () => {
+    const request = z.object({ sessionId: idSchema, save: z.boolean(), target: z.boolean().optional() }).strict().parse(value)
     const session = sessions.get(request.sessionId)
     if (!session) throw new Error('Connect a database first.')
     const capability = backupCapabilities[session.engine]
     if (capability.location !== 'local') throw new Error('This engine uses server-side backup locations.')
     const filters = [{ name: capability.format, extensions: [capability.extension] }]
-    if (request.save) { const result = await dialog.showSaveDialog(window!, { title: 'Choose a new backup or restore file', defaultPath: `database.${capability.extension}`, filters }); return result.canceled ? null : result.filePath ?? null }
-    const result = await dialog.showOpenDialog(window!, { title: 'Open backup file', properties: ['openFile'], filters })
-    return result.canceled ? null : result.filePaths[0] ?? null
+    const purpose = request.target ? 'target' : request.save ? 'backup' : 'restore'
+    const previous = desktopSettings.backupDirectory(session.engine, purpose)
+    const name = (session.database || 'database').replace(/[^\p{L}\p{N}_.-]+/gu, '_').slice(0, 80)
+    const suggested = `${name}-${request.target ? 'restored' : new Date().toISOString().slice(0, 10)}.${capability.extension}`
+    const chosen = request.save ? await dialog.showSaveDialog(window!, { title: request.target ? 'Choose restore destination' : 'Choose backup destination', defaultPath: previous ? join(previous, suggested) : suggested, filters }).then(result => result.canceled ? null : result.filePath ?? null)
+      : await dialog.showOpenDialog(window!, { title: 'Open backup file', ...(previous ? { defaultPath: previous } : {}), properties: ['openFile'], filters: [...filters, { name: 'All files', extensions: ['*'] }] }).then(result => result.canceled ? null : result.filePaths[0] ?? null)
+    if (chosen) await desktopSettings.rememberBackupDirectory(session.engine, purpose, dirname(chosen))
+    return chosen
+  }))
+  handle('chooseBackupTools', value => fileOperation(async () => {
+    const session = sessions.get(idSchema.parse(value))
+    if (!session || !['postgres', 'mysql', 'mariadb'].includes(session.engine)) throw new Error('This connection does not use local native client tools.')
+    const previous = desktopSettings.backupDirectory(session.engine, 'tools')
+    const chosen = await dialog.showOpenDialog(window!, { title: 'Choose native client tools folder', ...(previous ? { defaultPath: previous } : {}), properties: ['openDirectory'] })
+    if (chosen.canceled || !chosen.filePaths[0]) return null
+    await desktopSettings.rememberBackupDirectory(session.engine, 'tools', chosen.filePaths[0])
+    return chosen.filePaths[0]
+  }))
+  handle('revealBackupFile', async value => {
+    const request = z.object({ jobId: idSchema, target: z.boolean().optional() }).strict().parse(value)
+    const job = backupJobs.list().find(job => job.id === request.jobId)
+    if (!job || job.status !== 'completed' || backupCapabilities[job.engine].location !== 'local') throw new Error('Choose a completed local backup or restore job.')
+    const file = request.target && job.action === 'restore' && ['sqlite', 'duckdb'].includes(job.engine) ? job.target : job.artifact
+    if (!file || !(await lstat(file)).isFile()) throw new Error('The local file is no longer available.')
+    shell.showItemInFolder(file)
+  })
+  handle('connectBackupTarget', async value => {
+    const job = backupJobs.list().find(job => job.id === idSchema.parse(value))
+    if (!job || job.status !== 'completed' || job.action !== 'restore' || !job.target || job.engine === 'oracle') throw new Error('Choose a successful database or file restore.')
+    const source = sessionCredentials.get(job.sessionId)
+    if (!source || !sessions.has(job.sessionId) || source.engine !== job.engine) throw new Error('The original connection is no longer open. Connect to the restored database explicitly.')
+    const embedded = ['sqlite', 'duckdb'].includes(job.engine)
+    return openSession({ ...source, name: `${source.name} · restored`.slice(0, 100), database: embedded ? source.database : job.target, ...(embedded ? { filePath: job.target, sqliteMode: 'read-write', duckdbMode: 'read-write' } : {}) })
   })
   handle('connect', async value => openSession(connectionSchema.parse(value)))
   handle('cloneSession', async value => {

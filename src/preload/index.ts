@@ -86,10 +86,14 @@ const api: DesktopApi = {
     return () => ipcRenderer.removeListener('sql:transfer-job', callback)
   },
   startBackup: request => ipcRenderer.invoke('sql:startBackup', request),
+  inspectBackup: request => ipcRenderer.invoke('sql:inspectBackup', request),
   backupJobs: () => ipcRenderer.invoke('sql:backupJobs'),
   retryBackupHistory: () => ipcRenderer.invoke('sql:retryBackupHistory'),
   cancelBackup: id => ipcRenderer.invoke('sql:cancelBackup', id),
   chooseBackupFile: request => ipcRenderer.invoke('sql:chooseBackupFile', request),
+  chooseBackupTools: id => ipcRenderer.invoke('sql:chooseBackupTools', id),
+  revealBackupFile: request => ipcRenderer.invoke('sql:revealBackupFile', request),
+  connectBackupTarget: id => ipcRenderer.invoke('sql:connectBackupTarget', id),
   onBackupJob: listener => {
     const callback = (_event: Electron.IpcRendererEvent, job: import('../shared/backup').BackupJob) => listener(job)
     ipcRenderer.on('sql:backup-job', callback)

@@ -325,6 +325,8 @@ Right-click the current database in the sidebar and choose **Database backup and
 
 PostgreSQL, MySQL and MariaDB require matching native client tools. SQL Server backups and Oracle Data Pump dumps live on the **server**; SQLite and DuckDB use consistent local snapshots. Azure SQL uses a separately billed **database recovery copy**, with restore by copying it to another new database. It does not accept SQL Server `.bak` files or implement BACPAC/PITR. See [backup formats, permissions, usage and limitations](BACKUP_RESTORE.md).
 
+Local file and tools-folder controls open native pickers and remember folders per engine. **Review job** checks the file, destination and available engine/tool metadata before confirmation; failures keep your inputs. Review notes distinguish checks that passed from permissions or integrity verification deferred to execution. After completion, reveal local files, filter recent jobs or explicitly connect to a successful restored database in a new empty query tab. Existing databases/files are never overwritten and previous SQL is never replayed. See [the guided workflow](BACKUP_RESTORE.md#configure-check-and-review).
+
 ## Panel layout
 
 Drag the sidebar edge or the divider above results to resize panels. Header buttons and the **View** menu show or hide each panel independently. Results also have **Maximize / restore results** and **Hide results** buttons. These commands are available in **Commands**.
