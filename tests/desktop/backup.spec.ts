@@ -17,8 +17,12 @@ for (const engine of ['sqlite', 'duckdb'] as const) test(`backup ${engine}: revi
     const page = await app.firstWindow(); await waitForWorkspaceReady(page); return page
   }
   async function run(page: Page, sql: string) {
-    await page.locator('.monaco-editor').first().click(); await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A'); await page.keyboard.insertText(sql)
-    await page.getByRole('button', { name: /^Run SQL/ }).click(); await expect(page.locator('.status-text')).toHaveText('Completed')
+    await page.bringToFront()
+    const editor = page.locator('.monaco-editor').first(), input = editor.locator('textarea.inputarea')
+    await expect(input).toBeEditable(); await editor.click(); await expect(input).toBeFocused()
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A'); await page.keyboard.insertText(sql); await page.keyboard.press('Escape')
+    await expect.poll(async () => { const workspace = await page.evaluate(() => window.dbCommander.loadWorkspace()); return workspace?.tabs.find(tab => tab.id === workspace.activeTabId)?.sql }).toBe(sql)
+    await page.getByRole('button', { name: /^Run SQL/ }).click(); await expect(page.locator('.status-text')).toHaveText('Completed'); await expect(page.getByRole('button', { name: /^Run SQL/ })).toBeEnabled()
   }
   try {
     let page = await launch()
@@ -53,8 +57,19 @@ for (const engine of ['sqlite', 'duckdb'] as const) test(`backup ${engine}: revi
     expect(rows).toEqual([['9223372036854775807', 'backup value']])
     // A repeated restore is rejected and the existing file remains unchanged.
     const before = readFileSync(restored)
-    await form.getByRole('button', { name: 'Configure another job' }).click(); await form.getByRole('button', { name: 'Review job' }).click(); await form.getByRole('checkbox').check(); await form.getByRole('button', { name: 'Start restore' }).click()
+    await form.getByRole('button', { name: 'Configure another job' }).click(); await form.getByRole('button', { name: 'Review job' }).click()
+    await expect(form.getByRole('region', { name: 'Backup checks' })).toContainText('already exists')
+    await expect(form.getByRole('button', { name: 'Start restore' })).toHaveCount(0)
+    // The host must still refuse a collision when a caller bypasses the advisory UI check.
+    const refused = await page.evaluate(async ({ backup, restored }) => {
+      const api = window.dbCommander, previous = (await api.backupJobs()).find(job => job.action === 'restore' && job.status === 'completed')!
+      return api.startBackup({ sessionId: previous.sessionId, action: 'restore', artifact: backup, target: restored, content: 'all', confirmed: true })
+    }, { backup, restored })
+    await form.getByLabel('Find a job').fill(restored)
+    await expect(form.locator('.backup-job-list button').filter({ hasText: 'restore' })).toHaveCount(2)
+    await form.locator('.backup-job-list button').filter({ hasText: 'restore' }).first().click()
     await expect(form.locator('.backup-status')).toHaveText('failed'); await expect(form).toContainText('already exists'); expect(readFileSync(restored)).toEqual(before)
+    expect(refused.action).toBe('restore')
     await page.screenshot({ path: testInfo.outputPath(`backup-${engine}.png`) })
     await form.getByRole('button', { name: 'Close backup dialog' }).click()
     await app!.close(); app = undefined
@@ -106,7 +121,15 @@ for (const engine of ['postgres', 'mysql', 'mariadb', 'sqlserver', 'oracle'] as 
     await expect(form).toContainText(engineNames[engine as DatabaseEngine])
     await form.getByLabel(engine === 'oracle' ? 'Dump filename' : engine === 'sqlserver' ? 'Backup file on database server' : 'Backup file', { exact: true }).fill(artifact)
     if (engine === 'oracle') await form.getByLabel('Source schema').fill('DBCOMMANDER')
-    if (['postgres', 'mysql', 'mariadb'].includes(engine)) await form.getByLabel('Native tools directory (optional)').fill(process.env[`SQLCOMMANDER_${prefix}_TOOLS`]!)
+    if (['postgres', 'mysql', 'mariadb'].includes(engine)) {
+      await app.evaluate(({ dialog }, folder) => { dialog.showOpenDialog = (async (_window, options) => { (globalThis as any).backupToolsOptions = options; return { canceled: false, filePaths: [folder] } }) as typeof dialog.showOpenDialog }, process.env[`SQLCOMMANDER_${prefix}_TOOLS`]!)
+      await form.getByRole('button', { name: 'Choose tools folder', exact: true }).click()
+      await expect(form.getByLabel('Native tools directory (optional)')).toHaveValue(process.env[`SQLCOMMANDER_${prefix}_TOOLS`]!)
+      expect((await app.evaluate(() => (globalThis as any).backupToolsOptions)).properties).toEqual(['openDirectory'])
+    } else {
+      await expect(form.getByRole('button', { name: 'Choose backup destination', exact: true })).toHaveCount(0)
+      await expect(form).toContainText('database server')
+    }
     await form.getByRole('button', { name: 'Review job' }).click(); await form.getByRole('checkbox').check(); await form.getByRole('button', { name: 'Start backup' }).click()
     await expect(form.locator('.backup-status')).toHaveText('completed', { timeout: 90000 })
     await form.getByRole('button', { name: 'Configure another job' }).click(); await form.getByLabel('Operation').selectOption('restore')

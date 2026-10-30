@@ -80,6 +80,7 @@ function initialize(): void {
     startTransfer: payload => driver.startTransfer(transferRequestSchema.parse(payload)),
     cancelTransfer: payload => driver.cancelTransfer(idSchema.parse(payload)),
     startBackup: payload => driver.startBackup(backupRequestSchema.parse(payload)),
+    inspectBackup: payload => driver.inspectBackup(backupRequestSchema.parse(payload)),
     cancelBackup: payload => driver.cancelBackup(idSchema.parse(payload)),
     connect: payload => driver.connect(connectionSchema.parse(payload)),
     disconnect: payload => driver.disconnect(idSchema.parse(payload)),

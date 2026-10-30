@@ -145,6 +145,7 @@ export class DriverRegistry {
     return driver
   }
   startBackup(input: BackupRequest) { return this.backups.start(input) }
+  inspectBackup(input: BackupRequest) { return this.backups.inspect(input) }
   listBackupJobs() { return this.backups.list() }
   cancelBackup(id: string) { return this.backups.cancel(id) }
   waitBackup(id: string) { return this.backups.wait(id) }

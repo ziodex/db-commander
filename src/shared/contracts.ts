@@ -173,10 +173,14 @@ export interface DesktopApi {
   chooseTransferFile(input: { save: boolean; format: import('./transfer').ExportFormat }): Promise<string | null>
   onTransferJob(listener: (job: import('./transfer').TransferJob) => void): () => void
   startBackup(request: import('./backup').BackupRequest): Promise<import('./backup').BackupJob>
+  inspectBackup(request: import('./backup').BackupRequest): Promise<import('./backup').BackupInspection>
   backupJobs(): Promise<import('./backup').BackupJob[]>
   retryBackupHistory(): Promise<void>
   cancelBackup(jobId: string): Promise<{ requested: boolean }>
-  chooseBackupFile(input: { sessionId: string; save: boolean }): Promise<string | null>
+  chooseBackupFile(input: { sessionId: string; save: boolean; target?: boolean }): Promise<string | null>
+  chooseBackupTools(sessionId: string): Promise<string | null>
+  revealBackupFile(input: { jobId: string; target?: boolean }): Promise<void>
+  connectBackupTarget(jobId: string): Promise<SessionInfo>
   onBackupJob(listener: (job: import('./backup').BackupJob) => void): () => void
   onLayoutCommand(listener: (command: LayoutCommand) => void): () => void
   connect(config: ConnectionConfig): Promise<SessionInfo>

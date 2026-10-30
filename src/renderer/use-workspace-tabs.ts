@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import { sameConnectionSettings } from '../shared/connection-profiles'
 import { MAX_TABS, type DesktopApi, type SavedConnectionProfile, type SessionInfo, type WorkspaceTab } from '../shared/contracts'
 import type { EditorSettings } from '../shared/editor-settings'
+import type { BackupJob } from '../shared/backup'
 import { setTabPinned } from '../shared/tab-order'
 import { canCloseTab, emptyTabState } from './query-tabs'
 import { sessionOwners } from './shared-sessions'
@@ -26,22 +27,27 @@ export function useWorkspaceTabs({ api, runtime, ready, editorSettings, sqlFiles
 
   const [closingTabs, setClosingTabs] = useState(false), closeOperation = useRef(false)
 
-  function newTab(savedProfile?: SavedConnectionProfile, definition?: { sql: string; title: string }, mode: 'shared' | 'independent' = 'shared') {
+  function newTab(savedProfile?: SavedConnectionProfile, definition?: { sql: string; title: string; restored?: BackupJob }, mode: 'shared' | 'independent' = 'shared') {
     if (closeId || closeOperation.current || sqlFiles.busy) return
     if (!ready || workspaceRef.current.tabs.length >= MAX_TABS) { report(new Error(`Up to ${MAX_TABS} query tabs can be open.`)); return }
     if (workspaceRef.current.tabs.reduce((size, tab) => size + tab.sql.length, definition?.sql.length ?? 1000) > 5_000_000) { report(new Error('Save and shorten a SQL buffer before opening another tab. Workspace SQL is limited to 5 MB.')); return }
     const current = workspaceRef.current.tabs.find(tab => tab.id === workspaceRef.current.activeTabId)!
-    const existing = savedProfile ? [current, ...workspaceRef.current.tabs.filter(tab => tab.id !== current.id)].find(tab => tab.profileId === savedProfile.id && sameConnectionSettings(tab.profile, savedProfile.config) && (statesRef.current[tab.id]?.session || statesRef.current[tab.id]?.connecting)) : current
+    const restored = definition?.restored
+    if (restored && (restored.status !== 'completed' || restored.action !== 'restore' || !restored.target || restored.engine === 'oracle')) { report(new Error('Choose a successful database or file restore.')); return }
+    const existing = restored ? workspaceRef.current.tabs.find(tab => statesRef.current[tab.id]?.session?.id === restored.sessionId) : savedProfile ? [current, ...workspaceRef.current.tabs.filter(tab => tab.id !== current.id)].find(tab => tab.profileId === savedProfile.id && sameConnectionSettings(tab.profile, savedProfile.config) && (statesRef.current[tab.id]?.session || statesRef.current[tab.id]?.connecting)) : current
+    if (restored && !existing) { report(new Error('The original connection is no longer open. Connect to the restored target explicitly.')); return }
     const original = existing ? statesRef.current[existing.id] : undefined
     if (original?.closing || original?.connecting || original?.switching) { report(new Error('Wait for this connection operation to finish before opening another tab.')); return }
-    const id = crypto.randomUUID(), source = existing && original?.session ? existing.profile : savedProfile?.config ?? current.profile
-    const next: WorkspaceTab = { id, title: definition?.title.slice(0, 255) ?? `Query ${workspaceRef.current.tabs.length + 1}.sql`, sql: definition?.sql ?? starterSql(source.engine), profile: source, profileId: savedProfile?.id ?? current.profileId }
+    const id = crypto.randomUUID(), base = existing && original?.session ? existing.profile : savedProfile?.config ?? current.profile
+    const embedded = ['sqlite', 'duckdb'].includes(base.engine)
+    const source = restored ? { ...base, name: `${base.name} · restored`.slice(0, 100), ...(embedded ? { filePath: restored.target!, sqliteMode: 'read-write' as const, duckdbMode: 'read-write' as const } : { database: restored.target! }) } : base
+    const next: WorkspaceTab = { id, title: definition?.title.slice(0, 255) ?? `Query ${workspaceRef.current.tabs.length + 1}.sql`, sql: definition?.sql ?? starterSql(source.engine), profile: source, profileId: restored ? undefined : savedProfile?.id ?? current.profileId }
     changeWorkspace(previous => ({ ...previous, tabs: [...previous.tabs, next], activeTabId: id }))
     patchState(id, emptyTabState())
     const target = { tabId: id, profile: source, profileId: next.profileId }
     let connected: Promise<SessionInfo | undefined> | undefined
     if (original?.session && mode === 'independent') {
-      connected = openIndependentConnection(id, original.session.id)
+      connected = openIndependentConnection(id, original.session.id, restored?.id)
     } else if (original?.session) {
       patchState(id, { session: original.session, connectionDatabase: original.connectionDatabase, schema: original.schema, tables: original.tables, databases: original.databases, status: 'Connected' })
       connected = Promise.resolve(original.session)

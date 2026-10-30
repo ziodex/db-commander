@@ -4,6 +4,8 @@
 
 No beta release has been declared. Package version 0.2.3 remains a developer preview; signed distribution and the final beta version are pending the [release gates](docs/PLAN.md#beta-release-checklist).
 
+- Added guided backup/restore configuration and advisory checks, native file/tools-folder choices with remembered folders, clearer server-side locations, searchable job history and explicit connections to successful restored targets without SQL replay. Existing target, transaction, cancellation and recovery protections remain in force.
+
 - Expanded safe table editing with parameterized SQL previews, row duplication, spreadsheet paste, full-value text and JSON editing, PostgreSQL/DuckDB hexadecimal binary editing, and fresh source-table editing for eligible simple queries. Original-value and transaction checks remain in force.
 
 - D2 adds named compatible import mappings, reviewed new-table creation from conservative file samples, exact string/null JSON Lines, and one-shot captured copies between independent connections. Imports retain explicit transaction settlement, cancellation/rollback, changed-file/schema checks and connection safeguards. See [transfer workflows](docs/USER_GUIDE.md#data-import-and-export).
