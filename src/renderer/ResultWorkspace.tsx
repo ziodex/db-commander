@@ -4,16 +4,18 @@ import type { ColumnLayout } from '../shared/column-layout'
 import { emptyExploration, type ResultExploration } from './result-exploration'
 import { pinResultSnapshot, type ResultSnapshot } from './result-snapshots'
 import { ResultPane } from './ResultPane'
+import { ModalDialog } from './ModalDialog'
 
 interface PaneView { exploration: ResultExploration; columns?: ColumnLayout }
 const EMPTY = emptyExploration()
-export function ResultWorkspace({ hidden, result, results, sourceKey, sourceLabel, partial, view, onView, empty }: {
+export function ResultWorkspace({ hidden, result, results, sourceKey, sourceLabel, partial, view, onView, empty, editSource }: {
   hidden: boolean; result?: ResultSet; results: ResultSet[]; sourceKey: string; sourceLabel: string; partial: boolean
-  view?: ColumnLayout; onView(view: ColumnLayout): void; empty: ReactNode
+  view?: ColumnLayout; onView(view: ColumnLayout): void; empty: ReactNode; editSource?: { disabled: boolean; label: string; open(): void }
 }) {
   const root = useRef<HTMLDivElement>(null), ordinal = useRef(0)
   const [snapshots, setSnapshots] = useState<ResultSnapshot[]>([]), [comparison, setComparison] = useState<string | null>(null)
   const [views, setViews] = useState<Record<string, PaneView>>({}), [error, setError] = useState('')
+  const [editRequest, setEditRequest] = useState<{ sourceKey: string; resultIndex: number; label: string }>()
   const primaryKey = `main:${sourceKey}:${result?.index}`, secondaryKey = `comparison:${sourceKey}:${comparison}`
   const primary = views[primaryKey]?.exploration ?? EMPTY
   const snapshot = comparison?.startsWith('snapshot:') ? snapshots.find(item => item.id === comparison.slice(9)) : undefined
@@ -59,12 +61,17 @@ export function ResultWorkspace({ hidden, result, results, sourceKey, sourceLabe
     </div>}
     <div className={`result-panes${comparison ? ' split' : ''}`}>
       {result ? <ResultPane key={primaryKey} result={result} label="Query results" caption="Live result" source={`Result ${result.index + 1} · ${sourceLabel}`} value={primary} onChange={exploration => saveView(primaryKey, { exploration })} view={view} onView={onView} partial={partial} showHeading={Boolean(comparison)}
-        toolbar={<><button aria-label="Pin result snapshot" title="Capture these loaded rows and this view without running SQL; kept in this window only" onClick={() => pin(result, primary, view)}>Pin snapshot</button><button disabled={Boolean(comparison)} onClick={split}>Split results</button></>}/> : <div className="result-pane result-pane-empty">{empty}{snapshots.length > 0 && !comparison && <button onClick={split}>Open pinned result pane</button>}</div>}
+        toolbar={<>{editSource && <button disabled={editSource.disabled} title="Open a fresh editable page from the source table. The query is not replayed; rows may have changed." onClick={() => setEditRequest({ sourceKey, resultIndex: result.index, label: editSource.label })}>Edit source table</button>}<button aria-label="Pin result snapshot" title="Capture these loaded rows and this view without running SQL; kept in this window only" onClick={() => pin(result, primary, view)}>Pin snapshot</button><button disabled={Boolean(comparison)} onClick={split}>Split results</button></>}/> : <div className="result-pane result-pane-empty">{empty}{snapshots.length > 0 && !comparison && <button onClick={split}>Open pinned result pane</button>}</div>}
       {comparison && (snapshot ? <ResultPane key={snapshot.id} result={snapshot.result} label="Snapshot results" caption="Pinned result" source={`${snapshot.source} · ${new Date(snapshot.capturedAt).toLocaleString()}`} snapshot partial={snapshot.partial} value={snapshot.exploration} onChange={exploration => updateSnapshot({ exploration })} view={snapshot.columns} onView={columns => updateSnapshot({ columns })} showHeading
         heading={<>{choices}<input aria-label="Snapshot name" maxLength={80} value={snapshot.name} onChange={event => updateSnapshot({ name: event.target.value })} onBlur={() => { if (!snapshot.name.trim()) updateSnapshot({ name: 'Snapshot' }) }}/>{closeComparison}</>}/>
         : compared ? <ResultPane key={secondaryKey} result={compared} label="Comparison results" caption="Comparison result" source={`Live · Result ${compared.index + 1} · ${sourceLabel}`} partial={partial} value={views[secondaryKey]?.exploration ?? EMPTY} onChange={exploration => saveView(secondaryKey, { exploration })} view={views[secondaryKey]?.columns} onView={columns => saveView(secondaryKey, { columns })} showHeading
           heading={<>{choices}{closeComparison}</>} toolbar={<button aria-label="Pin comparison snapshot" onClick={() => pin(compared, views[secondaryKey]?.exploration ?? EMPTY, views[secondaryKey]?.columns)}>Pin snapshot</button>}/>
           : <section className="result-pane result-pane-empty" aria-label="Comparison result"><div className="result-pane-heading">{choices}{closeComparison}</div><p>Choose a live result or a pinned snapshot. This pane does not run SQL.</p></section>)}
     </div>
+    {editRequest && !hidden && editSource && editRequest.sourceKey === sourceKey && editRequest.resultIndex === result?.index && editRequest.label === editSource.label && <ModalDialog className="connection-dialog" aria-label="Open source table for editing" onDismiss={() => setEditRequest(undefined)}>
+      <div className="dialog-heading"><h2>Open source table for editing</h2><button aria-label="Close source table review" onClick={() => setEditRequest(undefined)}>×</button></div>
+      <p>Open a fresh page from {editRequest.label}. The rows can differ from this captured result. The original query will not run again. Your result stays available until another query runs.</p>
+      <div className="dialog-actions"><button onClick={() => setEditRequest(undefined)}>Cancel</button><button className="primary-button" disabled={editSource.disabled} onClick={() => { setEditRequest(undefined); editSource.open() }}>Open table</button></div>
+    </ModalDialog>}
   </div>
 }

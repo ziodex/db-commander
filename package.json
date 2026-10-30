@@ -1,7 +1,7 @@
 {
   "name": "dbcommander",
   "productName": "Db Commander",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "description": "An open-source desktop SQL workbench",
   "main": "out/main/index.cjs",

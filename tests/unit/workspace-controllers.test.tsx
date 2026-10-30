@@ -217,6 +217,15 @@ it('retains staged edits when applying them has no confirmed outcome', async () 
   expect(hook.api.editGrid).toHaveBeenCalledTimes(1)
 })
 
+it('keeps an over-budget draft editable without sending a write', async () => {
+  const hook = setup(), value = 'x'.repeat(262144)
+  const changes = Array.from({ length: 33 }, () => ({ kind: 'insert' as const, values: [{ column: 0, value }] }))
+  act(() => hook.result.current.runtime.patchState('a', { ...emptyTabState(), session, grid, gridChanges: changes }))
+  await act(async () => { await hook.result.current.tables.applyGrid() })
+  expect(hook.api.editGrid).not.toHaveBeenCalled()
+  expect(hook.result.current.runtime.statesRef.current.a).toMatchObject({ gridChanges: changes, gridExpired: false, status: 'Edits not applied', error: 'Staged edits exceed 8 MiB.' })
+})
+
 it('keeps W3 partial-result provenance after exporting a cached preview without rerunning SQL', async () => {
   const hook = setup()
   act(() => hook.result.current.runtime.patchState('a', { ...emptyTabState(), session, queryId: 'cached-query', resultPartial: true, resultSource: 'original source' }))

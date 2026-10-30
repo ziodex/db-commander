@@ -39,6 +39,12 @@ export async function verifyEditableGrid(config: ConnectionConfig) {
     if (config.engine === 'oracle') await run('COMMIT')
     const object = (await driver.schema(a.id)).objects.find(object => object.name === name)!
     table = { schema: object.schema, name: object.name, ...(object.catalog ? { catalog: object.catalog } : {}) }
+    if (['sqlserver', 'azure-sql'].includes(config.engine)) {
+      await run('SET TEXTSIZE 1024')
+      expect((await driver.editGrid({ action: 'open', sessionId: a.id, table })).error).toMatch(/TEXTSIZE/)
+      await run('SET TEXTSIZE 2147483647')
+      await run('SET TEXTSIZE 2147483647', b.id)
+    }
     let grid = await open()
     expect(grid.columns.filter(column => column.primaryKey).map(column => column.name)).toEqual(['id', 'tenant'])
     expect(grid.columns[5].generated).toBe(true)
@@ -51,6 +57,12 @@ export async function verifyEditableGrid(config: ConnectionConfig) {
       { kind: 'delete', row: 1 },
       { kind: 'insert', values: [{ column: 0, value: '3' }, { column: 1, value: '7' }, { column: 2, value: 'Inserted' }] }
     ]
+    const preview = await driver.editGrid({ action: 'preview', sessionId: a.id, snapshotId: grid.id, changes: mixed })
+    expect(preview.error).toBeUndefined(); expect(preview.session.transaction).toBe('idle')
+    expect(preview.preview?.statements).toHaveLength(3)
+    expect(preview.preview?.statements.map(item => item.sql.split(' ')[0])).toEqual(['UPDATE', 'DELETE', 'INSERT'])
+    expect(JSON.stringify(preview.preview)).not.toContain(literal)
+    expect(JSON.stringify(preview.preview)).not.toContain('tampered original')
     let response = await apply(grid, mixed)
     expect(response.error).toBeUndefined(); expect(response).toMatchObject({ applied: 3, session: { transaction: 'transaction' } })
     expect(driver.getSession(b.id).transaction).toBe('idle')
@@ -61,6 +73,11 @@ export async function verifyEditableGrid(config: ConnectionConfig) {
     response = await apply(grid, mixed); expect(response.error).toBeUndefined()
     await run('COMMIT')
     grid = await open(); expect(grid.rows.map(row => row[2])).toEqual([literal, 'Inserted'])
+    if (config.engine === 'postgres') {
+      response = await apply(grid, [{ kind: 'update', row: 0, values: [{ column: 2, value: 'x'.repeat(121) }] }])
+      expect(response.error).toBeTruthy(); expect(response.session.transaction).toBe('idle')
+      grid = await open(); expect(grid.rows[0][2]).toBe(literal)
+    }
     expect(grid.rows[1][3]).toBe('default note'); expect(grid.rows[1][5]).toBe('13')
     // NULL and empty text are distinct except Oracle's native empty-string rule.
     response = await apply(grid, [{ kind: 'update', row: 0, values: [{ column: 3, value: '' }] }])
@@ -141,6 +158,56 @@ export async function verifyEditableGrid(config: ConnectionConfig) {
       expect(jsonRead.grid?.rows[0][1]).toContain('9223372036854775807'); expect(jsonRead.grid?.rows[0][1]).toContain('Ω')
       await run(`DROP TABLE ${q(jsonName)}`)
     }
+    if (config.engine !== 'oracle') {
+      const largeName = name + '_large', largeType = ['sqlserver', 'azure-sql'].includes(config.engine) ? 'NVARCHAR(MAX)' : ['mysql', 'mariadb'].includes(config.engine) ? 'LONGTEXT' : 'TEXT'
+      await run(`CREATE TABLE ${q(largeName)} (id INTEGER PRIMARY KEY, value ${largeType})`)
+      const largeTable = { ...table, name: largeName }, initial = 'Ω'.repeat(20_000) + 'original'
+      let loaded = await driver.editGrid({ action: 'open', sessionId: a.id, table: largeTable })
+      expect(loaded.error).toBeUndefined()
+      response = await apply(loaded.grid!, [{ kind: 'insert', values: [{ column: 0, value: '1' }, { column: 1, value: initial }] }])
+      expect(response.error).toBeUndefined(); await run('COMMIT')
+      loaded = await driver.editGrid({ action: 'open', sessionId: a.id, table: largeTable })
+      expect(loaded.error).toBeUndefined(); expect(loaded.grid?.rows[0][1]).toBe(initial)
+      const other = await driver.editGrid({ action: 'open', sessionId: b.id, table: largeTable })
+      expect(other.error).toBeUndefined()
+      response = await apply(other.grid!, [{ kind: 'update', row: 0, values: [{ column: 1, value: 'Ω'.repeat(20_000) + 'changed' }] }], b.id)
+      expect(response.error).toBeUndefined(); await run('COMMIT', b.id)
+      response = await apply(loaded.grid!, [{ kind: 'update', row: 0, values: [{ column: 1, value: 'must not overwrite' }] }])
+      expect(response.error).toMatch(/Concurrency conflict/)
+      const after = await driver.editGrid({ action: 'open', sessionId: a.id, table: largeTable })
+      expect(after.grid?.rows[0][1]).toBe('Ω'.repeat(20_000) + 'changed')
+      if (config.engine === 'sqlite') {
+        await run(`UPDATE ${q(largeName)} SET value=replace(hex(zeroblob(131073)),'0','x')`, b.id)
+        expect((await driver.editGrid({ action: 'open', sessionId: a.id, table: largeTable })).error).toMatch(/limit.*no truncated originals/i)
+      }
+      await run(`DROP TABLE ${q(largeName)}`)
+    }
+    if (['postgres', 'duckdb'].includes(config.engine)) {
+      const binaryName = name + '_binary', binaryType = config.engine === 'postgres' ? 'BYTEA' : 'BLOB'
+      await run(`CREATE TABLE ${q(binaryName)} (id INTEGER PRIMARY KEY, value ${binaryType})`)
+      const binaryTable = { ...table, name: binaryName }
+      let binary = await driver.editGrid({ action: 'open', sessionId: a.id, table: binaryTable })
+      expect(binary.error).toBeUndefined(); expect(binary.grid?.columns[1].encoding).toBe('hex')
+      response = await apply(binary.grid!, [{ kind: 'insert', values: [{ column: 0, value: '1' }, { column: 1, value: '00ff2780' }] }])
+      expect(response.error).toBeUndefined(); await run('COMMIT')
+      binary = await driver.editGrid({ action: 'open', sessionId: a.id, table: binaryTable })
+      expect(binary.grid?.rows[0][1]?.toLowerCase()).toBe('00ff2780')
+      response = await apply(binary.grid!, [{ kind: 'update', row: 0, values: [{ column: 1, value: '0zz' }] }])
+      expect(response.error).toMatch(/hexadecimal/)
+      const otherBinary = await driver.editGrid({ action: 'open', sessionId: b.id, table: binaryTable })
+      expect(otherBinary.error).toBeUndefined()
+      response = await apply(otherBinary.grid!, [{ kind: 'update', row: 0, values: [{ column: 1, value: '00ff2781' }] }], b.id)
+      expect(response.error).toBeUndefined(); await run('COMMIT', b.id)
+      response = await apply(binary.grid!, [{ kind: 'update', row: 0, values: [{ column: 1, value: '' }] }])
+      expect(response.error).toMatch(/Concurrency conflict/)
+      binary = await driver.editGrid({ action: 'open', sessionId: a.id, table: binaryTable })
+      expect(binary.grid?.rows[0][1]?.toLowerCase()).toBe('00ff2781')
+      response = await apply(binary.grid!, [{ kind: 'update', row: 0, values: [{ column: 1, value: '' }] }])
+      expect(response.error).toBeUndefined(); await run('COMMIT')
+      binary = await driver.editGrid({ action: 'open', sessionId: a.id, table: binaryTable })
+      expect(binary.grid?.rows[0][1]).toBe('')
+      await run(`DROP TABLE ${q(binaryName)}`)
+    }
     if (config.engine === 'oracle') {
       const temporalName = name + '_dates'
       await run(`CREATE TABLE ${q(temporalName)} (id INTEGER PRIMARY KEY, d DATE, t TIMESTAMP(9) WITH TIME ZONE)`)
@@ -166,6 +233,8 @@ export async function verifyEditableGrid(config: ConnectionConfig) {
       expect((await apply(before.grid!, [{ kind: 'delete', row: 0 }])).error).toMatch(/Concurrency conflict/)
       await run(`UPDATE ${q(storage)} SET value=X'0102'`, b.id)
       expect((await driver.editGrid({ action: 'open', sessionId: a.id, table: { ...table, name: storage } })).error).toMatch(/binary storage/)
+      await run(`UPDATE ${q(storage)} SET value=CAST(X'610062' AS TEXT)`, b.id)
+      expect((await driver.editGrid({ action: 'open', sessionId: a.id, table: { ...table, name: storage } })).error).toMatch(/NUL character/)
       await run(`DROP TABLE ${q(storage)}`)
     }
     if (embedded) {

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { GridChange, GridFilter, GridQueryOptions, GridSnapshot } from '../shared/contracts'
+import type { GridChange, GridFilter, GridPreview, GridQueryOptions, GridSnapshot } from '../shared/contracts'
 import { EditableGrid } from './EditableGrid'
 import { ResultGrid } from './ResultGrid'
 import type { InspectionActions } from './ValueInspector'
@@ -50,9 +50,9 @@ function BrowseOptions({ grid, onApply, onClose }: { grid: GridSnapshot; onApply
   </dialog>
 }
 
-export function TableData({ grid, changes, busy, disconnected, expired, transaction, onChange, onApply, onLoad, onClose, actions, view, onView, onBack, savedColumns }: {
+export function TableData({ grid, changes, busy, disconnected, expired, transaction, onChange, onApply, onPreview, onLoad, onClose, actions, view, onView, onBack, savedColumns }: {
   grid: GridSnapshot; changes: GridChange[]; busy: boolean; disconnected: boolean; expired: boolean; transaction: boolean
-  onChange(changes: GridChange[]): void; onApply(): void; onLoad(query: GridQueryOptions, mode: GridSnapshot['mode']): void; onClose(): void
+  onChange(changes: GridChange[]): void; onApply(): void; onPreview(): Promise<GridPreview>; onLoad(query: GridQueryOptions, mode: GridSnapshot['mode']): void; onClose(): void
   actions?:InspectionActions; view?:ColumnLayout; onView?(view:ColumnLayout):void; onBack?:()=>void; savedColumns?:SavedColumnControls
 }) {
   const [options, setOptions] = useState(false), blocked = busy || disconnected || transaction || changes.length > 0
@@ -67,7 +67,7 @@ export function TableData({ grid, changes, busy, disconnected, expired, transact
     </div>
   const filters = <button disabled={blocked} title={`${grid.query.filters.length} filters, ${grid.query.sort.length} sort columns · Applied on the database`} onClick={() => setOptions(true)}>Filters &amp; sort{Boolean(grid.query.filters.length || grid.query.sort.length) && ` (${grid.query.filters.length}/${grid.query.sort.length})`}</button>
   return <div className="table-data">
-    {grid.mode === 'edit' ? <><div className="data-toolbar">{pagination}{filters}</div><EditableGrid key={grid.id} grid={grid} changes={changes} busy={busy} disconnected={disconnected} expired={expired} transaction={transaction} onChange={onChange} onApply={onApply} onReload={() => load(grid.query)} onClose={onClose} actions={actions} view={view} onView={onView} savedColumns={savedColumns}/></> : <>
+    {grid.mode === 'edit' ? <><div className="data-toolbar">{pagination}{filters}</div><EditableGrid key={grid.id} grid={grid} changes={changes} busy={busy} disconnected={disconnected} expired={expired} transaction={transaction} onChange={onChange} onApply={onApply} onPreview={onPreview} onReload={() => load(grid.query)} onClose={onClose} actions={actions} view={view} onView={onView} savedColumns={savedColumns}/></> : <>
       {expired && <div className="grid-edit-hint" role="status">The last load failed or the connection changed. Reload to fetch current data.</div>}
       <ResultGrid key={grid.id} result={{ index: 0, statement: '', columns: grid.columns.map(c => ({ name: c.name, typeId: 0, typeName: c.type })), rows: grid.rows, rowCount: null, command: 'SELECT', truncated: grid.truncated }} label="Table data" rowOffset={grid.query.offset} marks={grid.cellMarks} actions={blocked||expired?undefined:actions} view={view} onView={onView} savedColumns={savedColumns}
         toolbarStart={<>{pagination}{filters}</>}
