@@ -89,7 +89,8 @@ it('round trips the production JSON exporter without converting strings to numbe
 it('accepts JSON import through strict IPC schemas without renderer-supplied SQL or source types', () => {
   const source={sessionId:'e21c06a3-a25c-475a-bac4-39ab8747cb0d',table:{schema:'public',name:'items'},file:'/tmp/values.json',format:'json'}
   expect(importSourceSchema.parse(source)).toEqual(source)
+  expect(importSourceSchema.parse({...source,format:'jsonl'}).format).toBe('jsonl')
   const request={...source,action:'import',mapping:['id'],signature:'a'.repeat(64),confirmed:true}
   expect(transferRequestSchema.parse(request)).toEqual(request)
-  for(const extra of [{sql:'DELETE FROM items'},{columns:[{name:'id',type:'INTEGER'}]},{confirmed:false},{format:'jsonl'},{parameters:[]}])expect(transferRequestSchema.safeParse({...request,...extra}).success).toBe(false)
+  for(const extra of [{sql:'DELETE FROM items'},{columns:[{name:'id',type:'INTEGER'}]},{confirmed:false},{format:'ndjson'},{parameters:[]}])expect(transferRequestSchema.safeParse({...request,...extra}).success).toBe(false)
 })

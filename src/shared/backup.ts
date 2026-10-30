@@ -12,6 +12,12 @@ export const backupRequestSchema = z.object({
   if (value.action === 'restore' && !value.target) ctx.addIssue({ code: 'custom', message: 'Choose a new restore target.' })
 })
 export type BackupRequest = z.infer<typeof backupRequestSchema>
+export interface BackupInspection {
+  checkedAt: string
+  ready: boolean
+  checks: { label: string; status: 'passed' | 'warning' | 'failed'; detail: string }[]
+  metadata: { label: string; value: string }[]
+}
 export interface BackupJob {
   id: string; sessionId: string; engine: DatabaseEngine; action: 'backup' | 'restore';
   database: string; server?: string; artifact: string; target?: string; startedAt: string; finishedAt?: string;

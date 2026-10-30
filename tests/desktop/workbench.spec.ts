@@ -57,7 +57,7 @@ test('PostgreSQL desktop workflow, secure bridge, export and crash recovery', as
     await page.screenshot({ path: testInfo.outputPath('workbench.png') })
     const csvPath = join(directory, 'export.csv')
     await application!.evaluate(({ dialog }, path) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: path }) }, csvPath)
-    await page.getByRole('button', { name: 'Export CSV', exact: true }).click()
+    await page.getByRole('button', { name: 'Export preview', exact: true }).click()
     await expect(page.locator('.status-text')).toHaveText('Fetched rows exported')
     expect(readFileSync(csvPath, 'utf8')).toContain('"Ada Lovelace"')
     await run(page, 'CREATE TEMP TABLE desktop_work(value integer); INSERT INTO desktop_work VALUES(1);')

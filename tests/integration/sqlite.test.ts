@@ -1,3 +1,5 @@
+import { verifyCrossEngineTransfer } from './transfer-cross-engine-contract'
+import { verifyTransferWorkflows } from './transfer-workflows-contract'
 import { verifyInsertExport } from './insert-export-contract'
 import { verifyJsonImport } from './json-import-contract'
 import { verifyArrayParameters } from './array-parameters-contract'
@@ -20,6 +22,7 @@ import { verifyExplain } from './explain-contract'
 import { verifyConnectionSafeguards } from './connection-contract'
 import { verifySchemaChanges } from './schema-change-contract'
 import { verifyCatalog } from './catalog-contract'
+import { verifyObjectSource, verifyTriggerSource } from './object-source-contract'
 import { verifyDataTransfer } from './transfer-contract'
 import { verifyTableBrowsing } from './browsing-contract'
 import { verifyBackups } from './backup-contract'
@@ -79,8 +82,12 @@ describe('Docker SQLite driver contracts', () => {
   it('exports reviewed migration files with native DDL semantics', async () => { await verifyMigrations(config) }, 180000)
   it('reviews and applies schema changes with native transaction handling', async () => { await verifySchemaChanges(config) }, 300000)
   it('explores rich catalog objects and definitions without changing session state', async () => { await verifyCatalog(config) }, 180000)
+  it('reviews source edits and refuses stale definitions', async () => { await verifyObjectSource(config) }, 180000)
+  it('reviews and applies a trigger source edit', async () => { await verifyTriggerSource(config) }, 180000)
   it('exports SQL INSERT scripts with exact values and explicit replay', async () => { await verifyInsertExport(config) }, 240000)
   it('imports JSON exports with exact values, source validation and atomic rollback', async () => { await verifyJsonImport(config) }, 240000)
+  for (const engine of ['sqlite','duckdb'] as const) it(`captures ${engine} cross-engine copies with expiry and cancellation safeguards`, async () => { await verifyCrossEngineTransfer(engine) }, 30000)
+  it('reviews new-table imports, JSON Lines and captured database copies without replay', async () => { await verifyTransferWorkflows(config) }, 240000)
   it('imports data atomically and streams full-result exports', async () => { await verifyDataTransfer(config) }, 240000)
   it('pages, filters and sorts live table data while preserving edit safety', async () => { await verifyTableBrowsing(config) }, 120000)
   it('edits rows atomically with primary keys, bound values and optimistic conflicts', async () => { await verifyEditableGrid(config) })

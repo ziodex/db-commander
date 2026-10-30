@@ -5,6 +5,10 @@ export const MAX_COLUMN_WIDTH = 800
 export const DEFAULT_COLUMN_WIDTH = 210
 export interface ColumnLayout { order: number[]; hidden: number[]; widths: Record<number, number>; pinned: number[] }
 export const defaultColumns = (count: number): ColumnLayout => ({ order: Array.from({ length: count }, (_, i) => i), hidden: [], widths: {}, pinned: [] })
+export function resolveColumnLayout(count: number, stored?: ColumnLayout) {
+  return stored && stored.order.length === count && new Set(stored.order).size === count && stored.order.every(index => index >= 0 && index < count) ? stored : defaultColumns(count)
+}
+export const visibleColumnIndices = (layout: ColumnLayout) => layout.order.filter(index => !layout.hidden.includes(index)).sort((a, b) => Number(layout.pinned.includes(b)) - Number(layout.pinned.includes(a)))
 
 // Table browsing is bounded to 100 columns. Arbitrary result layouts remain transient.
 const ordinals = z.array(z.number().int().min(0).max(99)).max(100)

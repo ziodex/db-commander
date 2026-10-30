@@ -1,4 +1,4 @@
-import { failureSource } from '../language/execution'
+import { executionUnits, failureSource } from '../language/execution'
 import type { DiagramScope } from '../shared/diagram'
 import { readDiagram } from '../catalog/diagram'
 import { bindRequest, boundValue } from './parameters'
@@ -188,6 +188,11 @@ export class DuckDBDriver implements DatabaseDriver {
       if (request.singleUnit && statements.count !== 1) throw new Error('Run current requires exactly one statement. Select SQL explicitly or use Run script.')
       if (!statements.count) throw new Error('There is no SQL statement to execute.')
       if (statements.count > 200) throw new Error('A script may contain up to 200 statements in this preview.')
+      // Native extraction remains authoritative. Attach exact source text only
+      // when the source scanner agrees with its statement count; otherwise keep
+      // source unavailable and require explicit SQL for full export.
+      let sources: ReturnType<typeof executionUnits> = []
+      try { const units = executionUnits(request.sql, 'duckdb'); if (units.length === statements.count) sources = units } catch { /* native-only syntax */ }
       for (let index = 0; index < statements.count; index++) {
         activeStatement = index
         const prepared = await native(() => statements.prepare(index))
@@ -197,7 +202,7 @@ export class DuckDBDriver implements DatabaseDriver {
           const result = await native(() => prepared.stream())
           const queryResult = result.returnType === ResultReturnType.QUERY_RESULT
           const command = StatementType[result.statementType] ?? 'SQL'
-          const retained: ResultSet = { index, statement: statements.count === 1 ? request.sql : `${command} (statement ${index + 1})`,
+          const retained: ResultSet = { index, statement: statements.count === 1 ? request.sql : sources[index]?.sql ?? '',
             command, columns: queryResult ? result.columnNames().map((name, column) => ({ name, typeId: result.columnTypeId(column), typeName: String(result.columnType(column)) })) : [],
             rows: [], rowCount: null, truncated: false }
           this.results.get(queryId)?.push(retained)

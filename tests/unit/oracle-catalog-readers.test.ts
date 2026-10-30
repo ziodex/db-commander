@@ -60,7 +60,7 @@ it('overlaps full native DDL with metadata on isolated readers and drains the bo
   const result = await inspection
   expect(result.detail?.definition).toMatchObject({ source: 'native', sql: ddl, truncated: false })
   expect(result.detail?.sections.find(section => section.title === 'Columns')?.rows[0]).toEqual(['id', 'NUMBER', '22', null, null, 'N', null, 'NO', 'NO'])
-  expect(result.detail?.sections.map(section => section.title)).toEqual(['Columns', 'Constraints and keys', 'Key columns', 'Foreign keys', 'Indexes', 'Triggers'])
+  expect(result.detail?.sections.map(section => section.title)).toEqual(['Columns', 'Identity columns', 'Virtual column editions', 'Constraints and keys', 'Key columns', 'Foreign keys', 'Indexes', 'Triggers'])
   expect(getConnection).toHaveBeenCalledTimes(3)
   expect(lob.close).toHaveBeenCalledOnce(); expect(primary.close).toHaveBeenCalledOnce(); expect(secondary.close).toHaveBeenCalledOnce()
   expect(console.close).not.toHaveBeenCalled()

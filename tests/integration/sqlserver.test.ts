@@ -1,3 +1,4 @@
+import { verifyTransferWorkflows } from './transfer-workflows-contract'
 import { verifyLargeServerCatalog } from './server-catalog-contract'
 import { verifyCatalogPerformance } from './catalog-performance-contract'
 import { verifyInsertExport } from './insert-export-contract'
@@ -22,6 +23,7 @@ import { verifyExplain } from './explain-contract'
 import { verifyConnectionSafeguards } from './connection-contract'
 import { verifySchemaChanges } from './schema-change-contract'
 import { verifyCatalog } from './catalog-contract'
+import { verifyObjectSource, verifyRoutineSource, verifyTriggerSource, verifyProcedureCall } from './object-source-contract'
 import { verifyDataTransfer } from './transfer-contract'
 import { verifyTableBrowsing } from './browsing-contract'
 import { verifyBackups } from './backup-contract'
@@ -59,6 +61,10 @@ describe('Docker SQL Server driver contracts', () => {
   it('completes and formats Azure SQL profiles against the local TDS fixture', async () => { await verifyLanguageTools({ ...config, engine: 'azure-sql' }) })
   it('imports and exports Azure SQL profiles against the local TDS fixture', async () => { await verifyDataTransfer({ ...config, engine: 'azure-sql' }) }, 240000)
   it('explores Azure catalog objects and definitions', async () => { await verifyCatalog({ ...config, engine: 'azure-sql' }) }, 180000)
+  it('reviews Azure-profile source edits and refuses stale definitions', async () => { await verifyObjectSource({ ...config, engine: 'azure-sql' }) }, 180000)
+  it('reviews and applies an Azure-profile trigger source edit', async () => { await verifyTriggerSource({ ...config, engine: 'azure-sql' }) }, 180000)
+  it('reviews and applies an Azure-profile routine source edit', async () => { await verifyRoutineSource({ ...config, engine: 'azure-sql' }) }, 180000)
+  it('calls an Azure-profile procedure with discovered bound parameters', async () => { await verifyProcedureCall({ ...config, engine: 'azure-sql' }) }, 180000)
   it('inspects Azure values and follows foreign keys', async () => { await verifyInspection({ ...config, engine: 'azure-sql' }) }, 180000)
   it('compares keyed bounded data with exact values and preserved sessions', async () => { await verifyDataComparison(config) }, 180000)
   it('compares same-engine schemas with reviewable target SQL and session isolation', async () => { await verifySchemaComparison(config) }, 180000)
@@ -98,12 +104,17 @@ describe('Docker SQL Server driver contracts', () => {
   it('reviews and applies schema changes with native transaction handling', async () => { await verifySchemaChanges(config) }, 300000)
   it('reviews and applies Azure schema changes', async () => { await verifySchemaChanges({ ...config, engine: 'azure-sql' }) }, 300000)
   it('explores rich catalog objects and definitions without changing session state', async () => { await verifyCatalog(config) }, 180000)
+  it('reviews source edits and refuses stale definitions', async () => { await verifyObjectSource(config) }, 180000)
+  it('reviews and applies a trigger source edit', async () => { await verifyTriggerSource(config) }, 180000)
+  it('reviews and applies a routine source edit', async () => { await verifyRoutineSource(config) }, 180000)
+  it('calls a procedure with discovered bound parameters', async () => { await verifyProcedureCall(config) }, 180000)
   it('keeps large server catalogs inspectable beyond child and column limits', async () => { await verifyLargeServerCatalog(config) }, 360000)
   if(process.env.SQLCOMMANDER_CATALOG_PERFORMANCE==='1') it('catalog performance sqlserver: 10000 and 20000 constrained tables',()=>verifyCatalogPerformance(config),1200000)
   it('exports SQL INSERT scripts with exact values and explicit replay', async () => { await verifyInsertExport(config) }, 240000)
   it('exports Azure SQL INSERT scripts', async () => { await verifyInsertExport({ ...config, engine: 'azure-sql' }) }, 240000)
   it('imports JSON exports with exact values, source validation and atomic rollback', async () => { await verifyJsonImport(config) }, 240000)
   it('imports JSON exports for Azure SQL profiles', async () => { await verifyJsonImport({ ...config, engine: 'azure-sql' }) }, 240000)
+  it('reviews new-table imports, JSON Lines and captured database copies without replay', async () => { await verifyTransferWorkflows(config) }, 240000)
   it('imports data atomically and streams full-result exports', async () => { await verifyDataTransfer(config) }, 240000)
   it('pages, filters and sorts live table data while preserving edit safety', async () => { await verifyTableBrowsing(config) }, 120000)
   it('edits rows atomically with primary keys, bound values and optimistic conflicts', async () => { await verifyEditableGrid(config) })

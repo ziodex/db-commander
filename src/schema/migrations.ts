@@ -6,7 +6,7 @@ import { sqlComment, type SchemaComparison } from '../shared/schema-compare'
 import { prepareMigrationSchema, saveMigrationSchema, type PrepareMigration, type SaveMigration, type MigrationPreview } from '../shared/migrations'
 
 interface Unit { key: string; title: string; statements: string[]; destructive: string[]; notes: string[] }
-interface Source { engine: DatabaseEngine; sessions: string[]; target: string; captured: string; expires: number; units: Unit[]; notes: string[] }
+interface Source { engine: DatabaseEngine; sessions: string[]; target: string; captured: string; expires: number; units: Unit[]; notes: string[]; requiresAutocommit?: boolean }
 const ttl = 10 * 60_000, fileLimit = 1_000_000
 
 /** Retain host-generated statements, never renderer-supplied SQL or filesystem paths. */
@@ -30,7 +30,7 @@ export class MigrationExports {
     this.sources.set(id, structuredClone(source)); this.prune(); return id
   }
   retainChange(plan: SchemaChangePlan, commands: string[], target = `${plan.connection} / ${plan.database}`) {
-    return this.retain(plan.id, { engine: plan.engine, sessions: [plan.sessionId], target, captured: new Date().toISOString(), expires: Date.parse(plan.expiresAt),
+    return this.retain(plan.id, { engine: plan.engine, sessions: [plan.sessionId], target, captured: new Date().toISOString(), expires: Date.parse(plan.expiresAt), requiresAutocommit: plan.transaction === 'nontransactional',
       units: [{ key: 'change', title: 'Guided schema change', statements: plan.destructive ? [] : commands, destructive: plan.destructive ? commands : [], notes: [] }],
       // The interactive review's automatic rollback/leave-open promises do not apply to an external runner.
       notes: plan.warnings.slice(1) })
@@ -44,6 +44,7 @@ export class MigrationExports {
     const request = prepareMigrationSchema.parse(input); this.prune()
     const source = this.sources.get(request.sourceId)
     if (!source) throw new Error('This schema review expired or its connection closed. Review the schema again.')
+    if (request.transaction === 'transaction' && source.requiresAutocommit) throw new Error('This change must run outside a transaction. Use an autocommit migration runner.')
     if (request.transaction === 'transaction' && !transactionalDdl(source.engine)) throw new Error('This engine commits DDL implicitly; a transaction wrapper cannot make it atomic.')
     const units = source.units.filter(unit => request.selected.includes(unit.key))
     if (units.length !== request.selected.length) throw new Error('The selection is not part of this schema review. Review the schema again.')
@@ -53,7 +54,7 @@ export class MigrationExports {
     const warnings = [
       'Export only: no SQL has been executed. This is a captured review, not a fresh schema check. Verify the target, permissions, dependencies and backups before running it.',
       'Forward migration only; no rollback script, migration ledger, idempotency or automatic retries are provided. Do not run it twice.',
-      !transactionalDdl(source.engine) ? 'DDL commits implicitly and can partially succeed. A failure does not undo earlier changes.' : request.transaction === 'transaction' ? 'Run in an idle connection using a runner that stops on the first error. BEGIN and COMMIT are included; on error stop and explicitly ROLLBACK. The file has no automatic error handler.' : 'No transaction commands are included. Configure transaction and error handling in your migration runner; statements may commit individually.',
+      source.requiresAutocommit ? 'This change requires an idle autocommit connection. Do not wrap it in a transaction; a failed concurrent index build can leave an invalid index.' : !transactionalDdl(source.engine) ? 'DDL commits implicitly and can partially succeed. A failure does not undo earlier changes.' : request.transaction === 'transaction' ? 'Run in an idle connection using a runner that stops on the first error. BEGIN and COMMIT are included; on error stop and explicitly ROLLBACK. The file has no automatic error handler.' : 'No transaction commands are included. Configure transaction and error handling in your migration runner; statements may commit individually.',
       'Connect to the stated database and establish required namespaces/attachments yourself. The file does not switch databases or include credentials.',
       ...(destructive ? ['DESTRUCTIVE SQL INCLUDED: running this file can remove data or database safeguards.'] : []), ...source.notes
     ]

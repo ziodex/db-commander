@@ -27,6 +27,7 @@ export async function verifyCatalog(config: ConnectionConfig) {
     if (engine === 'postgres') {
       await run(`CREATE FUNCTION ${q(routine)}(integer) RETURNS integer LANGUAGE SQL AS 'SELECT $1 + 1'`); drops.unshift(`DROP FUNCTION ${q(routine)}(integer)`)
       await run(`CREATE FUNCTION ${q(routine)}(text) RETURNS text LANGUAGE SQL AS 'SELECT $1'`); drops.unshift(`DROP FUNCTION ${q(routine)}(text)`)
+      await run(`CREATE FUNCTION ${q(prefix+'_args')}(value_arg integer, OUT result integer) LANGUAGE SQL AS 'SELECT value_arg + 1'`); drops.unshift(`DROP FUNCTION ${q(prefix+'_args')}(integer)`)
       await run(`CREATE FUNCTION ${q(prefix+'_tf')}() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN RETURN NEW; END;'`); drops.unshift(`DROP FUNCTION ${q(prefix+'_tf')}() CASCADE`)
       await run(`CREATE TRIGGER ${q(trigger)} BEFORE INSERT ON ${q(table)} FOR EACH ROW EXECUTE FUNCTION ${q(prefix+'_tf')}()`)
     } else if (['mysql','mariadb'].includes(engine)) {
@@ -115,7 +116,15 @@ export async function verifyCatalog(config: ConnectionConfig) {
       const routines = objects.filter(object => object.name === routine)
       expect(routines).toHaveLength(engine === 'postgres' ? 2 : 1)
       if (engine === 'postgres') expect(new Set(routines.map(o => o.signature)).size).toBe(2)
-      for (const routine of routines) expect((await detail(routine)).definition.sql).toContain(engine === 'postgres' ? '$1' : 'value_arg')
+      for (const routine of routines) {
+        const result = await detail(routine)
+        expect(result.definition.sql).toContain(engine === 'postgres' ? '$1' : 'value_arg')
+        if (engine === 'postgres') expect(result.sections.find(s => s.title === 'Parameters')?.rows).toEqual([[null,'i',routine.signature,'1']])
+      }
+      if (engine === 'postgres') {
+        const withOutputs = objects.find(o => o.name === prefix+'_args' && o.kind === 'function')!
+        expect((await detail(withOutputs)).sections.find(s => s.title === 'Parameters')?.rows).toEqual([['value_arg','i','integer','1'],['result','o','integer','2']])
+      }
       const constraint = objects.find(o => o.name === prefix+'_pk' || o.kind === 'constraint' && o.parent === table)!
       expect(constraint).toBeDefined(); expect((await detail(constraint)).sections.length + Number(Boolean((await detail(constraint)).definition.sql))).toBeGreaterThan(0)
     }

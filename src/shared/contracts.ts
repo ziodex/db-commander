@@ -51,7 +51,7 @@ const workspaceTabSchema = z.object({ id: idSchema, title: z.string().trim().min
 export type WorkspaceTab = z.infer<typeof workspaceTabSchema>
 export type TransactionState = 'idle' | 'transaction' | 'failed' | 'unknown'
 export interface SessionInfo { id: string; engine: DatabaseEngine; name: string; database: string; user: string; host: string; port: number; tls: boolean; transaction: TransactionState; autocommit?: boolean; version: string; mysqlSqlMode?: { noBackslashEscapes: boolean; ansiQuotes: boolean }; safety?: ConnectionSafety }
-export interface Column { name: string; typeId: number; typeName?: string }
+export interface Column { name: string; typeId: number; typeName?: string; displayEncoding?: 'hex' }
 export type Cell = string | null
 export interface ResultSet { index: number; statement: string; columns: Column[]; rows: Cell[][]; rowCount: number | null; command: string; truncated: boolean }
 type QueryStatus = 'running' | 'completed' | 'failed' | 'cancelled' | 'unknown'
@@ -84,7 +84,7 @@ export type RunRequest = z.infer<typeof runSchema>
 // Grid snapshots and original values are retained by the database host. The
 // renderer submits only row ordinals and explicitly changed cells.
 export const gridTableSchema = z.object({ catalog: z.string().min(1).max(255).optional(), schema: z.string().min(1).max(255), name: z.string().min(1).max(255) }).strict()
-const gridValuesSchema = z.array(z.object({ column: z.number().int().min(0).max(99), value: z.string().max(16384).nullable() }).strict()).max(100)
+const gridValuesSchema = z.array(z.object({ column: z.number().int().min(0).max(99), value: z.string().max(262144).nullable() }).strict()).max(100)
 export const gridFilterSchema = z.union([
   z.object({ column: z.string().min(1).max(255), operator: z.enum(['eq', 'ne', 'lt', 'lte', 'gt', 'gte', 'contains', 'starts-with']), value: z.string().max(16384) }).strict(),
   z.object({ column: z.string().min(1).max(255), operator: z.enum(['is-null', 'not-null']) }).strict()
@@ -102,6 +102,14 @@ const gridChangeSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('update'), row: z.number().int().min(0).max(199), values: gridValuesSchema.min(1) }).strict(),
   z.object({ kind: z.literal('delete'), row: z.number().int().min(0).max(199) }).strict()
 ])
+export const gridChangesSchema = z.array(gridChangeSchema).min(1).max(200).superRefine((changes, context) => {
+  let bytes = 0
+  for (const change of changes) if (change.kind !== 'delete') for (const cell of change.values) {
+    if (cell.value !== null) bytes += new TextEncoder().encode(cell.value).byteLength
+    if (bytes > 8 * 1024 * 1024) { context.addIssue({ code: 'custom', message: 'Staged edits exceed 8 MiB.' }); return }
+  }
+  if (new TextEncoder().encode(JSON.stringify(changes)).byteLength > 8 * 1024 * 1024) context.addIssue({ code: 'custom', message: 'Staged edits exceed 8 MiB.' })
+})
 export const gridRequestSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('release'), sessionId: idSchema, viewId: idSchema }).strict(),
   z.object({ action: z.literal('inspect-cell'), sessionId: idSchema, viewId: idSchema.optional(), snapshotId: idSchema, row: z.number().int().min(0).max(199), column: z.number().int().min(0).max(99) }).strict(),
@@ -109,14 +117,16 @@ export const gridRequestSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('follow-reference'), sessionId: idSchema, viewId: idSchema.optional(), snapshotId: idSchema, row: z.number().int().min(0).max(199), referenceId: z.string().length(64) }).strict(),
   z.object({ action: z.literal('open'), sessionId: idSchema, viewId: idSchema.optional(), table: gridTableSchema, query: gridQuerySchema.optional() }).strict(),
   z.object({ action: z.literal('browse'), sessionId: idSchema, viewId: idSchema.optional(), table: gridTableSchema, query: gridQuerySchema.optional() }).strict(),
-  z.object({ action: z.literal('apply'), sessionId: idSchema, viewId: idSchema.optional(), snapshotId: idSchema, changes: z.array(gridChangeSchema).min(1).max(200) }).strict()
+  z.object({ action: z.literal('preview'), sessionId: idSchema, viewId: idSchema.optional(), snapshotId: idSchema, changes: gridChangesSchema }).strict(),
+  z.object({ action: z.literal('apply'), sessionId: idSchema, viewId: idSchema.optional(), snapshotId: idSchema, changes: gridChangesSchema }).strict()
 ])
 export type GridRequest = z.infer<typeof gridRequestSchema>
 export type GridChange = z.infer<typeof gridChangeSchema>
 export type GridTable = z.infer<typeof gridTableSchema>
-export interface GridColumn { name: string; type: string; nullable: boolean; primaryKey: boolean; generated: boolean; hasDefault: boolean; filterable?: boolean; sortable?: boolean; textual?: boolean }
+export interface GridColumn { name: string; type: string; nullable: boolean; primaryKey: boolean; generated: boolean; hasDefault: boolean; filterable?: boolean; sortable?: boolean; textual?: boolean; encoding?: 'hex' }
 export interface GridSnapshot { id: string; table: GridTable; columns: GridColumn[]; rows: Cell[][]; truncated: boolean; query: GridQueryOptions; mode: 'browse' | 'edit'; notice?: string; cellMarks?: import('./inspection').CellMark[]; /** Equivalent SELECT without browser display casts, when no filter values need binding. */ statement?: string }
-export interface GridResponse { session: SessionInfo; grid?: GridSnapshot; applied?: number; error?: string; imported?: number; importPreview?: import('./transfer').ImportPreview; inspection?: import('./inspection').CellInspection; references?: import('./inspection').ForeignKey[]; dataCapture?: import('./data-compare').DataCapture }
+export interface GridPreview { statements: { sql: string; parameterCount: number }[]; notice: string }
+export interface GridResponse { session: SessionInfo; grid?: GridSnapshot; preview?: GridPreview; applied?: number; error?: string; imported?: number; importPreview?: import('./transfer').ImportPreview; inspection?: import('./inspection').CellInspection; references?: import('./inspection').ForeignKey[]; dataCapture?: import('./data-compare').DataCapture }
 export interface DesktopApi {
   preferences(): Promise<import('./editor-settings').EditorSettings | null>
   savePreferences(settings: import('./editor-settings').EditorSettings): Promise<void>
@@ -152,16 +162,25 @@ export interface DesktopApi {
   applySchemaChange(request: import('./schema-changes').ApplySchemaChange): Promise<import('./schema-changes').SchemaChangeResult>
   cancelSchemaChange(sessionId: string): Promise<{ requested: boolean }>
   inspectImport(source: import('./transfer').ImportSource): Promise<import('./transfer').ImportPreview>
+  inspectDataFile(source: { file: string; format: 'csv' | 'tsv' | 'json' | 'jsonl' }): Promise<import('./transfer').DataFilePreview>
+  transferMappings(): Promise<import('./transfer-mappings').TransferMapping[]>
+  saveTransferMapping(input: import('./transfer-mappings').TransferMapping): Promise<import('./transfer-mappings').TransferMapping>
+  removeTransferMapping(id: string): Promise<void>
+  discardTransferCapture(id: string): Promise<void>
   startTransfer(request: import('./transfer').TransferRequest): Promise<import('./transfer').TransferJob>
   transferJobs(): Promise<import('./transfer').TransferJob[]>
   cancelTransfer(jobId: string): Promise<{ requested: boolean }>
   chooseTransferFile(input: { save: boolean; format: import('./transfer').ExportFormat }): Promise<string | null>
   onTransferJob(listener: (job: import('./transfer').TransferJob) => void): () => void
   startBackup(request: import('./backup').BackupRequest): Promise<import('./backup').BackupJob>
+  inspectBackup(request: import('./backup').BackupRequest): Promise<import('./backup').BackupInspection>
   backupJobs(): Promise<import('./backup').BackupJob[]>
   retryBackupHistory(): Promise<void>
   cancelBackup(jobId: string): Promise<{ requested: boolean }>
-  chooseBackupFile(input: { sessionId: string; save: boolean }): Promise<string | null>
+  chooseBackupFile(input: { sessionId: string; save: boolean; target?: boolean }): Promise<string | null>
+  chooseBackupTools(sessionId: string): Promise<string | null>
+  revealBackupFile(input: { jobId: string; target?: boolean }): Promise<void>
+  connectBackupTarget(jobId: string): Promise<SessionInfo>
   onBackupJob(listener: (job: import('./backup').BackupJob) => void): () => void
   onLayoutCommand(listener: (command: LayoutCommand) => void): () => void
   connect(config: ConnectionConfig): Promise<SessionInfo>

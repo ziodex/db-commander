@@ -1,26 +1,21 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { isAbsolute, join } from 'node:path'
+import { join } from 'node:path'
 import * as tlsRoots from 'node:tls'
-import pg from 'pg'
 import { endpoint, isRouted } from '../connections/transport'
-import { isIP } from 'node:net'
 import type { ConnectionConfig } from '../shared/contracts'
 import type { BackupRequest } from '../shared/backup'
 import { openMysqlTransport } from '../driver/mysql-transport'
 import { check, quoteIdentifier, validateName, type BackupContext } from './context'
 import { header, publishFile } from './files'
 import { runTool, type BackupOptions, type ToolCommand } from './tools'
+import { inspectNativeTool } from './native-tool'
+import { openBackupPostgres } from './postgres'
 
 export async function logicalBackup(config: ConnectionConfig, request: BackupRequest, context: BackupContext, options: BackupOptions) {
   const postgres = config.engine === 'postgres', maria = config.engine === 'mariadb'
-  const toolName = request.action === 'backup' ? postgres ? 'pg_dump' : maria ? 'mariadb-dump' : 'mysqldump' : postgres ? 'pg_restore' : maria ? 'mariadb' : 'mysql'
-  if (request.toolDirectory && !isAbsolute(request.toolDirectory)) throw new Error('The native tools directory must be an absolute path.')
-  const executable = request.toolDirectory ? join(request.toolDirectory, toolName + (process.platform === 'win32' ? '.exe' : '')) : toolName
   const run = options.runTool ?? runTool
-  const toolVersion = await run({ executable, args: ['--version'] }, context)
-  const toolMajor = Number((postgres ? toolVersion.match(/PostgreSQL\)\s+(\d+)/) : toolVersion.match(maria ? /(?:from|Distrib)\s+(\d+)\./ : /(?:Ver|Distrib)\s+(\d+)\./))?.[1])
-  if (!toolMajor || (!postgres && /mariadb/i.test(toolVersion) !== maria)) throw new Error('The selected native tool does not match the database engine.')
+  const { executable, version: toolVersion, major: toolMajor } = await inspectNativeTool(config.engine, request, context, options)
   context.log(`Native tool: ${toolVersion}`)
   const directory = await mkdtemp(join(options.temporaryRoot ?? tmpdir(), 'dbcommander-auth-'))
   try {
@@ -51,11 +46,8 @@ export async function logicalBackup(config: ConnectionConfig, request: BackupReq
     const pgDatabase = (name: string) => "dbname='" + name.replaceAll('\\', '\\\\').replaceAll("'", "\\'") + "'"
     const command: ToolCommand = { executable, args, env }
     if (postgres) {
-      const client = new pg.Client({ ...endpoint(config), user: config.user, password: config.password, database: config.database, connectionTimeoutMillis: 15000,
-        ssl: config.tls === 'verify-full' ? { rejectUnauthorized: true, ...(isIP(config.host) ? {} : { servername: config.host }), checkServerIdentity: (_host, cert) => tlsRoots.checkServerIdentity(config.host, cert), ...(config.ca ? { ca: config.ca } : {}) } : false })
-      client.on('error', () => {})
+      const client = await openBackupPostgres(config)
       try {
-        await client.connect()
         const version = Number((await client.query('SHOW server_version_num')).rows[0].server_version_num)
         if (toolMajor !== Math.floor(version / 10000)) throw new Error('Install native PostgreSQL tools matching the target server major version.')
         check(context)

@@ -28,7 +28,17 @@ export function oracleCatalog(query: CatalogQuery, definitionQuery?: CatalogQuer
       try {
         const sections = [], table = o.parent ?? o.name, params = [o.schema,table]
         if (['table','view','materialized view','constraint'].includes(o.kind)) {
-          sections.push(section('Columns', ['Name','Type','Length','Precision','Scale','Nullable','Default','Identity','Virtual'], await query('SELECT column_name,data_type,data_length,data_precision,data_scale,nullable,data_default,identity_column,virtual_column FROM user_tab_cols WHERE USER=:1 AND table_name=:2 AND hidden_column=\'NO\' ORDER BY column_id FETCH FIRST 501 ROWS ONLY', params)))
+          let columns: (string | null)[][]
+          try { columns = await query('SELECT column_name,data_type,data_length,data_precision,data_scale,nullable,data_default,identity_column,virtual_column,default_on_null,char_used,char_length,collation FROM user_tab_cols WHERE USER=:1 AND table_name=:2 AND hidden_column=\'NO\' ORDER BY column_id FETCH FIRST 501 ROWS ONLY', params) }
+          catch {
+            try { columns = (await query('SELECT column_name,data_type,data_length,data_precision,data_scale,nullable,data_default,identity_column,virtual_column,default_on_null FROM user_tab_cols WHERE USER=:1 AND table_name=:2 AND hidden_column=\'NO\' ORDER BY column_id FETCH FIRST 501 ROWS ONLY', params)).map(row => [...row, null, null, null]) }
+            catch { columns = (await query('SELECT column_name,data_type,data_length,data_precision,data_scale,nullable,data_default,identity_column,virtual_column FROM user_tab_cols WHERE USER=:1 AND table_name=:2 AND hidden_column=\'NO\' ORDER BY column_id FETCH FIRST 501 ROWS ONLY', params)).map(row => [...row, null, null, null, null]) }
+          }
+          sections.push(section('Columns', ['Name','Type','Length','Precision','Scale','Nullable','Default','Identity','Virtual','Default on null','Char semantics','Char length','Collation'], columns))
+          // Identity metadata may be unavailable on older servers. Keep object
+          // browsing usable and require this section when altering identity.
+          try { sections.push(section('Identity columns', ['Column','Generation','Sequence options'], await query('SELECT column_name,generation_type,identity_options FROM user_tab_identity_cols WHERE USER=:1 AND table_name=:2 ORDER BY column_name FETCH FIRST 501 ROWS ONLY', params))) } catch { /* optional metadata */ }
+          try { sections.push(section('Virtual column editions', ['Column','Evaluation edition','Unusable before','Unusable beginning','Table default collation'], await query('SELECT c.column_name,c.evaluation_edition,c.unusable_before,c.unusable_beginning,(SELECT t.default_collation FROM user_tables t WHERE t.table_name=c.table_name) FROM user_tab_cols c WHERE USER=:1 AND c.table_name=:2 AND c.virtual_column=\'YES\' AND c.hidden_column=\'NO\' ORDER BY c.column_id FETCH FIRST 501 ROWS ONLY', params))) } catch { /* optional metadata */ }
           const constraints = section('Constraints and keys', ['Name','Kind','Status','Deferrable','Validated','Referenced owner','Referenced constraint','Delete rule'], await query('SELECT constraint_name,constraint_type,status,deferrable,validated,r_owner,r_constraint_name,delete_rule FROM user_constraints WHERE USER=:1 AND table_name=:2 ORDER BY constraint_name FETCH FIRST 501 ROWS ONLY', params))
           sections.push(constraints)
           const keyColumns = section('Key columns', ['Constraint','Column','Position'], await query('SELECT constraint_name,column_name,position FROM user_cons_columns WHERE USER=:1 AND table_name=:2 ORDER BY constraint_name,position FETCH FIRST 501 ROWS ONLY', params))
@@ -52,7 +62,11 @@ export function oracleCatalog(query: CatalogQuery, definitionQuery?: CatalogQuer
           sections.push(section('Triggers', ['Name','Type','Event','Status'], await query('SELECT trigger_name,trigger_type,triggering_event,status FROM user_triggers WHERE table_owner=:1 AND table_name=:2 ORDER BY trigger_name FETCH FIRST 501 ROWS ONLY', params)))
         }
         if (o.kind === 'index') sections.push(section('Index columns', ['Table','Column','Position','Order'], await query('SELECT table_name,column_name,column_position,descend FROM user_ind_columns WHERE USER=:1 AND index_name=:2 ORDER BY column_position FETCH FIRST 501 ROWS ONLY', [o.schema,o.name])))
-        if (['function','procedure','package'].includes(o.kind)) sections.push(section('Arguments', ['Routine','Overload','Argument','Mode','Type','Position'], await query('SELECT object_name,overload,argument_name,in_out,data_type,position FROM user_arguments WHERE USER=:1 AND NVL(package_name,object_name)=:2 ORDER BY subprogram_id,sequence FETCH FIRST 501 ROWS ONLY', [o.schema,o.name])))
+        if (['function','procedure','package'].includes(o.kind)) sections.push(section('Arguments', ['Routine','Overload','Argument','Mode','Type','Position','Data level'], await query('SELECT object_name,overload,argument_name,in_out,data_type,position,data_level FROM user_arguments WHERE USER=:1 AND NVL(package_name,object_name)=:2 ORDER BY subprogram_id,sequence FETCH FIRST 501 ROWS ONLY', [o.schema,o.name])))
+        if (['view','function','procedure','trigger'].includes(o.kind)) {
+          sections.push(section('Compilation status', ['Status'], await query('SELECT status FROM user_objects WHERE USER=:1 AND object_id=TO_NUMBER(:2)', [o.schema,o.identity])))
+          sections.push(section('Compilation diagnostics', ['Line','Position','Message','Kind'], await query('SELECT line,position,text,attribute FROM user_errors WHERE USER=:1 AND name=:2 AND type=:3 ORDER BY sequence FETCH FIRST 501 ROWS ONLY', [o.schema,o.name,o.kind.toUpperCase()])))
+        }
         if (o.kind === 'sequence') sections.push(section('Sequence', ['Minimum','Maximum','Increment','Cycle','Cache'], await query('SELECT min_value,max_value,increment_by,cycle_flag,cache_size FROM user_sequences WHERE USER=:1 AND sequence_name=:2', [o.schema,o.name])))
         try {
           if (o.kind === 'materialized view') {

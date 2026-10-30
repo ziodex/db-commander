@@ -8,7 +8,7 @@ export interface InspectionActions { load?(row:number,column:number):Promise<Cel
 export function ValueInspector({ cell, actions, onClose }: {cell:InspectCell;actions?:InspectionActions;onClose():void}) {
   const [mode,setMode]=useState('text'),[offset,setOffset]=useState(0),[busy,setBusy]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState(''),[refs,setRefs]=useState<ForeignKey[]>()
   const binary=Boolean(cell.mark?.binary)||/bytea|blob|binary|raw|image/i.test(cell.column.typeName??'')||cell.column.typeId===17
-  const canonical=binary&&cell.value!==null&&/^(?:0x|\\x)[\da-f]*$/i.test(cell.value)?cell.value.slice(2):undefined
+  const canonical=cell.column.displayEncoding==='hex'&&cell.value!==null ? cell.value.replace(/…$/, '') : binary&&cell.value!==null&&/^(?:0x|\\x)[\da-f]*$/i.test(cell.value)?cell.value.slice(2):undefined
   const [value,setValue]=useState<CellInspection>({value:canonical??cell.value,encoding:canonical!==undefined?'hex':'text',truncated:Boolean(cell.mark?.truncated),source:'snapshot',notice:cell.mark?.unavailable?'This page contains a type placeholder. Load the live value to inspect it.':'Captured value. Opening this inspector does not execute SQL.'})
   const displayed=useMemo<{text:string;notice?:string;error?:string;bytes?:number;outline?:{depth:number;label:string}[]}>(()=>{
     const text=value.value===null?'':inspectionPrefix(value.value)

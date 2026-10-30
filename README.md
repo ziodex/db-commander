@@ -2,7 +2,13 @@
 
 An open-source desktop SQL workbench for macOS, Windows and Linux, built with Electron, React, TypeScript and Monaco Editor. Work with query tabs that share connections, browse and edit data, inspect schemas, compare databases, and import or export data.
 
-**Status: developer preview.** The package version is currently `0.2.2`. Signed public distribution and beta qualification are still in progress; see the [product roadmap and release checklist](docs/PLAN.md). Installation of updates is manual. Find the installed version under **Help → About Db Commander**.
+**Status: developer preview.** The package version is currently `0.2.3`. Signed public distribution and beta qualification are still in progress; see the [product roadmap and release checklist](docs/PLAN.md). Installation of updates is manual. Find the installed version under **Help → About Db Commander**.
+
+## Support the project
+
+<a href="https://www.buymeacoffee.com/ziodex">
+  <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy me a coffee" width="217" height="60">
+</a>
 
 | Database | Support |
 | --- | --- |

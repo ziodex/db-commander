@@ -1,6 +1,7 @@
 import { expect, it } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { browseSelect } from '../../src/driver/browse-sql'
+import { GRID_CELL_LIMIT, GRID_FETCH_CHAR_BUDGET, GRID_PREVIEW_CELL_LIMIT } from '../../src/shared/grid-limits'
 import { GridSql } from '../../src/driver/grid-sql'
 import { engineSchema, gridQuerySchema, gridRequestSchema, type GridColumn } from '../../src/shared/contracts'
 
@@ -8,6 +9,17 @@ const columns: GridColumn[] = [
   { name: 'id', type: 'INTEGER', primaryKey: true, generated: false, hasDefault: false, nullable: false },
   { name: "Label' value", type: 'VARCHAR(100)', primaryKey: false, generated: false, hasDefault: false, nullable: true }
 ]
+it('bounds aggregate projections while allowing larger values on narrower pages', () => {
+  const dialect = new GridSql('sqlite'), table = { schema: 'main', name: 'items' }
+  const wide = Array.from({ length: 100 }, (_, i) => ({ ...columns[0], name: `c${i}`, primaryKey: i === 0 }))
+  for (const pageSize of [25, 50, 100, 200] as const) {
+    const choice = browseSelect(dialect, table, wide, gridQuerySchema.parse({ pageSize }), true)
+    expect((pageSize + 1) * wide.length * (choice.cellLimit + 16)).toBeLessThanOrEqual(GRID_FETCH_CHAR_BUDGET)
+    expect(choice.cellLimit).toBeGreaterThanOrEqual(GRID_PREVIEW_CELL_LIMIT)
+  }
+  expect(browseSelect(dialect, table, columns, undefined, true).cellLimit).toBe(GRID_CELL_LIMIT)
+  expect(browseSelect(dialect, table, columns).cellLimit).toBe(GRID_PREVIEW_CELL_LIMIT)
+})
 it('offers short SELECT-star SQL without changing exact browser projections or pagination', () => {
   for (const engine of engineSchema.options) {
     const d = new GridSql(engine), selection = browseSelect(d, { schema: 'schema name', name: 'table name' }, columns)

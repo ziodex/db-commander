@@ -106,6 +106,7 @@ export class DriverRegistry {
   startTransfer(input: TransferRequest) { return this.transfers.start(input) }
   listTransferJobs() { return this.transfers.list() }
   cancelTransfer(id: string) { return this.transfers.cancel(id) }
+  discardTransferCapture(id: string) { return this.transfers.discardCapture(id) }
   waitTransfer(id: string) { return this.transfers.wait(id) }
   async connect(config: ConnectionConfig) {
     config = connectionSchema.parse(config)
@@ -144,6 +145,7 @@ export class DriverRegistry {
     return driver
   }
   startBackup(input: BackupRequest) { return this.backups.start(input) }
+  inspectBackup(input: BackupRequest) { return this.backups.inspect(input) }
   listBackupJobs() { return this.backups.list() }
   cancelBackup(id: string) { return this.backups.cancel(id) }
   waitBackup(id: string) { return this.backups.wait(id) }
@@ -251,7 +253,9 @@ export class DriverRegistry {
     return this.operation(request.sessionId, async () => {
       const plan = await this.schemaChanges.prepare(request, driver)
       const session = driver.getSession(request.sessionId)
-      plan.migrationSourceId = this.migrations.retainChange(plan, this.schemaChanges.migrationStatements(plan.id), `${session.name} / ${session.host}${session.port ? ':' + session.port : ''} / ${session.database}`)
+      // Migration exports retain host-generated SQL only. Authored source is
+      // reviewed and executed here, but is not a generated migration source.
+      if (request.change.action !== 'edit-source') plan.migrationSourceId = this.migrations.retainChange(plan, this.schemaChanges.migrationStatements(plan.id), `${session.name} / ${session.host}${session.port ? ':' + session.port : ''} / ${session.database}`)
       return plan
     })
   }
@@ -361,7 +365,7 @@ export class DriverRegistry {
     const request = applySchemaChangeSchema.parse(input), driver = this.driver(request.sessionId)
     this.protection.assert(request.sessionId)
     if (this.running.has(request.sessionId)) throw new Error('Stop the running query before applying schema changes.')
-    return this.operation(request.sessionId, () => this.schemaChanges.apply(request, driver, async (sql, signal) => {
+    return this.operation(request.sessionId, () => this.schemaChanges.apply(request, driver, async (sql, signal, singleUnit) => {
       const queryId = randomUUID()
       let completion: Completion | undefined, timedOut = false
       // Host-only streaming mode preserves the user's fetched result cache.
@@ -372,7 +376,7 @@ export class DriverRegistry {
       signal?.addEventListener('abort', cancel, { once: true })
       try {
         signal?.throwIfAborted()
-        driver.start({ sessionId: request.sessionId, queryId, sql, maxRows: 1, fullExport: true }, event => { completion = event })
+        driver.start({ sessionId: request.sessionId, queryId, sql, maxRows: 1, fullExport: true, singleUnit }, event => { completion = event })
         await driver.wait(request.sessionId)
         if (!completion) throw Object.assign(new Error('Schema execution ended without a confirmed outcome.'), { status: 'unknown' })
         if (timedOut) { completion.error = 'The schema statement exceeded 60 seconds; cancellation was requested.'; if (completion.status === 'completed') completion.status = 'cancelled' }
@@ -476,5 +480,5 @@ export class DriverRegistry {
     if (!driver) throw new Error('This result is no longer available. Execute the query again explicitly.')
     return driver.exportCsv(id, index, path)
   }
-  async close() { await Promise.allSettled(this.activityReads.values()); await Promise.allSettled(this.operations.values()); await Promise.allSettled(this.editing.values()); await Promise.allSettled(Object.values(this.drivers).map(driver => driver.close())); for (const tunnel of this.tunnels.values()) tunnel.close(); this.tunnels.clear(); this.protection.clear(); this.activityTargets.clear(); this.activityReviews.clear(); this.rollbackInspections.clear(); this.migrations.clear(); this.sessions.clear(); this.queries.clear(); this.latest.clear(); this.configs.clear(); this.running.clear() }
+  async close() { await Promise.allSettled(this.activityReads.values()); await Promise.allSettled(this.operations.values()); await Promise.allSettled(this.editing.values()); await Promise.allSettled([this.transfers.close()]); await Promise.allSettled(Object.values(this.drivers).map(driver => driver.close())); for (const tunnel of this.tunnels.values()) tunnel.close(); this.tunnels.clear(); this.protection.clear(); this.activityTargets.clear(); this.activityReviews.clear(); this.rollbackInspections.clear(); this.migrations.clear(); this.sessions.clear(); this.queries.clear(); this.latest.clear(); this.configs.clear(); this.running.clear() }
 }

@@ -4,6 +4,24 @@ Right-click the current database in the sidebar and choose **Database backup and
 
 The dialog shows recent jobs and bounded diagnostics across tabs. Closing the dialog leaves the job running. **Cancel job** requests cancellation and waits for the engine's response. Quit asks separately about unfinished backup jobs. Local job metadata is saved in `backup-jobs.json`; jobs interrupted by an application/host crash are marked **unknown**, never resumed or replayed. A failed or cancelled server restore can leave a partial target, and a disconnected server job may continue. Inspect the server and target before retrying.
 
+## Configure, check and review
+
+Choose **Back up database** or **Restore to a new target**. For local artifacts, **Choose backup destination**, **Browse backup files** and, for SQLite/DuckDB restores, **Choose restore destination** open native file dialogs. Restore browsing also accepts other filename extensions; the selected engine's format is checked independently of the extension. **Choose tools folder** selects the native client installation folder for PostgreSQL, MySQL and MariaDB; leaving the field blank uses PATH. Backup, restore-source, restore-target and tools folders are remembered separately per engine in the local `desktop-settings.json`. These records contain directory paths only, not filenames, rows, SQL or credentials, and are excluded from exported editor preferences and connection files.
+
+SQL Server paths belong to its service account on the **database server**, Oracle uses a server **DIRECTORY** and dump filename, and Azure SQL uses database names. These controls deliberately do not open a picker for files on your computer.
+
+**Review job** first performs advisory checks without creating/restoring a database or starting a backup job. Local checks inspect the existing destination folder's write access, reject an existing target, recognize backup headers and show file size/modification time. PostgreSQL archive listings provide available source metadata; SQL Server shows logical data/log files, and Oracle validates visible DIRECTORY/dump metadata. Native tool engine/major versions and visible server targets are checked where supported. The current session is reserved while its checks run. Failures preserve the entered values and block confirmation until corrected and checked again.
+
+Successful checks are not a restore test or a guarantee of every permission. MySQL/MariaDB catalog visibility, server filesystem access, Data Pump rights and concurrent changes can only be fully resolved during execution; the review states these limits. SQLite integrity checks, DuckDB native import and SQL Server checksum verification remain part of the actual job. Inspecting an untrusted archive does not make it safe to restore: keep the trust acknowledgment and inspect its origin. Editing the configuration or returning with **Back** clears the previous checks and acknowledgment. Starting a job still repeats all authoritative engine/target checks; inspection grants no overwrite or retry authority.
+
+## Results and recent jobs
+
+Results show native phases, start time, completed duration, artifact/target and bounded diagnostics. No estimated percentage is invented. Filter recent jobs by status or database, server and location text. **Show backup file** reveals a completed local artifact in the operating system file manager; **Show restored file** does the same for a successful SQLite/DuckDB target. Missing files produce an error instead of opening another location.
+
+After a successful database/file restore, **Connect to restored database** explicitly opens a new independent query tab with an empty editor. Authentication remains in the main process, saved source profiles are unchanged, and no previous SQL is replayed. The original source connection must still be open, workspace recovery/file/close guards must be clear, and a query-tab slot must be available. Ordinary connection/protected-profile safeguards still apply. Connecting discovers the target's catalog; it does not certify application-level consistency. Inspect the restored schema/data yourself. Oracle restores create a schema-only account rather than a new login: inspect that schema through an authorized administrator connection instead.
+
+Failed, cancelled and unknown jobs never enable the connection or file-reveal actions. Recovery does not recreate vanished credentials or automatically rerun work. Repair a job-history write failure with **Retry saving job history** independently of the database operation; that action only saves metadata.
+
 | Engine | Backup and restore implementation | Location and requirements |
 | --- | --- | --- |
 | PostgreSQL | Compressed custom archive from `pg_dump`; `pg_restore` into a newly created database in one transaction, without source ownership/ACLs | Local file. Install the client tools matching the server major version; PATH or an explicit tools directory. Database creation privileges are needed for restore. Source roles, tablespaces and cluster settings are outside this backup. |
@@ -21,7 +39,7 @@ Native tools are not bundled or downloaded. Install them separately and set **Na
 
 Restore only trusted backups: native SQL, routines, triggers and views can execute with your privileges. A new target protects against Db Commander's own overwrite operations; it is not a sandbox for SQL contained in an archive. Explicit database/schema references and external dependencies in views or routines may still refer to the original environment after a rename. Oracle Data Pump does not rewrite all embedded references; compilation/import errors are reported as failures, with partial objects retained for inspection. Validate application queries, dependencies, grants and constraints before promoting a restored database.
 
-Current follow-up scope: selected-object/data-only jobs, selectable compression/parallelism, external archive inspection, restore into an existing target, cross-server Azure copies, BACPAC and managed recovery, scheduled backups, retention and encrypted artifact storage. These are not silently approximated by CSV export.
+Current follow-up scope: selected-object/data-only jobs, selectable compression/parallelism, standalone archive inspection, restore into an existing target, cross-server Azure copies, BACPAC and managed recovery, scheduled backups, retention and encrypted artifact storage. These are not silently approximated by CSV export.
 
 ## Native format references
 

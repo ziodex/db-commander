@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { DatabaseEngine } from './database-engines'
 import { lexSql, type Token } from './sql/lexer'
+import { isBoundRoutineCall } from './routine-syntax'
 
 export const scalarParameterTypes = ['text','integer','decimal','date','timestamp','timestamptz','boolean','null','hex'] as const
 export const arrayParameterTypes = ['text[]','integer[]','decimal[]','date[]','timestamp[]','timestamptz[]','boolean[]','hex[]'] as const
@@ -166,21 +167,30 @@ export function compileParameters(sql:string,engine:DatabaseEngine,input:QueryPa
   const parameters=parametersSchema.parse(input),{tokens,refs}=parameterTokens(sql,engine,noBackslash,ansiQuotes)
   if(tokens.some(t=>!t.closed&&!(t.kind==='comment'&&!t.text.startsWith('/*'))))throw new Error('Unterminated SQL token in parameterized query.')
   const code=tokens.filter(t=>t.kind!=='comment'),end=code.at(-1)?.text===';'?code.slice(0,-1):code
-  if(!/^(SELECT|WITH|INSERT|UPDATE|DELETE)$/i.test(end[0]?.text??'')||end.some(t=>t.text===';'))throw new Error('Bound parameters support one SELECT, WITH, INSERT, UPDATE or DELETE statement. Run scripts and session commands separately.')
+  if(end.some(t=>t.text===';'))throw new Error('Bound parameters support one SELECT, WITH, INSERT, UPDATE, DELETE or direct routine call. Run scripts and session commands separately.')
+  const routine = isBoundRoutineCall(end, engine)
+  if(!routine&&!/^(SELECT|WITH|INSERT|UPDATE|DELETE)$/i.test(end[0]?.text??''))throw new Error('Bound parameters support one SELECT, WITH, INSERT, UPDATE, DELETE or direct routine call. Run scripts and session commands separately.')
   if(tokens.some(t=>t.kind==='comment'&&/^\/\*(?:!|M!)/i.test(t.text)))throw new Error('Executable comments are not supported with bound parameters.')
   if(end.some(t=>t.kind==='symbol'&&(t.text==='?'&&engine!=='postgres'||t.text==='$')||t.kind==='word'&&/^@(?!@)/.test(t.text)))throw new Error('Use :name parameters; native placeholder styles cannot be mixed.')
   const byName=new Map(parameters.map(p=>[p.name,p])),names=new Set(refs.map(p=>p.name))
   if(!refs.length||names.size!==byName.size||[...names].some(name=>!byName.has(name)))throw new Error('Supply exactly the named parameters used by the selected statement.')
   if(refs.length>1000)throw new Error('A statement may use up to 1,000 parameter occurrences.')
   const values:ScalarQueryParameter[]=[], mysql=['mysql','mariadb'].includes(engine), tds=['sqlserver','azure-sql'].includes(engine)
-  if(tds)checkTsqlStatement(end,refs)
+  if(tds&&!routine)checkTsqlStatement(end,refs)
   const arrays = new Map(parameters.filter(isArrayParameter).map(p=>[p.name,arrayParameterInfo(p)]))
   const indexes = new Map(code.map((token,index)=>[token.start,index])), parents = new Map<number,number|undefined>(), stack:number[]=[]
   code.forEach((token,index)=>{parents.set(index,stack.at(-1));if(token.text==='(')stack.push(index);else if(token.text===')')stack.pop()})
+  const declarations: string[] = []
   function bind(p: ScalarQueryParameter, shape?: ReturnType<typeof decimalShape>) {
     if (values.length >= 1000) throw new Error('A statement may bind at most 1,000 scalar values after array expansion, including repeated parameters.')
     const i=values.push(p),marker=mysql||engine==='sqlite'?'?':tds?`@sc_p${i}`:engine==='oracle'?`:sc_p${i}`:`$${i}`
-    return scalarExpression(p,engine,marker,shape)
+    const expression = scalarExpression(p,engine,marker,shape)
+    if (tds && routine) {
+      const sqlType = p.type === 'integer' ? 'BIGINT' : p.type === 'boolean' ? 'BIT' : p.type === 'decimal' ? `DECIMAL(${decimalShape(p.value).precision},${decimalShape(p.value).scale})` : p.type === 'date' ? 'DATE' : p.type === 'timestamp' ? 'DATETIME2(6)' : p.type === 'timestamptz' ? 'DATETIMEOFFSET(6)' : p.type === 'hex' ? 'VARBINARY(MAX)' : 'NVARCHAR(MAX)'
+      declarations.push(`DECLARE @sc_arg${i} ${sqlType} = ${expression};`)
+      return `@sc_arg${i}`
+    }
+    return expression
   }
   let output='',at=0
   for(const ref of refs) {
@@ -199,5 +209,5 @@ export function compileParameters(sql:string,engine:DatabaseEngine,input:QueryPa
   }
   const trailing=code.at(-1)?.text===';'?code.at(-1)!.start:-1
   output+=trailing>=at?sql.slice(at,trailing)+sql.slice(trailing+1):sql.slice(at)
-  return {sql:output,values}
+  return {sql:declarations.length ? declarations.join('\n') + '\n' + output : output,values}
 }

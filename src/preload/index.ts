@@ -71,6 +71,11 @@ const api: DesktopApi = {
   applySchemaChange: request => ipcRenderer.invoke('sql:applySchemaChange', request),
   cancelSchemaChange: id => ipcRenderer.invoke('sql:cancelSchemaChange', id),
   inspectImport: source => ipcRenderer.invoke('sql:inspectImport', source),
+  inspectDataFile: source => ipcRenderer.invoke('sql:inspectDataFile', source),
+  transferMappings: () => ipcRenderer.invoke('sql:transferMappings'),
+  saveTransferMapping: input => ipcRenderer.invoke('sql:saveTransferMapping', input),
+  removeTransferMapping: id => ipcRenderer.invoke('sql:removeTransferMapping', id),
+  discardTransferCapture: id => ipcRenderer.invoke('sql:discardTransferCapture', id),
   startTransfer: request => ipcRenderer.invoke('sql:startTransfer', request),
   transferJobs: () => ipcRenderer.invoke('sql:transferJobs'),
   cancelTransfer: id => ipcRenderer.invoke('sql:cancelTransfer', id),
@@ -81,10 +86,14 @@ const api: DesktopApi = {
     return () => ipcRenderer.removeListener('sql:transfer-job', callback)
   },
   startBackup: request => ipcRenderer.invoke('sql:startBackup', request),
+  inspectBackup: request => ipcRenderer.invoke('sql:inspectBackup', request),
   backupJobs: () => ipcRenderer.invoke('sql:backupJobs'),
   retryBackupHistory: () => ipcRenderer.invoke('sql:retryBackupHistory'),
   cancelBackup: id => ipcRenderer.invoke('sql:cancelBackup', id),
   chooseBackupFile: request => ipcRenderer.invoke('sql:chooseBackupFile', request),
+  chooseBackupTools: id => ipcRenderer.invoke('sql:chooseBackupTools', id),
+  revealBackupFile: request => ipcRenderer.invoke('sql:revealBackupFile', request),
+  connectBackupTarget: id => ipcRenderer.invoke('sql:connectBackupTarget', id),
   onBackupJob: listener => {
     const callback = (_event: Electron.IpcRendererEvent, job: import('../shared/backup').BackupJob) => listener(job)
     ipcRenderer.on('sql:backup-job', callback)

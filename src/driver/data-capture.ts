@@ -13,7 +13,7 @@ export async function captureData(d: GridSql, table: GridTable, available: GridC
   const columns = names.map(name => {
     const column = available.find(c => c.name === name)
     if (!column) throw new Error(`Column “${name}” is unavailable. Refresh the schema and review the comparison.`)
-    if (!d.supported(column)) throw new Error(`Column “${name}” (${column.type}) has no exact comparison representation. Exclude it or use SQL.`)
+    if (!d.supported(column) || d.binary(column)) throw new Error(`Column “${name}” (${column.type}) has no exact comparison representation. Exclude it or use SQL.`)
     return column
   })
   // Reuse the browser's catalog-checked, bound AND filters. No arbitrary SQL or

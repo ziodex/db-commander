@@ -66,7 +66,7 @@ for (const engine of ['duckdb', 'postgres'] as const) test(`${engine} saved prof
     await expect(page.getByRole('cell', { name: '2', exact: true })).toBeVisible()
     const csv = join(directory, 'tab-a.csv')
     await app!.evaluate(({ dialog }, path) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: path }) }, csv)
-    await page.getByRole('button', { name: 'Export CSV', exact: true }).click()
+    await page.getByRole('button', { name: 'Export preview', exact: true }).click()
     await expect(page.locator('.status-text')).toHaveText('Fetched rows exported'); expect(readFileSync(csv, 'utf8')).toContain('"2"\r\n')
     await page.getByRole('tab', { name: 'Query 2.sql', exact: true }).click()
     await enter(page, engine === 'duckdb' ? 'SELECT sum(sin(a.range+b.range)) FROM range(1000000) a CROSS JOIN range(1000000) b' : 'SELECT pg_sleep(30)')

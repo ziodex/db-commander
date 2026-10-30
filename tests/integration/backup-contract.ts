@@ -78,13 +78,21 @@ export async function verifyBackups(base: ConnectionConfig) {
     await execute(session.id, oracle ? 'SAVEPOINT backup_guard' : base.engine === 'sqlserver' ? 'BEGIN TRANSACTION' : 'BEGIN')
     expect(() => driver.startBackup(request('backup'))).toThrow(/Commit or roll back/)
     await execute(session.id, 'ROLLBACK')
+    const inspection = await driver.inspectBackup(request('backup'))
+    expect(inspection.ready, JSON.stringify(inspection.checks)).toBe(true)
+    expect(driver.listBackupJobs()).toHaveLength(0)
+    if (embedded || ['postgres', 'mysql', 'mariadb'].includes(base.engine)) expect(existsSync(artifact)).toBe(false)
     const started = driver.startBackup(request('backup'))
     expect(() => driver.start({ sessionId: session!.id, sql: 'SELECT 1', maxRows: 1 })).toThrow(/database operation/)
     await expect(driver.disconnect(session.id)).rejects.toThrow(/database operation/)
     const backup = await driver.waitBackup(started.id)
     expect(backup?.status, backup?.log.join('\n')).toBe('completed')
     await job(request('backup'), 'failed') // Never replace backup media.
+    const restoreInspection = await driver.inspectBackup(request('restore'))
+    expect(restoreInspection.ready, JSON.stringify(restoreInspection.checks)).toBe(true)
+    expect(driver.listBackupJobs()).toHaveLength(2) // Inspection creates no backup/restore job.
     await job(request('restore'))
+    expect((await driver.inspectBackup(request('restore'))).ready).toBe(false)
     await job(request('restore'), 'failed') // Never replace existing database/file/schema.
     if (base.engine === 'postgres' && typeof tls.setDefaultCACertificates === 'function') {
       const roots = tls.getCACertificates('default')
