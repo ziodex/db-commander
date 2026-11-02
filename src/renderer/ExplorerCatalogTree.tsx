@@ -1,4 +1,4 @@
-import { createContext, memo, useContext, useId, type KeyboardEvent, type MouseEvent } from 'react'
+import { createContext, memo, useContext, useId, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 import { ChevronDown, ChevronRight } from './WorkbenchIcons'
 import { CatalogObjectIcon, MaterialFolderIcon } from './MaterialIcon'
 import { objectKey, type CatalogObject } from '../shared/catalog'
@@ -23,25 +23,27 @@ function Collections({ collections, search, kind, filtered, nested = false }: {
 }
 
 /** SQL edits leave the catalog structure unchanged, including its DOM rows. */
-export const ExplorerCatalogTree = memo(function ExplorerCatalogTree({ groups, search, kind, filtered, expanded, collapsedMatches, onToggle, onContext }: {
+export const ExplorerCatalogTree = memo(function ExplorerCatalogTree({ groups, search, kind, filtered, expanded, collapsedMatches, onToggle, onContext, renderChildren }: {
   groups: ExplorerGroup[]; search: string; kind: string; filtered: boolean
   expanded: Set<string>; collapsedMatches: Set<string>
   onToggle(key: string): void
   onContext(event: MouseEvent<HTMLElement> | KeyboardEvent<HTMLElement>, table: GridTable, objectId?: string): void
+  renderChildren?(object: CatalogObject): ReactNode
 }) {
+  const actions = useContext(Actions)
   const treeId = useId()
   return groups.map(group => <details className="schema-group" key={group.key} open><summary><MaterialFolderIcon kind="schema"/>{group.label}</summary>
     {group.relations.map(({ key, table, object, collections }) => {
-      const open = filtered ? !collapsedMatches.has(key) : expanded.has(key), childrenId = `${treeId}-${encodeURIComponent(key)}`
+      const open = filtered && collections.length ? !collapsedMatches.has(key) : expanded.has(key), childrenId = `${treeId}-${encodeURIComponent(key)}`
       const context = (event: MouseEvent<HTMLElement> | KeyboardEvent<HTMLElement>) => onContext(event, table, object && objectKey(object))
       return <div className="relation-node" key={key}>
         <div className="schema-object">
-          {collections.length > 0 ? <button className="object-expand" aria-label={`${open ? 'Collapse' : 'Expand'} ${table.kind} ${table.name}`} aria-expanded={open} aria-controls={childrenId} onClick={() => onToggle(key)}>
+          {collections.length > 0 || object && renderChildren ? <button className="object-expand" disabled={actions?.busy} aria-label={`${open ? 'Collapse' : 'Expand'} ${table.kind} ${table.name}`} aria-expanded={open} aria-controls={childrenId} onClick={() => onToggle(key)}>
             {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
           </button> : <span className="object-expand-spacer" />}
           <button className="object-label" aria-label={`${table.name} ${group.label}`} title={`${table.name} · Open table actions (Enter or Shift+F10)`} aria-haspopup="menu" onContextMenu={context} onKeyDown={context} onClick={context}><CatalogObjectIcon kind={table.kind}/><span>{table.name}</span><small>{table.kind}</small></button>
         </div>
-        {collections.length > 0 && <div className="relation-children" id={childrenId} hidden={!open}>{open && <Collections collections={collections} search={search} kind={kind} filtered={filtered} nested/>}</div>}
+        {(collections.length > 0 || object && renderChildren) && <div className="relation-children" id={childrenId} hidden={!open}>{open && (object && renderChildren && !collections.length ? renderChildren(object) : <Collections collections={collections} search={search} kind={kind} filtered={filtered} nested/>)}</div>}
       </div>
     })}
     {group.collections.length > 0 && <Collections collections={group.collections} search={search} kind={kind} filtered={filtered}/>}

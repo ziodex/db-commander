@@ -175,13 +175,13 @@ export function App() {
   const { dialogInfo, setDialogInfo, dialogError, setDialogError, connectionWarning, setConnectionWarning,
     profileBusy, deleteProfileId, setDeleteProfileId, switchTarget, setSwitchTarget, setDialog,
     connect, saveProfile, deleteProfile, disconnect, disconnectTabs, requestSwitch, switchDatabase,
-    refreshTables, refreshDatabases, cleanupLostSession } = sessions
+    refreshTables, refreshDatabases, readCatalog, cleanupLostSession } = sessions
   const { closeRequest, setCloseRequest, closeId, closingTabs, closeOperation, newTab, pinTab, requestClose, closeTabs } =
     useWorkspaceTabs({ api, runtime, ready, editorSettings, sqlFiles, sessions })
   const { history, setHistory, explainText, setExplainText, parameterRun, setParameterRun, openExplain, explainQuery,
     run, runCurrent, runScript, exportCsv } = useQueryExecution({ api, runtime, tab, editorRef, sessions })
   const { appendSelect, openGrid, browseTable, saveColumnView, savedTableColumns, inspectGrid, backGrid, applyGrid, previewGrid } =
-    useTableData({ api, runtime, workspace, tab, ready, readyRef, editors, sqlFiles, closeId, newTab, changeLayout, focusEditor })
+    useTableData({ api, runtime, workspace, tab, ready, readyRef, editors, sqlFiles, closeId, newTab, sessions, changeLayout, focusEditor })
   const { objectView, setObjectView, schemaEditor, setSchemaEditor, inspectObject, schemaChangeBlocked, prepareSchemaChange, applySchemaChange } =
     useSchemaTools({ api, runtime, tabId, setHistory, sessions })
   const dialog = Boolean(dialogInfo)
@@ -357,7 +357,7 @@ export function App() {
             onEdit={savedProfile => { setDialogError(''); setDialogInfo({ tabId, profile: savedProfile.config, profileId: savedProfile.id, saveOnly: true }) }}
             onDelete={savedProfile => { setDialogError(''); setDeleteProfileId(savedProfile.id) }}
             onFavorite={(id, favorite) => changeWorkspace(previous => ({ ...previous, profiles: previous.profiles.map(profile => profile.id === id ? { ...profile, config: { ...profile.config, favorite } } : profile) }))}/>
-          {session ? <DatabaseExplorer browseDisabled={!ready || sqlFiles.busy || Boolean(closeId) || workspace.tabs.length >= MAX_TABS} onActivity={()=>setActivityOpen({tabId,sessionId:session.id})} onBuilder={table=>setBuilderOpen({tabId,sessionId:session.id,table})} onCompareData={table=>session&&setDataCompareOpen({tabId,sessionId:session.id,table})} key={tabId} state={state} onBackup={()=>setBackupOpen(true)} onCompare={()=>setCompareOpen({tabId,sessionId:session.id})} onDiagram={() => setDiagramOpen({tabId,sessionId:session.id})} onSchemaChange={target => setSchemaEditor({ tabId, sessionId: session.id, target })} onInspect={object => void inspectObject(object)} onRefreshDatabases={() => void refreshDatabases()} onRefreshSchema={() => void refreshTables()} onSwitch={requestSwitch} onFilter={setTableSearch} onAppendSelect={appendSelect} onEdit={table => void openGrid(table)} onBrowse={table => void browseTable(table)} /> : <p className="sidebar-description">Connect to load databases.</p>}
+          {session ? <DatabaseExplorer readCatalog={readCatalog} browseDisabled={!ready || sqlFiles.busy || Boolean(closeId) || workspace.tabs.length >= MAX_TABS} onActivity={()=>setActivityOpen({tabId,sessionId:session.id})} onBuilder={table=>setBuilderOpen({tabId,sessionId:session.id,table})} onCompareData={table=>session&&setDataCompareOpen({tabId,sessionId:session.id,table})} key={tabId} state={state} onBackup={()=>setBackupOpen(true)} onCompare={()=>setCompareOpen({tabId,sessionId:session.id})} onDiagram={() => setDiagramOpen({tabId,sessionId:session.id})} onSchemaChange={target => setSchemaEditor({ tabId, sessionId: session.id, target })} onInspect={object => void inspectObject(object)} onRefreshDatabases={() => void refreshDatabases()} onRefreshSchema={() => void refreshTables()} onSwitch={requestSwitch} onFilter={setTableSearch} onAppendSelect={appendSelect} onEdit={table => void openGrid(table)} onBrowse={table => void browseTable(table)} /> : <p className="sidebar-description">Connect to load databases.</p>}
         </>}
       </aside>
       {layout.sidebarVisible && <Splitter orientation="vertical" label="Resize sidebar" controls="workspace-sidebar" value={sidebarWidth} preferredValue={layout.sidebarWidth} min={bounds.sidebarMin} max={bounds.sidebarMax} disabled={!ready}

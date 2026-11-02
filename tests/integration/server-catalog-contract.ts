@@ -75,6 +75,17 @@ export async function verifyLargeServerCatalog(config: ConnectionConfig) {
     expect(counts.overflowTables).toBeLessThan(SERVER_CATALOG_OVERFLOW)
     expect(overflow.catalog!.objects.some(object => object.name === table(0))).toBe(true)
     expect(overflow.catalog!.objects.some(object => object.name === table(SERVER_CATALOG_OVERFLOW - 1))).toBe(false)
+    const priorEvents = events.length
+    start = performance.now()
+    const beyond = await driver.catalogPage({ sessionId: session.id, search: table(SERVER_CATALOG_OVERFLOW - 1), kind: 'table', rootsOnly: true })
+    timings.pagedSearch = performance.now() - start
+    expect(beyond.objects).toHaveLength(1)
+    start = performance.now()
+    expect((await driver.inspectObject({ sessionId: session.id, object: beyond.objects[0] })).definition.sql).toContain(table(SERVER_CATALOG_OVERFLOW - 1))
+    timings.pagedInspect = performance.now() - start
+    expect(events).toHaveLength(priorEvents)
+    expect(timings.pagedSearch).toBeLessThan(2000)
+    expect(timings.pagedInspect).toBeLessThan(5000)
     for (const name of ['refresh','overflowRefresh']) expect(timings[name], name).toBeLessThan(10000)
     expect(timings.inspect).toBeLessThan(5000); completed = true
   } catch (error) { failed = true; throw error }

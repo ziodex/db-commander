@@ -1,15 +1,16 @@
+import { catalogRows } from './paging'
 import { catalog, definition, section, type CatalogAdapter, type CatalogQuery } from './common'
 import { quoteIdentifier } from '../shared/sql/common'
 export function mysqlCatalog(query: CatalogQuery, database: string): CatalogAdapter {
   const q = (s: string) => quoteIdentifier(s, 'mysql')
   return {
-    async list() { return catalog(await query(`SELECT * FROM (
+    async list(read) { return catalog(await catalogRows(query, 'mysql', `
       SELECT NULL AS catalog_name,TABLE_SCHEMA AS schema_name,TABLE_NAME AS object_name,CASE TABLE_TYPE WHEN 'VIEW' THEN 'view' WHEN 'SEQUENCE' THEN 'sequence' ELSE 'table' END AS kind,TABLE_NAME AS identity_name,NULL AS parent_name,NULL AS signature_name,NULL AS constraint_type FROM information_schema.TABLES WHERE TABLE_SCHEMA=?
       UNION ALL SELECT NULL,ROUTINE_SCHEMA,ROUTINE_NAME,LOWER(ROUTINE_TYPE),SPECIFIC_NAME,NULL,NULL,NULL FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA=?
       UNION ALL SELECT NULL,TRIGGER_SCHEMA,TRIGGER_NAME,'trigger',TRIGGER_NAME,EVENT_OBJECT_TABLE,NULL,NULL FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA=?
       UNION ALL SELECT NULL,TABLE_SCHEMA,INDEX_NAME,'index',CONCAT(TABLE_NAME,':',INDEX_NAME),TABLE_NAME,NULL,NULL FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=? GROUP BY TABLE_SCHEMA,TABLE_NAME,INDEX_NAME
       UNION ALL SELECT NULL,CONSTRAINT_SCHEMA,CONSTRAINT_NAME,'constraint',CONCAT(TABLE_NAME,':',CONSTRAINT_NAME),TABLE_NAME,NULL,LOWER(CONSTRAINT_TYPE) FROM information_schema.TABLE_CONSTRAINTS WHERE CONSTRAINT_SCHEMA=?
-      ) objects ORDER BY CASE WHEN kind IN ('table','view') THEN 0 ELSE 1 END,schema_name,kind,object_name,identity_name LIMIT 2001`, Array(5).fill(database)), 'Objects visible in the active database, read using a separate connection. MySQL has no standalone sequences; MariaDB sequences appear when available. Temporary objects are not included.') },
+`, Array(5).fill(database), read), 'Objects visible in the active database, read using a separate connection. MySQL has no standalone sequences; MariaDB sequences appear when available. Temporary objects are not included.', read?.object ? 1 : read?.limit) },
     async detail(o) {
       const sections = [], table = o.parent ?? o.name, params = [o.schema,table]
       if (['table','view','index','constraint'].includes(o.kind)) {

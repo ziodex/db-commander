@@ -65,13 +65,14 @@ for (const engine of ['postgres','mysql','mariadb','sqlserver','oracle'] as cons
         await form.getByLabel(engine === 'oracle' ? 'Service name' : 'Database',{exact:true}).fill(config.database); await form.getByLabel('User',{exact:true}).fill(config.user); await form.getByLabel('Password',{exact:true}).fill(config.password)
         if (engine !== 'oracle') { await form.getByText('Custom CA certificate',{exact:true}).click(); await form.getByLabel('CA certificate PEM').fill(ca) }
         let start = performance.now(); await form.getByRole('button',{name:'Connect',exact:true}).click(); await expect(form).not.toBeVisible({timeout:30000}); await expect(refresh).toBeEnabled()
-        await expect(tableNode(page,last)).toHaveCount(1); await expect(tableNode(page,prefix+'view')).toHaveCount(1); timings.connect = performance.now()-start
-        await expect(page.getByText('Schema preview limit reached; some objects or columns are omitted.',{exact:true})).toBeVisible()
-        await expect(page.getByText('Catalog limit reached (2,000 objects). Some objects are omitted.',{exact:true})).toBeVisible()
-        const tableCount = await page.locator('.schema-object').count(); expect(tableCount).toBeGreaterThanOrEqual(SERVER_CATALOG_TABLES+1)
+        await expect(tableNode(page,table(0))).toHaveCount(1); timings.connect = performance.now()-start
+        await expect(page.getByRole('button',{name:'Next catalog page',exact:true})).toBeEnabled()
+        await expect(tableNode(page,last)).toHaveCount(0)
+        await filter.fill(prefix+'view'); await expect(tableNode(page,prefix+'view')).toHaveCount(1); await filter.fill(''); await expect(tableNode(page,table(0))).toHaveCount(1)
+        const tableCount = await page.locator('.schema-object').count(); expect(tableCount).toBe(100)
         const buffer = 'SELECT 42 AS preserved; -- large server catalog'
         await page.locator('.monaco-editor').click(); await page.keyboard.press(`${key}+A`); await page.keyboard.insertText(buffer); await page.keyboard.press('Escape'); await expect.poll(sqlText).toBe(buffer)
-        start = performance.now(); await refresh.click(); await expect(refresh).toBeEnabled(); await expect(tableNode(page,last)).toHaveCount(1); timings.refresh = performance.now()-start
+        start = performance.now(); await refresh.click(); await expect(refresh).toBeEnabled(); await expect(tableNode(page,table(0))).toHaveCount(1); timings.refresh = performance.now()-start
         for (let i=0;i<3;i++) {
           start = performance.now(); await filter.fill(last); await expect(page.locator('.schema-object')).toHaveCount(1); timings[`filter${i}`] = performance.now()-start
           await filter.fill(''); await expect(page.locator('.schema-object')).toHaveCount(tableCount)

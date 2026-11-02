@@ -1,6 +1,6 @@
 # Db Commander product roadmap
 
-Updated **28 October 2026** after reviewing the current implementation and running the app with disposable data.
+Updated **2 November 2026** against development and the C1 catalog-navigation implementation. Qualification remains scoped to the evidence below.
 
 ## Product goal
 
@@ -33,30 +33,31 @@ Complete the confirmed correctness fixes first, then improve daily navigation an
 
 ## Milestone 2 — Complete schema and data workflows
 
-| ID | Deliverable | Acceptance criteria |
-| --- | --- | --- |
-| S1 | Expand table and object designers | Create/alter native types, nullability, literal/expression defaults, identities/generated columns, foreign/check/unique constraints and engine-specific indexes. Preview exact SQL and transaction behavior; cover supported operations against each real engine. |
-| S2 | Edit database object source | Load, edit, compare and apply views, routines and triggers; show definition origin and stale-source conflicts. Provide useful create/alter/drop scripting and routine execution with discovered parameters. |
-| D1 | Broaden safe grid editing | Add SQL change previews, row duplication/bulk paste, supported large/binary/complex-value editors and eligible simple-query editing. Preserve exact values and concurrency checks; define safe behavior for tables containing unsupported columns or triggers. |
-| D2 | Complete transfer workflows | Extend existing streaming import/export with saved mappings, new-table import with reviewed type inference, richer formats and reviewed database-to-database transfers. Verify cancellation, partial outcomes and large inputs. |
+| ID | Deliverable | Acceptance criteria | Status |
+| --- | --- | --- | --- |
+| S1 | Expand table and object designers | Create/alter native types, nullability, literal/expression defaults, identities/generated columns, foreign/check/unique constraints and engine-specific indexes. Preview exact SQL and transaction behavior; cover supported operations against each real engine. | Complete · merged; documented engine limits apply |
+| S2 | Edit database object source | Load, edit, compare and apply views, routines and triggers; show definition origin and stale-source conflicts. Provide useful create/alter/drop scripting and routine execution with discovered parameters. | Complete · merged; documented engine limits apply |
+| D1 | Broaden safe grid editing | Add SQL change previews, row duplication/bulk paste, supported large/binary/complex-value editors and eligible simple-query editing. Preserve exact values and concurrency checks; define safe behavior for tables containing unsupported columns or triggers. | Complete · merged; documented engine limits apply |
+| D2 | Complete transfer workflows | Extend existing streaming import/export with saved mappings, new-table import with reviewed type inference, richer formats and reviewed database-to-database transfers. Verify cancellation, partial outcomes and large inputs. | Complete · merged; documented engine limits apply |
 
 ## Milestone 3 — Database development tools and scale
 
-| ID | Deliverable | Acceptance criteria |
-| --- | --- | --- |
-| Q1 | Develop SQL intelligence | Add dialect-aware diagnostics, richer derived/correlated-query completion, routine signatures, definition/reference navigation and previewed rename refactoring. Analyze without executing the SQL being edited. |
-| C1 | Navigate large catalogs | Replace preview-only discovery with lazy loading, paging and server-side object search. Find objects beyond the current 2,000-object preview while retaining bounded memory and responsive navigation. |
-| C2 | Deepen comparison and migrations | Scale schema/data comparison beyond small captured sets; generate dependency-aware migration scripts and reviewed synchronization plans. Show scope, consistency model and destructive operations; never infer missing data from partial reads. |
-| Q2 | Improve analysis workspaces | Extend graphical execution plans beyond PostgreSQL, add useful plan comparison and performance context, persist diagram layouts, and support projects/SQL directories suited to source control. |
+| ID | Deliverable | Acceptance criteria | Status |
+| --- | --- | --- | --- |
+| Q1 | Develop SQL intelligence | Add dialect-aware diagnostics, richer derived/correlated-query completion, routine signatures, definition/reference navigation and previewed rename refactoring. Analyze without executing the SQL being edited. | Planned |
+| C1 | Navigate large catalogs | Replace preview-only discovery with lazy loading, paging and server-side object search. Find objects beyond the current 2,000-object preview while retaining bounded memory and responsive navigation. | Complete · local validation |
+| C2 | Deepen comparison and migrations | Scale schema/data comparison beyond small captured sets; generate dependency-aware migration scripts and reviewed synchronization plans. Show scope, consistency model and destructive operations; never infer missing data from partial reads. | Planned |
+| Q2 | Improve analysis workspaces | Extend graphical execution plans beyond PostgreSQL, add useful plan comparison and performance context, persist diagram layouts, and support projects/SQL directories suited to source control. | Planned |
 
 ## Milestone 4 — Administration depth
 
-| ID | Deliverable | Acceptance criteria |
-| --- | --- | --- |
-| A1 | Manage security principals | Inspect and manage users/logins/roles/grants using each engine's privilege model. Preview changes and surface inherited/effective permissions and visibility limits. |
-| A2 | Manage database lifecycle and maintenance | Add reviewed database create/rename/drop operations, supported maintenance/statistics/index tools, and richer backup/restore workflows. Use engine-specific capabilities and accurate transaction/permission reporting. |
-| A3 | Add operational diagnostics | Extend existing sessions/locks tooling with performance diagnostics, engine-specific job/schedule management where supported, and a unified operation/progress history. |
-| A4 | Complete authentication workflows | Add interactive Entra sign-in and renewal, Windows integrated authentication where supported, and separately qualified cloud/network paths. Document each supported authentication/platform combination. |
+| ID | Deliverable | Acceptance criteria | Status |
+| --- | --- | --- | --- |
+| A1 | Manage security principals | Inspect and manage users/logins/roles/grants using each engine's privilege model. Preview changes and surface inherited/effective permissions and visibility limits. | Planned |
+| A2 | Manage database lifecycle and maintenance | Add reviewed database create/rename/drop operations, supported maintenance/statistics/index tools, and richer backup/restore workflows. Use engine-specific capabilities and accurate transaction/permission reporting. | Partial · guided backup/restore merged; lifecycle and maintenance remain |
+| A3 | Add operational diagnostics | Extend existing sessions/locks tooling with performance diagnostics, engine-specific job/schedule management where supported, and a unified operation/progress history. | Planned |
+| A4 | Complete authentication workflows | Add interactive Entra sign-in and renewal, Windows integrated authentication where supported, and separately qualified cloud/network paths. Document each supported authentication/platform combination. | Partial · Windows SQL Server authentication exists; Entra and cloud qualification remain |
+
 
 ## Engineering and open-source delivery — continuous
 
@@ -79,6 +80,8 @@ This is a delivery checklist alongside the product roadmap, not a feature freeze
 Release qualification stays tied to its exact candidate and tested scope. Updates are currently manual. This roadmap does not schedule a release, long-running soak, publication or branch merge.
 
 ## Review and completion
+
+C1 now provides server-side search beyond the old preview, 100-object forward/backward pages, lazy table children and targeted inspection while preserving physical-owner locks and SQL buffers/results. Local macOS Apple Silicon qualification passes **1,134 unit tests / three platform skips**, **173 packaged workflows and three startup checks**, focused catalog checks on all seven engines, five server overflow contracts, five native server explorer cases, embedded driver checks at 10,000/20,000 tables and native checks at 20,000 tables. Independent UI review resolved the single contrast finding; the existing visual system is retained. Completion and feature snapshots retain their documented limits; cross-platform CI and release gates remain separate. See [C1 qualification](DRIVER_TESTING.md#c1-catalog-navigation--2-november-2026).
 
 The backup/restore portion of A2 now has a guided configure/check/review/run workflow, native local-file and tools-folder choices, bounded advisory metadata checks, searchable job history and explicit connection to a successful restore in an empty independent tab. Existing new-target, no-overwrite, transaction, credential and unknown-outcome protections remain authoritative. This implements the backup/restore slice only; the other A2 lifecycle and maintenance work remains on the roadmap. Qualification and limitations are recorded in [backup testing](DRIVER_TESTING.md#backup-and-restore).
 

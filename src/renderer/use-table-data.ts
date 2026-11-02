@@ -8,6 +8,7 @@ import { matchingTableLayout, saveTableLayout, tableColumns, tableColumnViewKey,
 import { workspaceSqlLimit } from '../shared/workspace-limits'
 import type { SavedColumnControls } from './ColumnControls'
 import { emptyTabState, tabOperationBusy, type QueryTabState } from './query-tabs'
+import type { useWorkspaceSessions } from './use-workspace-sessions'
 import type { useWorkspaceTabs } from './use-workspace-tabs'
 import { rendererError as message, type WorkspaceRuntime } from './workspace-runtime'
 
@@ -15,12 +16,13 @@ interface Options {
   api: DesktopApi; runtime: WorkspaceRuntime; workspace: Workspace; tab: WorkspaceTab; ready: boolean; readyRef: RefObject<boolean>
   editors: RefObject<Map<string, Monaco.editor.IStandaloneCodeEditor>>; sqlFiles: { busy: boolean }; closeId: string | null
   newTab: ReturnType<typeof useWorkspaceTabs>['newTab']
+  sessions: Pick<ReturnType<typeof useWorkspaceSessions>, 'waitForCatalog'>
   changeLayout(update: (previous: WorkspaceLayout) => WorkspaceLayout): void
   focusEditor(id: string): void
 }
 
 /** Owns table snapshots, staged changes, navigation and saved column layouts. */
-export function useTableData({ api, runtime, workspace, tab, ready, readyRef, editors, sqlFiles, closeId, newTab, changeLayout, focusEditor }: Options) {
+export function useTableData({ api, runtime, workspace, tab, ready, readyRef, editors, sqlFiles, closeId, newTab, sessions, changeLayout, focusEditor }: Options) {
   const { workspaceRef, statesRef, patchState, patchTab, changeWorkspace, persist, report } = runtime
   const { id: tabId, profile } = tab
   const state = statesRef.current[tabId] ?? emptyTabState(), session = state.session
@@ -65,7 +67,10 @@ export function useTableData({ api, runtime, workspace, tab, ready, readyRef, ed
     const created = newTab(undefined, { sql: '', title: table.name.trim() || 'Table data' })
     if (!created) return
     changeLayout(layout => ({ ...layout, resultsVisible: true, resultsMaximized: false }))
-    if (!await created.connected) return
+    const connected = await created.connected
+    if (!connected || !await sessions.waitForCatalog(connected.id)) return
+    const target = statesRef.current[created.id]?.session
+    if (!readyRef.current || target?.id !== connected.id || target.database !== connected.database) return
     const grid = await openGrid(table, 'browse', undefined, false, created.id)
     const owner = workspaceRef.current.tabs.find(tab => tab.id === created.id)
     if (!grid?.statement || !owner || owner.sql) return

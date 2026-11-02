@@ -21,7 +21,7 @@ export interface DatabaseDriver {
   cancel(id: string): Promise<{ requested: boolean }>
   tables(id: string): Promise<SchemaTable[]>
   schema(id: string): Promise<SchemaSnapshot>
-  explore(id: string, object?: import('../shared/catalog').CatalogObject, diagram?: import('../shared/diagram').DiagramScope): Promise<import('../shared/catalog').CatalogResponse>
+  explore(id: string, object?: import('../shared/catalog').CatalogObject, diagram?: import('../shared/diagram').DiagramScope, page?: import('../catalog/paging').CatalogRead): Promise<import('../shared/catalog').CatalogResponse>
   exportCsv(queryId: string, index: number, path: string): Promise<void>
   getSession(id: string): SessionInfo
   wait(id: string): Promise<void>

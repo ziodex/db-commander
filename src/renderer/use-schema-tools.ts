@@ -22,7 +22,7 @@ export function useSchemaTools({ api, runtime, tabId, setHistory, sessions }: Op
 
   async function inspectObject(object: CatalogObject) {
     const current = statesRef.current[tabId], sessionId = current?.session?.id
-    if (!sessionId || current.sharedSessionBusy || current.schemaLoading || current.running || current.gridBusy || current.backupBusy || current.transferBusy || current.switching || current.databasesLoading) return
+    if (!sessionId || current.sharedSessionBusy || current.schemaLoading || current.catalogLoading || current.running || current.gridBusy || current.backupBusy || current.transferBusy || current.switching || current.databasesLoading) return
     setObjectView(previous => previous?.sessionId === sessionId && previous.tabId === tabId && objectKey(previous.object) === objectKey(object) ? { ...previous, loading: true, error: undefined } : { tabId, sessionId, object, loading: true }); patchState(tabId, { schemaLoading: true })
     try {
       const detail = await api.inspectObject({ sessionId, object })

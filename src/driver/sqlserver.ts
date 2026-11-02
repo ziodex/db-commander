@@ -4,7 +4,7 @@ import { readActivity } from '../activity/read'
 import type { DiagramScope } from '../shared/diagram'
 import { readDiagram } from '../catalog/diagram'
 import { bindRequest, boundValue } from './parameters'
-import { inspect } from '../catalog/common'
+import { catalogPage, inspect } from '../catalog/common'
 import { sqlServerCatalog } from '../catalog/sqlserver'
 import type { CatalogObject } from '../shared/catalog'
 import type { DriverRunRequest } from './driver'
@@ -214,10 +214,10 @@ export class SqlServerDriver implements DatabaseDriver {
     try { return await read({engine:this.engine,database,currentSessionId:session.nativeId,query:sql=>sqlServerQuery(client,sql,501)}) }
     finally { clearTimeout(timer);client.close() }
   }
-  async explore(id: string, object?: CatalogObject, diagram?: DiagramScope) {
+  async explore(id: string, object?: CatalogObject, diagram?: DiagramScope, page?: import('../catalog/paging').CatalogRead) {
     const session = this.session(id), client = await openSqlServer({ ...session.config, database: session.info.database })
     const timeout = setTimeout(() => client.close(), 20000)
-    try { const query: import('../catalog/common').CatalogQuery=async(sql,values)=>(await sqlServerBound(client,sql,values)).rows,adapter=sqlServerCatalog(query);return diagram?{diagram:await readDiagram(adapter,query,session.info.engine,diagram,'catalog-connection')}:await inspect(adapter,object) }
+    try { const query: import('../catalog/common').CatalogQuery=async(sql,values)=>(await sqlServerBound(client,sql,values)).rows,adapter=sqlServerCatalog(query);return diagram?{diagram:await readDiagram(adapter,query,session.info.engine,diagram,'catalog-connection')}:page ? { page: await catalogPage(adapter, page, 'catalog-connection') } : await inspect(adapter,object) }
     finally { clearTimeout(timeout); client.close() }
   }
   async schema(id: string) {

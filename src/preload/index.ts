@@ -130,6 +130,7 @@ const api: DesktopApi = {
   compareSchemas: request => ipcRenderer.invoke('sql:compareSchemas', request),
   diagram: request => ipcRenderer.invoke('sql:diagram',request),
   saveDiagram: request => ipcRenderer.invoke('sql:saveDiagram',request),
+  catalogPage: request => ipcRenderer.invoke('sql:catalogPage', request),
   inspectObject: request => ipcRenderer.invoke('sql:inspectObject', request),
   schema: id => ipcRenderer.invoke('sql:schema', id),
   loadWorkspace: () => ipcRenderer.invoke('sql:loadWorkspace'),

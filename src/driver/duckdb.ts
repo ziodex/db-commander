@@ -2,7 +2,7 @@ import { executionUnits, failureSource } from '../language/execution'
 import type { DiagramScope } from '../shared/diagram'
 import { readDiagram } from '../catalog/diagram'
 import { bindRequest, boundValue } from './parameters'
-import { inspect } from '../catalog/common'
+import { catalogPage, inspect } from '../catalog/common'
 import { duckdbCatalog } from '../catalog/duckdb'
 import type { CatalogObject } from '../shared/catalog'
 import type { DriverRunRequest } from './driver'
@@ -258,11 +258,11 @@ export class DuckDBDriver implements DatabaseDriver {
     if (operation.native) session.client.interrupt()
     return { requested: true }
   }
-  async explore(id: string, object?: CatalogObject, diagram?: DiagramScope) {
+  async explore(id: string, object?: CatalogObject, diagram?: DiagramScope, page?: import('../catalog/paging').CatalogRead) {
     const session = this.session(id)
     if (session.busy || session.metadata || session.inspection) throw new Error('Wait for the DuckDB operation to finish before inspecting objects.')
     const query: import('../catalog/common').CatalogQuery=async(sql,values=[])=>(await session.client.runAndReadAll(sql,values)).getRows().map(row=>row.map(duckdbCell)),adapter=duckdbCatalog(query)
-    return diagram?{diagram:await readDiagram(adapter,query,'duckdb',diagram,'session')}:inspect(adapter,object,'session')
+    return diagram?{diagram:await readDiagram(adapter,query,'duckdb',diagram,'session')}:page ? { page: await catalogPage(adapter, page, 'session') } : inspect(adapter,object,'session')
   }
   async schema(id: string): Promise<SchemaSnapshot> {
     const session = this.session(id)

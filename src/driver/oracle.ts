@@ -4,7 +4,7 @@ import { readActivity } from '../activity/read'
 import type { DiagramScope } from '../shared/diagram'
 import { readDiagram } from '../catalog/diagram'
 import { bindRequest, boundValue } from './parameters'
-import { inspect } from '../catalog/common'
+import { catalogPage, inspect } from '../catalog/common'
 import { endpoint, isRouted } from '../connections/transport'
 import { oracleCatalog } from '../catalog/oracle'
 import type { CatalogObject } from '../shared/catalog'
@@ -292,7 +292,7 @@ export class OracleDriver implements DatabaseDriver {
       }})
     } finally { await client.close().catch(()=>{}) }
   }
-  async explore(id: string, object?: CatalogObject, diagram?: DiagramScope) {
+  async explore(id: string, object?: CatalogObject, diagram?: DiagramScope, page?: import('../catalog/paging').CatalogRead) {
     const session = this.session(id), client = await openOracle(session.config)
     let definitionClient: oracledb.Connection | undefined
     const deadline = Date.now() + 45000
@@ -323,7 +323,7 @@ export class OracleDriver implements DatabaseDriver {
         return rows
       }
       const query = queryFor(client), adapter=oracleCatalog(query, definitionClient && queryFor(definitionClient))
-      return diagram?{diagram:await readDiagram(adapter,query,'oracle',diagram,'catalog-connection')}:await inspect(adapter,object)
+      return diagram?{diagram:await readDiagram(adapter,query,'oracle',diagram,'catalog-connection')}:page ? { page: await catalogPage(adapter, page, 'catalog-connection') } : await inspect(adapter,object)
     } finally {
       const readers = definitionClient ? [client, definitionClient] : [client]
       const closed = await Promise.allSettled(readers.map(async reader => { await reader.close() }))

@@ -5,6 +5,7 @@ import { DriverRegistry } from '../../src/driver/registry'
 import { quoteIdentifier } from '../../src/shared/sql/common'
 import type { ConnectionConfig, DatabaseEvent } from '../../src/shared/contracts'
 import type { CatalogObject } from '../../src/shared/catalog'
+import { verifyCatalogNavigation } from './catalog-navigation-contract'
 
 export async function verifyCatalog(config: ConnectionConfig) {
   const events: DatabaseEvent[] = [], driver = new DriverRegistry(event => { events.push(event) }, { workerPath: resolve('out/main/sqlite-worker.cjs') })
@@ -57,6 +58,11 @@ export async function verifyCatalog(config: ConnectionConfig) {
     expect(snapshot.catalog?.notice).not.toContain('unavailable')
     const object = objects.find(object => object.name === table && object.kind === 'table')!
     expect(object).toBeDefined(); expect(events).toHaveLength(before)
+    await verifyCatalogNavigation(driver, session.id, table, prefix, q, run, drops)
+    const children = await driver.catalogPage({ sessionId: session.id, parent: object, search: '', rootsOnly: false })
+    expect(children.objects.some(o => o.name === index)).toBe(true)
+    const match = await driver.catalogPage({ sessionId: session.id, search: index, kind: 'index', rootsOnly: false })
+    expect(match.parents?.some(o => o.name === table)).toBe(true)
     if (engine === 'oracle') {
       expect(objects.every(o => o.schema === config.user.toUpperCase())).toBe(true)
       await expect(detail({ ...object, schema: 'DBCOMMANDER_COMPARE' })).rejects.toThrow(/no longer visible/)

@@ -207,6 +207,7 @@ export interface DesktopApi {
   compareData(request: import('./data-compare').DataCompareRequest): Promise<import('./data-compare').DataComparison>
   diagram(request: import('./diagram').DiagramRequest): Promise<import('./diagram').DiagramSnapshot>
   saveDiagram(request: import('./diagram').DiagramExport): Promise<string|null>
+  catalogPage(request: import('./catalog').CatalogPageRequest): Promise<import('./catalog').CatalogPage>
   inspectObject(request: import('./catalog').InspectObjectRequest): Promise<import('./catalog').ObjectDetail>
   editGrid(request: GridRequest): Promise<GridResponse>
   loadWorkspace(): Promise<(Workspace & { recoveryNotice?: string }) | null>

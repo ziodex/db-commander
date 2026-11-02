@@ -11,7 +11,7 @@ import { compareSchemaSchema } from '../shared/schema-compare'
 import { diagramRequestSchema } from '../shared/diagram'
 import { historySearchSchema, historySettingsSchema, snippetSchema, snippetSearchSchema } from '../shared/query-library'
 import { explainRequestSchema } from '../shared/explain'
-import { inspectObjectSchema } from '../shared/catalog'
+import { catalogPageSchema, inspectObjectSchema } from '../shared/catalog'
 import { prepareSchemaChangeSchema, applySchemaChangeSchema } from '../shared/schema-changes'
 import { join } from 'node:path'
 import { statfsSync } from 'node:fs'
@@ -98,6 +98,7 @@ function initialize(): void {
     prepareQueryBuilder: payload => driver.prepareQueryBuilder(prepareBuilderSchema.parse(payload)),
     reviewedMigration: payload => driver.reviewedMigration(saveMigrationSchema.parse(payload)),
     diagram: payload => driver.diagram(diagramRequestSchema.parse(payload)),
+    catalogPage: payload => driver.catalogPage(catalogPageSchema.parse(payload)),
     inspectObject: payload => driver.inspectObject(inspectObjectSchema.parse(payload)),
     schema: payload => driver.schema(idSchema.parse(payload)),
     run: async payload => {

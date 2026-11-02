@@ -4,7 +4,7 @@ import { readActivity } from '../activity/read'
 import type { DiagramScope } from '../shared/diagram'
 import { readDiagram } from '../catalog/diagram'
 import { bindRequest, boundValue } from './parameters'
-import { inspect } from '../catalog/common'
+import { catalogPage, inspect } from '../catalog/common'
 import { mysqlCatalog } from '../catalog/mysql'
 import type { CatalogObject } from '../shared/catalog'
 import type { DriverRunRequest } from './driver'
@@ -228,10 +228,10 @@ export class MysqlDriver implements DatabaseDriver {
     try { return await read({engine:this.engine,database,currentSessionId:String(session.client.id),query:sql=>client.query(sql)}) }
     finally { clearTimeout(timer);await client.end().catch(()=>client.destroy()) }
   }
-  async explore(id: string, object?: CatalogObject, diagram?: DiagramScope) {
+  async explore(id: string, object?: CatalogObject, diagram?: DiagramScope, page?: import('../catalog/paging').CatalogRead) {
     const session = this.session(id), client = await openMysqlTransport({ ...session.config, database: session.info.database })
     const timeout = setTimeout(() => client.destroy(), 20000)
-    try { const query: import('../catalog/common').CatalogQuery=(sql,values)=>client.query(sql,values),adapter=mysqlCatalog(query,session.info.database);return diagram?{diagram:await readDiagram(adapter,query,session.info.engine,diagram,'catalog-connection')}:await inspect(adapter,object) }
+    try { const query: import('../catalog/common').CatalogQuery=(sql,values)=>client.query(sql,values),adapter=mysqlCatalog(query,session.info.database);return diagram?{diagram:await readDiagram(adapter,query,session.info.engine,diagram,'catalog-connection')}:page ? { page: await catalogPage(adapter, page, 'catalog-connection') } : await inspect(adapter,object) }
     finally { clearTimeout(timeout); await client.end().catch(() => client.destroy()) }
   }
   async schema(id: string) {

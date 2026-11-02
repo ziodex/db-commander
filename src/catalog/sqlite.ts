@@ -1,25 +1,20 @@
+import { catalogRows } from './paging'
 import type { Cell } from '../shared/contracts'
-import { catalog, definition, section, LIMIT, type CatalogAdapter, type CatalogQuery } from './common'
+import { catalog, definition, section, type CatalogAdapter, type CatalogQuery } from './common'
 import { quoteIdentifier } from '../shared/sql/common'
 export function sqliteCatalog(query: CatalogQuery): CatalogAdapter {
   const q = (s: string) => quoteIdentifier(s, 'sqlite')
   return {
-    async list() {
-      const databases = await query('PRAGMA database_list')
-      let rows: Cell[][] = []
-      const rank = (row: Cell[]) => ['table','view'].includes(row[3] ?? '') ? 0 : 1
-      for (const [,schema] of databases) {
-        const objects = await query(`SELECT * FROM (
-          SELECT NULL AS catalog_name,? AS schema_name,name,type AS kind,CAST(rowid AS TEXT) AS identity_name,CASE WHEN type IN ('index','trigger') THEN tbl_name END AS parent_name,NULL AS signature_name,NULL AS constraint_type FROM ${q(schema!)}.sqlite_schema WHERE type IN ('table','view','index','trigger') AND (substr(name,1,7)<>'sqlite_' OR type='index')
+    async list(read) {
+      const databases = await query('PRAGMA database_list'), parameters: Cell[] = []
+      const sources = databases.map(([, schema]) => {
+        parameters.push(schema, schema, schema)
+        return `SELECT NULL AS catalog_name,? AS schema_name,name AS object_name,type AS kind,CAST(rowid AS TEXT) AS identity_name,CASE WHEN type IN ('index','trigger') THEN tbl_name END AS parent_name,NULL AS signature_name,NULL AS constraint_type FROM ${q(schema!)}.sqlite_schema WHERE type IN ('table','view','index','trigger') AND (substr(name,1,7)<>'sqlite_' OR type='index')
           UNION ALL SELECT NULL,?,'Foreign key '||f.id,'constraint','fk:'||t.rowid||':'||f.id,t.name,NULL,'foreign key'
-          FROM ${q(schema!)}.sqlite_schema t JOIN pragma_foreign_key_list(t.name,?) f WHERE t.type='table' AND substr(t.name,1,7)<>'sqlite_' AND f.seq=0
-        ) ORDER BY CASE WHEN kind IN ('table','view') THEN 0 ELSE 1 END,kind,name,identity_name LIMIT 2001`, [schema,schema,schema])
-        // Check every attached schema: early stopping can hide all of its
-        // relations behind another database's indexes/foreign keys. Keep only
-        // one overflow sentinel while merging the bounded per-schema reads.
-        rows = [...rows, ...objects].sort((a,b) => rank(a)-rank(b) || [1,3,2,4].reduce((order,index) => order || (a[index] ?? '').localeCompare(b[index] ?? ''), 0)).slice(0, LIMIT + 1)
-      }
-      return catalog(rows, 'Includes main, temp and attached databases in this tab. Foreign keys use SQLite IDs because PRAGMA does not expose constraint names; other keys/checks remain in table details and stored CREATE SQL. SQLite has no stored routines or standalone sequences.')
+          FROM ${q(schema!)}.sqlite_schema t JOIN pragma_foreign_key_list(t.name,?) f WHERE t.type='table' AND substr(t.name,1,7)<>'sqlite_' AND f.seq=0`
+      })
+      const rows = await catalogRows(query, 'sqlite', sources.join(' UNION ALL '), parameters, read)
+      return catalog(rows, 'Includes main, temp and attached databases in this tab. Foreign keys use SQLite IDs because PRAGMA does not expose constraint names; other keys/checks remain in table details and stored CREATE SQL. SQLite has no stored routines or standalone sequences.', read?.object ? 1 : read?.limit)
     },
     async detail(o) {
       const sections = [], table = o.parent ?? o.name

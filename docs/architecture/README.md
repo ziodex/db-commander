@@ -1,6 +1,6 @@
 # Db Commander architecture
 
-Db Commander keeps the desktop interface, native capabilities and database execution in separate runtime layers. Feature modules share typed contracts and pure SQL utilities. The beta scope and release gates remain in [the frozen plan](../PLAN.md).
+Db Commander keeps the desktop interface, native capabilities and database execution in separate runtime layers. Feature modules share typed contracts and pure SQL utilities. The beta scope and release gates remain in [the product roadmap](../PLAN.md).
 
 ## Runtime boundaries
 
@@ -75,3 +75,8 @@ Retain this topology for the beta candidate. Separating storage or grouping host
 Keep pure dialect parsing, quoting and preview generation in `shared/sql`; frontend language tools and backend adapters use the same implementation. Prefer focused feature modules within `src` while the application has one consumer. Package extraction should provide a real ownership or reuse boundary.
 
 Major architecture changes should add a dated decision here explaining the existing behavior, chosen ownership, alternatives and verification needed. Keep behavior-preserving refactors separate from changes to transaction semantics, replay policy or supported engines.
+
+
+## Catalog navigation ownership — 2 November 2026
+
+`CatalogBrowser` composes the incumbent explorer tree and one bounded lazy table-child page. `use-catalog-page` owns debounce, request identity, obsolete-response rejection and replaceable page state; `use-workspace-sessions.readCatalog` owns physical/shared connection availability and host-generation checks. The initial page reserves its owner before paint; an explicit Browse into a new shared tab settles that read and rechecks the target before using the existing guarded table-data operation. `DriverRegistry.catalogPage` validates the strict read-only request and acquires the existing session operation reservation. The existing adapters own permissions and metadata connections; `catalog/paging` supplies bound filters and deterministic keyset positions, while `catalog/common` validates targeted identities and bounds parent context. No catalog rows or cursors are persisted, and editor SQL/results are not inputs to discovery. The bounded language/feature snapshot remains a separate contract.

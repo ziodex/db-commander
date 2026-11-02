@@ -44,6 +44,9 @@ for (const engine of ['sqlite', 'duckdb'] as const) test(`large catalog ${engine
     expect(overflow.catalog!.objects.every(object => object.kind === 'table')).toBe(true)
     expect(overflow.catalog!.objects.some(object => object.name === catalogTable(1999))).toBe(true)
     expect(overflow.catalog!.objects.some(object => object.name === catalogTable(2000))).toBe(false)
+    const beyond = await driver.catalogPage({ sessionId: session.id, search: catalogTable(OVERFLOW_CATALOG_TABLES - 1), rootsOnly: true })
+    expect(beyond.objects).toHaveLength(1)
+    expect((await driver.inspectObject({ sessionId: session.id, object: beyond.objects[0] })).definition.sql).toContain(catalogTable(OVERFLOW_CATALOG_TABLES - 1))
     expect(timings.refresh).toBeLessThan(10000); expect(timings.inspect).toBeLessThan(5000); expect(timings.overflowRefresh).toBeLessThan(10000)
   } finally {
     await driver.close()

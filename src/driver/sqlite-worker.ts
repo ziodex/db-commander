@@ -1,7 +1,7 @@
 import { executionUnits, failureSource } from '../language/execution'
 import { readDiagram } from '../catalog/diagram'
 import { boundValue } from './parameters'
-import { inspect } from '../catalog/common'
+import { catalogPage, inspect } from '../catalog/common'
 import { sqliteCatalog } from '../catalog/sqlite'
 import { TableEditor, runGridOperation } from './table-editor'
 import type { SessionInfo } from '../shared/contracts'
@@ -161,7 +161,7 @@ process.on('message', async (message: { id: string; method: string; payload: any
       try { const query: import('../catalog/common').CatalogQuery=async(sql,values=[])=>{
         const statement = db!.prepare(sql); statement.setReturnArrays(true); statement.setReadBigInts(true)
         return (statement.all(...values) as unknown as unknown[][]).map(row => row.map(cell))
-      };const adapter=sqliteCatalog(query);value=payload.diagram?{diagram:await readDiagram(adapter,query,'sqlite',payload.diagram,'session')}:await inspect(adapter,payload.object,'session') } finally { active = false }
+      };const adapter=sqliteCatalog(query);value=payload.diagram?{diagram:await readDiagram(adapter,query,'sqlite',payload.diagram,'session')}:payload.page ? { page: await catalogPage(adapter,payload.page,'session') } : await inspect(adapter,payload.object,'session') } finally { active = false }
     }
     else if (method === 'cancelBackup') backupController?.abort()
     else if (method === 'cancelImport') importController?.abort(new Error('Cancellation requested.'))

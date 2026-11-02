@@ -1,15 +1,16 @@
+import { catalogRows } from './paging'
 import { catalog, definition, section, type CatalogAdapter, type CatalogQuery } from './common'
 import { quoteIdentifier } from '../shared/sql/common'
 export function duckdbCatalog(query: CatalogQuery): CatalogAdapter {
   return {
-    async list() { return catalog(await query(`SELECT * FROM (
-      SELECT database_name,schema_name,table_name AS name,'table' AS kind,CAST(table_oid AS VARCHAR) AS identity_name,NULL::VARCHAR AS parent_name,NULL::VARCHAR AS signature_name,NULL::VARCHAR AS constraint_type FROM system.main.duckdb_tables() WHERE NOT internal
+    async list(read) { return catalog(await catalogRows(query, 'duckdb', `
+      SELECT database_name AS catalog_name,schema_name,table_name AS object_name,'table' AS kind,CAST(table_oid AS VARCHAR) AS identity_name,NULL::VARCHAR AS parent_name,NULL::VARCHAR AS signature_name,NULL::VARCHAR AS constraint_type FROM system.main.duckdb_tables() WHERE NOT internal
       UNION ALL SELECT database_name,schema_name,view_name,'view',CAST(view_oid AS VARCHAR),NULL,NULL,NULL FROM system.main.duckdb_views() WHERE NOT internal
       UNION ALL SELECT database_name,schema_name,index_name,'index',CAST(index_oid AS VARCHAR),table_name,NULL,NULL FROM system.main.duckdb_indexes()
       UNION ALL SELECT database_name,schema_name,sequence_name,'sequence',CAST(sequence_oid AS VARCHAR),NULL,NULL,NULL FROM system.main.duckdb_sequences()
       UNION ALL SELECT database_name,schema_name,function_name,'macro',CAST(function_oid AS VARCHAR),NULL,CAST(parameters AS VARCHAR),NULL FROM system.main.duckdb_functions() WHERE NOT internal AND function_type IN ('macro','table_macro')
       UNION ALL SELECT database_name,schema_name,constraint_name,'constraint',CAST(table_oid AS VARCHAR)||':'||CAST(constraint_index AS VARCHAR),table_name,NULL,LOWER(constraint_type) FROM system.main.duckdb_constraints()
-      ) objects ORDER BY CASE WHEN kind IN ('table','view') THEN 0 ELSE 1 END,1,2,4,3,5 LIMIT 2001`), 'Includes this tab’s attached catalogs and temporary objects. DuckDB macros and sequences are supported; stored procedures and triggers are not available.') },
+`, [], read), 'Includes this tab’s attached catalogs and temporary objects. DuckDB macros and sequences are supported; stored procedures and triggers are not available.', read?.object ? 1 : read?.limit) },
     async detail(o) {
       const sections = [], table = o.parent ?? o.name, params = [o.catalog!,o.schema,table]
       if (['table','view','index','constraint'].includes(o.kind)) {

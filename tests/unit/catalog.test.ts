@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { catalog, definition, inspect, section } from '../../src/catalog/common'
 import { inspectObjectSchema, objectKey, type CatalogObject } from '../../src/shared/catalog'
 import { sqliteCatalog } from '../../src/catalog/sqlite'
-import type { Cell } from '../../src/shared/contracts'
+import { DatabaseSync } from 'node:sqlite'
 import { duckdbCatalog } from '../../src/catalog/duckdb'
 const object: CatalogObject = { schema: 'public', name: "odd' object", kind: 'function', identity: '123', signature: 'integer' }
 describe('catalog boundaries', () => {
@@ -21,19 +21,19 @@ describe('catalog boundaries', () => {
     expect((await incomplete.detail(fk)).definition.source).toBe('unavailable')
   })
   it('keeps SQLite relations from later attached databases ahead of child metadata within one global bound', async () => {
-    const calls: string[] = []
-    const main: Cell[][] = Array.from({ length: 2001 }, (_, i) => [null, 'main', `child_${i}`, 'index', String(i), 'owner', null, null])
-    const adapter = sqliteCatalog(async (sql, values) => {
-      calls.push(sql)
-      if (sql === 'PRAGMA database_list') return [['0','main'], ['2','zz_attached']]
-      if (values?.[0] === 'main') return main
-      return [[null,'zz_attached','visible_table','table','1',null,null,null], [null,'zz_attached','visible_view','view','2',null,null,null]]
-    })
-    const result = await adapter.list()
-    expect(calls).toHaveLength(3)
-    expect(result.objects).toHaveLength(2000); expect(result.truncated).toBe(true)
-    expect(result.objects.slice(0,2).map(object => [object.schema, object.name])).toEqual([['zz_attached','visible_table'], ['zz_attached','visible_view']])
-    expect(result.objects.filter(object => object.kind === 'index')).toHaveLength(1998)
+    const db = new DatabaseSync(':memory:')
+    try {
+      db.exec(`CREATE TABLE owner(value TEXT); ATTACH ':memory:' AS zz_attached; CREATE TABLE zz_attached.visible_table(id INTEGER); CREATE VIEW zz_attached.visible_view AS SELECT id FROM visible_table;`)
+      db.exec(Array.from({ length: 2001 }, (_, i) => `CREATE INDEX child_${i} ON owner(value);`).join('\n'))
+      const adapter = sqliteCatalog(async (sql, values = []) => {
+        const statement = db.prepare(sql); statement.setReturnArrays(true)
+        return (statement.all(...values) as unknown as unknown[][]).map(row => row.map(value => value == null ? null : String(value)))
+      })
+      const result = await adapter.list()
+      expect(result.objects).toHaveLength(2000); expect(result.truncated).toBe(true)
+      expect(result.objects.slice(0,3).map(object => [object.schema, object.name])).toEqual([['main','owner'], ['zz_attached','visible_table'], ['zz_attached','visible_view']])
+      expect(result.objects.filter(object => object.kind === 'index')).toHaveLength(1997)
+    } finally { db.close() }
   })
   it('validates a narrow object request and preserves quoted names as data', () => {
     const request = { sessionId: '00000000-0000-4000-8000-000000000001', object }

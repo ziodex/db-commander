@@ -483,7 +483,7 @@ body[data-resizing=horizontal], body[data-resizing=horizontal] * { cursor: row-r
 .schema-review textarea { width: 100%; height: 220px; padding: 12px; font: 14px/1.6 monospace; white-space: pre; }
 .schema-review > fieldset { margin-top: 12px; }
 .profile-folder { margin: 4px 0; }
-.profile-folder > summary { cursor: pointer; padding: 6px 9px; color: var(--text-muted); font-size: 14px; overflow-wrap: anywhere; }
+.profile-folder > summary { cursor: pointer; padding: 6px 9px; color: var(--muted); font-size: 14px; overflow-wrap: anywhere; }
 .profile-folder > summary small { margin-left: 8px; }
 .favorites-filter[aria-pressed="true"] { color: var(--success); background: var(--success-background); }
 .profile-row button[aria-pressed="true"] { color: var(--warning); }
@@ -829,3 +829,9 @@ body[data-resizing=horizontal], body[data-resizing=horizontal] * { cursor: row-r
   .library-content { grid-template-columns:minmax(0,1fr); min-height:0; }
   .library-content .library-list { max-height:180px; }
 }
+
+.catalog-paging { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 8px 4px; font-size: 11px; }
+.catalog-paging span { flex: 1; min-width: 70px; color: var(--muted); }
+.schema-list .catalog-paging button { width: auto; padding: 3px 6px; font-size: 12px; justify-content: center; }
+.catalog-paging[aria-label="catalog pages"] { position: sticky; top: 0; z-index: 1; background: var(--surface); border-block: 1px solid var(--border); }
+:root[data-theme] .database-explorer .schema-search input:enabled::placeholder { color: var(--muted); opacity: 1; }

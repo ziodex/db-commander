@@ -18,7 +18,7 @@ import { compareSchemaSchema } from '../shared/schema-compare'
 import { diagramRequestSchema, diagramExportSchema, diagramSvg } from '../shared/diagram'
 import { historySearchSchema, historySettingsSchema, snippetSchema, snippetSearchSchema } from '../shared/query-library'
 import { explainRequestSchema, PLAN_LIMIT } from '../shared/explain'
-import { inspectObjectSchema } from '../shared/catalog'
+import { catalogPageSchema, inspectObjectSchema } from '../shared/catalog'
 import { sshSecretsSchema } from '../shared/connection-options'
 import { prepareSchemaChangeSchema, applySchemaChangeSchema } from '../shared/schema-changes'
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, MenuItem, net, powerMonitor, shell, utilityProcess, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron'
@@ -321,6 +321,7 @@ function registerIpc(): void {
     if(result.canceled||!result.filePath)return null
     await writeGeneratedFile(result.filePath,svg,{replace:true});return result.filePath
   })
+  handle('catalogPage', async value => rpc('catalogPage', catalogPageSchema.parse(value)))
   handle('inspectObject', async value => rpc('inspectObject', inspectObjectSchema.parse(value)))
   handle('inspectImport', async value => {
     const request = importSourceSchema.parse(value)
