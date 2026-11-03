@@ -55,6 +55,7 @@ for (const engine of ['sqlite', 'duckdb'] as const) test(`object source ${engine
     await inspector.getByRole('button', { name: 'Discard draft and close editor' }).click()
     await inspector.getByRole('button', { name: 'Close object details' }).click()
     await expect(inspector).toBeHidden()
+    await waitForConnectionIdle(page)
     await page.getByRole('button', { name: 'Commit', exact: true }).click(); await expect(page.locator('.status-text')).toHaveText('Completed')
     await expect(page.getByRole('status', { name: 'Transaction status' })).toHaveText('Autocommit')
     await run(`SELECT id FROM "${name}"`)

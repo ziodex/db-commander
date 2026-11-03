@@ -1,4 +1,4 @@
-import { waitForWorkspaceReady } from './workspace-ready'
+import { enterWorkspaceSql as enter, waitForWorkspaceReady } from './workspace-ready'
 import { fileMenu } from './file-menu'
 import { _electron as electron, test as base, expect, type ElectronApplication, type Page } from '@playwright/test'
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
@@ -49,9 +49,6 @@ const test = base.extend<{ files: Harness }>({ files: async ({}, use) => {
   try { h.page = await launch(); h.app = app!; await use(h) }
   finally { await app!?.evaluate(({ app }) => app.exit(0)).catch(() => {}); await app!?.close().catch(() => {}); rmSync(directory, { recursive: true, force: true }) }
 } })
-async function enter(page: Page, sql: string) {
-  await page.locator('.monaco-editor').click(); await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A'); await page.keyboard.insertText(sql); await page.keyboard.press('Escape')
-}
 async function menu(app: ElectronApplication, page: Page, name: string) { await fileMenu(app, page, name) }
 async function shortcut(app: ElectronApplication, keyCode: string, shift = false) {
   // Disk writes precede workspace persistence/refresh. Wait until the UI accepts

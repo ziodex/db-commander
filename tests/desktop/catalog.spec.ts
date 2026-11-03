@@ -125,6 +125,7 @@ for (const engine of engineSchema.options) test(`catalog ${engine}: object group
     await page.getByRole('tab', { name: 'Untitled.sql', exact: true }).click()
     await expect.poll(() => page.locator('.monaco-editor').innerText()).toBe(buffer)
     await expect(page.locator('.transaction-badge')).toHaveText('In transaction')
+    await waitForConnectionIdle(page)
     await page.getByRole('button', { name: 'Rollback', exact: true }).click(); await expect(page.locator('.status-text')).toHaveText('Completed')
     await expect(page.getByRole('status', { name: 'Transaction status' })).toHaveText(engine === 'oracle' ? 'Manual commit mode' : 'Autocommit')
     await run(`ALTER TABLE ${q(name)} ADD ${q('fresh_column')} INTEGER`)

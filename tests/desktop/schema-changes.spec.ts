@@ -163,7 +163,10 @@ for (const engine of engineSchema.options) test(`schema changes ${engine}: revie
     await tableAction(page, `${name}`, 'Alter table')
     await expect(editor.getByRole('button', { name: 'Review SQL', exact: true })).toBeDisabled(); await expect(editor.getByRole('alert')).toContainText('Commit or roll back')
     await editor.getByRole('button', { name: 'Close schema changes', exact: true }).click()
+    await expect(editor).toBeHidden()
+    await waitForConnectionIdle(page)
     await page.getByRole('button', { name: 'Rollback', exact: true }).click(); await expect(page.locator('.status-text')).toHaveText('Completed')
+    await expect(page.getByRole('status', { name: 'Transaction status' })).toHaveText(engine === 'oracle' ? 'Manual commit mode' : 'Autocommit')
     if (['postgres','mysql','mariadb','oracle'].includes(engine)) {
       await tableAction(page, `${name}`, 'Alter table')
       await editor.getByLabel('Schema operation').selectOption('alter-column'); await editor.getByLabel('Existing column').selectOption('computed_value')
