@@ -87,3 +87,9 @@ Major architecture changes should add a dated decision here explaining the exist
 The registry reserves both participating physical connections before comparison. The schema comparison service uses bounded, scoped catalog reads and targeted incoming foreign-key checks. The migration store retains host-generated SQL and its dependency requirements through preview and reviewed export. Catalog filters, definition selection and synchronization review carry no mutation authority.
 
 The data comparison service verifies base-table identities around bounded single-statement captures. For larger captures, a SQL byte total withholds oversized payloads and a row count detects an incomplete transport fetch. The renderer pages captured differences and assembles selected proposals with their expected target values. The main process saves reviewed JSON to a new file through the native dialog. Comparison values and selections stay out of workspace and history storage.
+
+## SQL intelligence and analysis workspaces — 3 November 2026
+
+The SQL worker owns scope and token analysis. Monaco attaches diagnostics and navigation to a live model and applies alias edits only after a version-checked preview. Explicit catalog definition requests use the existing schema tools and registry reservations.
+
+The explain controller owns the single window-memory baseline. Plan parsing uses the bounded capture and keeps native output available. Schema tools persist named diagram views through workspace recovery and resolve fresh table identities when restoring. The main SQL file registry owns project-folder authority, while the renderer searches the bounded list and opens opaque entries through the established file flow.

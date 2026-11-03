@@ -1,5 +1,6 @@
 import { z } from 'zod'
-import { idSchema, type Cell } from './contracts'
+import type { Cell } from './contracts'
+import { idSchema } from './id-schema'
 
 export const objectKinds = ['table', 'view', 'materialized view', 'index', 'constraint', 'function', 'procedure', 'trigger', 'sequence', 'macro', 'package', 'type'] as const
 export const constraintKinds = ['primary key', 'foreign key', 'unique', 'check', 'default', 'not null', 'other'] as const

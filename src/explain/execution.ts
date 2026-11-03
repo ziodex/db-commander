@@ -16,9 +16,19 @@ export class PlanCollector {
     if (this.bytes + bytes > PLAN_LIMIT || this.output.rows.length >= 2000) throw new Error('Plan exceeds the 1 MB or 2,000-row capture limit. Narrow the statement; incomplete output is not shown as a complete plan.')
     this.bytes += bytes; this.output.rows.push(row)
   }
+  oracleOperators(rows: Cell[][]) {
+    if (rows.length > 1000 || this.output.rows.length + rows.length > 2000) return
+    if (this.bytes + Buffer.byteLength(JSON.stringify(rows)) <= PLAN_LIMIT) this.output.oracleOperators = rows
+  }
 }
 export function rawPlan(config: ConnectionConfig, output: PlanOutput) {
   if (!output.rows.length) throw new Error('The database returned no execution plan.')
+  if (config.engine === 'duckdb') {
+    if (output.rows.length === 1 && output.rows[0][1]?.trim()) return output.rows[0][1]
+    const raw = JSON.stringify({ plans: output.rows.map(([phase, plan]) => ({ phase, plan: JSON.parse(plan ?? '') })) })
+    if (Buffer.byteLength(raw) > PLAN_LIMIT) throw new Error('Plan exceeds the 1 MB capture limit.')
+    return raw
+  }
   const format = planFormat(config.engine)
   if (format === 'json' || format === 'xml') {
     const raw = output.rows.map(row => row[0] ?? '').join('\n')
@@ -26,7 +36,6 @@ export function rawPlan(config: ConnectionConfig, output: PlanOutput) {
     return raw
   }
   if (config.engine === 'oracle') return output.rows.map(row => row[0] ?? '').join('\n')
-  if (config.engine === 'duckdb') return output.rows.map(row => row.join('\n')).join('\n\n')
   return [output.columns, ...output.rows].map(row => row.map(value => value ?? 'NULL').join('\t')).join('\n')
 }
 
@@ -50,6 +59,17 @@ export async function isolatedPlan(config: ConnectionConfig, sql: string, signal
       submitted.push(display)
       const result = await client.execute<string[]>(display, [], { outFormat: oracledb.OUT_FORMAT_ARRAY, maxRows: 2001, autoCommit: false })
       collector.columns(['PLAN_TABLE_OUTPUT']); for (const row of result.rows ?? []) collector.row(row)
+      signal.throwIfAborted()
+      const operators = 'SELECT ID,PARENT_ID,POSITION,OPERATION,OPTIONS,OBJECT_OWNER,OBJECT_NAME,CARDINALITY,COST,BYTES FROM PLAN_TABLE WHERE STATEMENT_ID=:id ORDER BY ID FETCH FIRST 1001 ROWS ONLY'
+      submitted.push(operators)
+      try {
+        const tree = await client.execute<Cell[]>(operators, [id], {
+          outFormat: oracledb.OUT_FORMAT_ARRAY, fetchTypeHandler: () => ({ type: oracledb.STRING }), maxRows: 1001, autoCommit: false
+        })
+        collector.oracleOperators(tree.rows ?? [])
+      } catch {
+        // The native text remains usable with older or restricted PLAN_TABLE views.
+      }
       signal.throwIfAborted()
       return collector.output
     } finally {

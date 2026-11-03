@@ -14,6 +14,16 @@ Highlight SQL, right-click inside the selection and choose **Run selected SQL** 
 
 On a query failure, **Go to failed statement/batch** selects the affected SQL without running it. When only the submitted range is known, the action is labeled **Go to executed SQL**. Editing the buffer disables the link until it matches the executed text again. This locates the execution unit, not an exact native error column. See [execution behavior and limits](IMPLEMENTATION.md#current-statement-execution-and-error-navigation).
 
+## SQL intelligence
+
+The editor marks unclosed quotes, comments and parentheses, incomplete clauses and selected dialect mismatches. Hover over a warning for its location and message. The editor uses the active dialect, including known MySQL or MariaDB quote and escape modes. These checks are advisory and work on up to 200,000 characters. The database validates the statement when you run it.
+
+Completion follows visible aliases into correlated subqueries and infers named columns from derived tables and common table expressions. Routine hints appear at call arguments or with **Cmd/Ctrl+Shift+Space**. They show signatures supplied by the loaded catalog, including visible overloads. Open a routine definition for additional native argument metadata.
+
+Choose **Go to SQL definition** from the editor context menu or press **F12**. Local aliases and common table expressions jump to their declarations. Loaded tables and routines open Object details, where you can choose among matching entries. **Go to References** (**Shift+F12**) lists recognized occurrences in the current statement.
+
+Use **Preview SQL alias rename** (**F2**) on a query alias or its qualified use. Enter the new name, preview the exact changed locations, then choose **Apply rename**. The edit is one undo step. Ambiguous bindings or a changed buffer require a fresh review or manual editing. Navigation and refactoring use the current editor text and visible metadata. See [scope and limits](IMPLEMENTATION.md#sql-intelligence).
+
 ## SQL files
 
 **File → Open SQL file** (`Cmd/Ctrl+O`) opens a disconnected tab without replacing the current buffer. Opening the same file again focuses its existing tab. The tab shows an unsaved marker and its file path. **Save** (`Cmd/Ctrl+S`) writes to that file; **Save As** (`Cmd/Ctrl+Shift+S`) selects a new destination. File actions never run SQL or settle database transactions.
@@ -21,6 +31,10 @@ On a query failure, **Go to failed statement/batch** selects the affected SQL wi
 With **Preferences → Tabs → Confirm before closing tabs** enabled, closing a tab offers **Keep tab**, **Save and close**, or explicit discard with **Close tab**. Turning this preference off closes eligible tabs immediately; pinned tabs, running operations, transactions and staged edits still prevent closing. The tab context menu also offers **Close other tabs** and **Close all tabs**, keeping pinned tabs. Quitting with edited file tabs offers to keep working, retain the buffers for recovery without writing files, or save the edited files and quit. Scratch buffers continue to recover automatically. **Saved locally** in the status bar means workspace recovery; **Saved to file** means the buffer matches the last file save/load, with disk-change warnings shown separately.
 
 External edits and removals produce a warning without replacing the buffer. Choose **Reload from disk** (confirmed when there are edits) or **Save As**. Replacing an externally changed file requires confirmation and a fresh revision check. **Recent SQL files** retains the last 20 paths; clearing it does not delete files. UTF-8 files support up to 1,000,000 characters each, within the existing 20-tab/5,000,000-character workspace limits. See [file handling and verification](IMPLEMENTATION.md#safe-sql-file-handling).
+
+Use **Workspace → SQL project files** to choose a local folder, including a Git checkout. Search the relative paths of visible `.sql` files and open a file in a normal query tab. The folder is remembered in this workspace. **Refresh project files** rescans after external changes such as switching branches. **Forget project folder** clears the folder selection while keeping open tabs. Save As starts in the project folder for new SQL files.
+
+The scan lists up to 500 files across 4,000 entries and 12 levels of subfolders. It skips hidden entries, symbolic links and `node_modules`. Existing file conflict and workspace limits apply. Use your normal source-control tools to review and commit changes.
 
 ## Query library and parameters
 
@@ -136,11 +150,13 @@ The app reads each side in a single statement, in sequence. Each engine controls
 
 Open **ER diagram** in the database explorer to view tables, column types, primary keys and declared foreign keys. Choose up to 40 tables, find table or column names, add visible referenced tables, and inspect ordered mappings for composite keys. Self-references and multiple foreign keys between the same tables remain separate relationships. Arrows point from the referencing table to its target; they do not imply cardinality, uniqueness or active constraint enforcement.
 
-Drag tables, move a focused table with arrow keys (Shift for larger steps), pan the background, zoom, fit or auto arrange, and toggle columns. **Save diagram SVG** exports the current layout through a native file dialog. The SVG contains inert text and shapes, including relationship tooltips, without external resources. Full identifiers and types are available in the details pane when the canvas abbreviates them. Layout and selection last while the dialog is open; reopening reads a fresh diagram.
+Drag tables, move a focused table with arrow keys (Shift for larger steps), pan the background, zoom, fit or auto arrange, and toggle columns. **Save diagram SVG** exports the current layout through a native file dialog. The SVG contains inert text and shapes, including relationship tooltips, without external resources. Full identifiers and types are available in the details pane when the canvas abbreviates them.
+
+Expand **Saved layouts** to remember a named table selection, positions, zoom and column visibility. **Restore layout** reads the current metadata for those tables and reapplies the view. Use **Update saved layout** to replace a layout with the same name. A workspace can keep up to 20 layouts for server databases and opened database files. In-memory, attached and temporary tables use the current diagram only.
 
 Diagrams read metadata only and preserve the SQL buffer, results, history, grid snapshots and transaction state. Server engines use a separate catalog connection, so their diagrams show committed, visible objects; SQLite and DuckDB use this tab’s catalog, including attached and temporary objects. Existing permission and catalog limits apply. Oracle uses the current user's catalog scope; MySQL/MariaDB use the current database. Diagrams include base tables, not view lineage or inferred relationships.
 
-Reads are bounded to 40 tables, 100 columns per table / 2,000 total columns, and 200 relationships. Partial metadata and targets outside the selected scope are explicitly labeled. Only outgoing keys of loaded tables are fetched; unseen incoming relationships are not implied absent. Metadata can change during collection, so refresh after DDL. Diagram editing never changes the database. Persistent diagram layouts, PNG/PDF exports and saved/offline diagrams remain follow-up work. Same-engine schema comparison is available separately.
+Reads are bounded to 40 tables, 100 columns per table / 2,000 total columns, and 200 relationships. Partial metadata and targets outside the selected scope are labeled. The diagram fetches outgoing keys from loaded tables. Refresh after DDL to see current relationships.
 
 ## Values, columns and related rows
 
@@ -162,7 +178,9 @@ In a table cell inspector, select **Find foreign keys**, then **Follow** a decla
 
 ## Query plans
 
-Select a statement in the SQL editor and choose **Query tools → Explain selected SQL**, then **Get estimated plan**. Without a selection, the editor must contain one statement. Every supported engine returns its native plan format; PostgreSQL also has an expandable operator tree with costs, row estimates and node details. Copy or save the captured output without changing your SQL or fetched results.
+Select a statement in the SQL editor and choose **Query tools → Explain selected SQL**, then **Get estimated plan**. Without a selection, the editor must contain one statement. **Plan tree** expands operators and shows the native estimates and details available for each node. **Raw plan** shows the captured engine output and remains available when the tree cannot interpret a native format. Copy or save the capture without changing your SQL or fetched results.
+
+Choose **Pin as baseline**, then capture another plan in the same mode and connection. **Compare with baseline** shows capture context, available costs and timings, and changed operator counts. Expand the baseline SQL and raw plan to inspect details. Costs use engine-specific units. Capture duration includes collection and transport, and matching operator counts can hide changes in predicates or order. The workbench keeps one baseline in memory.
 
 Queries with `:name` parameters prompt for Text, Integer, Decimal, Date, Timestamp, Timestamp with timezone, Boolean, NULL, Hex or typed array values before collecting a plan. Values are bound through the driver and must be entered again for each plan. History retains parameter names/types, never their values. Captured plans can include values; review them before copying or saving. Oracle estimated plans do not peek at bind values and can differ from actual execution plans. Choose Date, Timestamp or Timestamp with timezone for temporal parameters.
 

@@ -2,6 +2,9 @@
 
 ## Unreleased — beta preparation
 
+- Added editor SQL diagnostics, scoped completion, catalog signatures, definition and reference navigation, and reviewed alias rename.
+- Extended plan trees across engines and added captured-plan comparison, saved ER diagram layouts and a SQL project-folder browser.
+
 - Added scoped schema inventories and focused definition review, larger exact data comparisons, dependency ordering for reviewed table drops, and reviewed JSON synchronization plans.
 
 - Added server-side catalog search, forward/backward object pages and lazy table children, with targeted inspection beyond the completion preview. Existing permissions, session ownership and metadata limits remain explicit.

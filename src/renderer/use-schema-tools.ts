@@ -1,7 +1,10 @@
 import { useState, type Dispatch, type SetStateAction } from 'react'
 import { objectKey, type CatalogObject } from '../shared/catalog'
-import type { DesktopApi, HistoryEntry } from '../shared/contracts'
+import type { DesktopApi, GridTable, HistoryEntry } from '../shared/contracts'
 import type { ApplySchemaChange, SchemaChange } from '../shared/schema-changes'
+import { diagramLayoutsSchema, diagramLayoutScope, type SavedDiagramLayout } from '../shared/diagram-layouts'
+import { tableLayoutKey } from '../shared/table-layouts'
+import type { DiagramLayoutControls } from './DiagramDialog'
 import type { ObjectView } from './ObjectInspector'
 import { canCloseTab } from './query-tabs'
 import type { useWorkspaceSessions } from './use-workspace-sessions'
@@ -14,21 +17,60 @@ interface Options {
 }
 
 export function useSchemaTools({ api, runtime, tabId, setHistory, sessions }: Options) {
-  const { statesRef, patchState, report } = runtime
+  const { statesRef, workspaceRef, changeWorkspace, persist, patchState, report } = runtime
   const { cleanupLostSession, refreshTables } = sessions
   const [objectView, setObjectView] = useState<ObjectView | null>(null)
 
   const [schemaEditor, setSchemaEditor] = useState<{ tabId: string; sessionId: string; target?: CatalogObject } | null>(null)
 
-  async function inspectObject(object: CatalogObject) {
-    const current = statesRef.current[tabId], sessionId = current?.session?.id
+  async function inspectObject(object: CatalogObject, owner = tabId) {
+    const current = statesRef.current[owner], sessionId = current?.session?.id
     if (!sessionId || current.sharedSessionBusy || current.schemaLoading || current.catalogLoading || current.running || current.gridBusy || current.backupBusy || current.transferBusy || current.switching || current.databasesLoading) return
-    setObjectView(previous => previous?.sessionId === sessionId && previous.tabId === tabId && objectKey(previous.object) === objectKey(object) ? { ...previous, loading: true, error: undefined } : { tabId, sessionId, object, loading: true }); patchState(tabId, { schemaLoading: true })
+    const isView = (view: ObjectView | null) => view?.sessionId === sessionId && view.tabId === owner && objectKey(view.object) === objectKey(object)
+    setObjectView(previous => previous && isView(previous) ? { ...previous, loading: true, error: undefined } : { tabId: owner, sessionId, object, loading: true })
+    patchState(owner, { schemaLoading: true })
     try {
       const detail = await api.inspectObject({ sessionId, object })
-      if (statesRef.current[tabId]?.session?.id === sessionId) setObjectView(previous => previous?.sessionId === sessionId ? { ...previous, detail, loading: false } : previous)
-    } catch (error) { setObjectView(previous => previous?.sessionId === sessionId ? { ...previous, error: message(error), loading: false } : previous) }
-    finally { if (statesRef.current[tabId]?.session?.id === sessionId) patchState(tabId, { schemaLoading: false }); cleanupLostSession(sessionId) }
+      if (statesRef.current[owner]?.session?.id === sessionId) setObjectView(previous => previous && isView(previous) ? { ...previous, detail, loading: false } : previous)
+    } catch (error) { setObjectView(previous => previous && isView(previous) ? { ...previous, error: message(error), loading: false } : previous) }
+    finally { if (statesRef.current[owner]?.session?.id === sessionId) patchState(owner, { schemaLoading: false }); cleanupLostSession(sessionId) }
+  }
+
+  function savedDiagramLayouts(): DiagramLayoutControls | undefined {
+    const current = statesRef.current[tabId], session = current?.session
+    const owner = workspaceRef.current.tabs.find(tab => tab.id === tabId)
+    if (!session || !owner) return
+    const scope = diagramLayoutScope(owner.profile, session, current.connectionDatabase)
+    if (!scope) return
+    function verify() {
+      const next = statesRef.current[tabId], tab = workspaceRef.current.tabs.find(item => item.id === tabId)
+      if (!tab || !next?.session || next.session.id !== session!.id ||
+          diagramLayoutScope(tab.profile, next.session, next.connectionDatabase) !== scope) {
+        throw new Error('The connection changed. Reopen the diagram before editing its layouts.')
+      }
+    }
+    async function change(name: string, layout?: SavedDiagramLayout) {
+      verify()
+      const previous = workspaceRef.current.diagramLayouts
+      const entries = (previous ?? []).filter(entry => entry.scope !== scope || entry.name !== name)
+      const next = diagramLayoutsSchema.parse(layout ? [...entries, layout] : entries)
+      changeWorkspace(workspace => ({ ...workspace, diagramLayouts: next }))
+      try { await persist() }
+      catch (error) {
+        changeWorkspace(workspace => workspace.diagramLayouts === next ? { ...workspace, diagramLayouts: previous } : workspace)
+        throw error
+      }
+    }
+    const canSave = (tables: GridTable[]) => tables.every(table => Boolean(tableLayoutKey(owner.profile, session, table, current.connectionDatabase)))
+    return {
+      layouts: workspaceRef.current.diagramLayouts?.filter(layout => layout.scope === scope) ?? [],
+      canSave,
+      save: async layout => {
+        if (!canSave(layout.tables.map(({ table }) => table))) throw new Error('Select tables from the opened database before saving this layout.')
+        await change(layout.name, { ...layout, scope })
+      },
+      remove: name => change(name)
+    }
   }
 
   function schemaChangeBlocked() {
@@ -66,5 +108,5 @@ export function useSchemaTools({ api, runtime, tabId, setHistory, sessions }: Op
     }
   }
 
-  return { objectView, setObjectView, schemaEditor, setSchemaEditor, inspectObject, schemaChangeBlocked, prepareSchemaChange, applySchemaChange }
+  return { objectView, setObjectView, schemaEditor, setSchemaEditor, inspectObject, savedDiagramLayouts, schemaChangeBlocked, prepareSchemaChange, applySchemaChange }
 }

@@ -11,6 +11,7 @@ import { recoverEditorSettings } from '../shared/editor-settings'
 import { recoverEditorViews } from '../shared/editor-views'
 import { orderPinnedTabs } from '../shared/tab-order'
 import { recoverTableLayouts } from '../shared/table-layouts'
+import { recoverDiagramLayouts } from '../shared/diagram-layouts'
 import { DEFAULT_HISTORY_SETTINGS, historySearchSchema, historySettingsSchema, snippetSchema, snippetSearchSchema, type HistorySearch, type HistorySettings, type SnippetInput, type Snippet } from '../shared/query-library'
 
 /** Accessed exclusively in the utility process. No credentials or result rows. */
@@ -97,6 +98,7 @@ export class WorkspaceStore {
       if (views) value.editorViews = views; else delete value.editorViews
     }
     if (value && typeof value === 'object' && 'tableLayouts' in value) value.tableLayouts = recoverTableLayouts(value.tableLayouts)
+    if (value && typeof value === 'object' && 'diagramLayouts' in value) value.diagramLayouts = recoverDiagramLayouts(value.diagramLayouts)
     if (Array.isArray(value?.tabs)) for (const tab of value.tabs) {
       if (tab && typeof tab === 'object' && 'pinned' in tab && typeof tab.pinned !== 'boolean') delete tab.pinned
     }

@@ -25,5 +25,6 @@ export function explainStatement(sql: string, engine: DatabaseEngine, mode: Expl
   if (engine === 'postgres') return `EXPLAIN (FORMAT JSON, VERBOSE, COSTS, SUMMARY${mode === 'analyze' ? ', ANALYZE, BUFFERS, TIMING' : ''})\n${sql}`
   if (engine === 'mysql' || engine === 'mariadb') return `EXPLAIN FORMAT=JSON\n${sql}`
   if (engine === 'sqlite') return `EXPLAIN QUERY PLAN\n${sql}`
+  if (engine === 'duckdb') return `EXPLAIN (FORMAT JSON)\n${sql}`
   return `EXPLAIN\n${sql}`
 }

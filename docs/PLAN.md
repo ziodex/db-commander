@@ -1,6 +1,6 @@
 # Db Commander product roadmap
 
-Updated **3 November 2026** against development and the C1 and C2 work. Qualification remains scoped to the evidence below.
+Updated **3 November 2026** against development and the Milestone 3 work. Qualification remains scoped to the evidence below.
 
 ## Product goal
 
@@ -44,10 +44,10 @@ Complete the confirmed correctness fixes first, then improve daily navigation an
 
 | ID | Deliverable | Acceptance criteria | Status |
 | --- | --- | --- | --- |
-| Q1 | Develop SQL intelligence | Add dialect-aware diagnostics, richer derived/correlated-query completion, routine signatures, definition/reference navigation and previewed rename refactoring. Analyze without executing the SQL being edited. | Planned |
+| Q1 | Develop SQL intelligence | Add dialect-aware diagnostics, richer derived/correlated-query completion, routine signatures, definition/reference navigation and previewed rename refactoring. Analyze without executing the SQL being edited. | Complete · focused local validation |
 | C1 | Navigate large catalogs | Replace preview-only discovery with lazy loading, paging and server-side object search. Find objects beyond the current 2,000-object preview while retaining bounded memory and responsive navigation. | Complete · local validation |
 | C2 | Deepen comparison and migrations | Scale schema and data comparison beyond small captured sets. Generate dependency-aware migration scripts and reviewed synchronization plans. Show scope, consistency and destructive operations. Refuse partial captures. | Complete · local validation |
-| Q2 | Improve analysis workspaces | Extend graphical execution plans beyond PostgreSQL, add useful plan comparison and performance context, persist diagram layouts, and support projects/SQL directories suited to source control. | Planned |
+| Q2 | Improve analysis workspaces | Extend graphical execution plans beyond PostgreSQL, add useful plan comparison and performance context, persist diagram layouts, and support projects/SQL directories suited to source control. | Complete · focused local validation |
 
 ## Milestone 4 — Administration depth
 
@@ -80,6 +80,8 @@ This is a delivery checklist alongside the product roadmap, not a feature freeze
 Release qualification stays tied to its exact candidate and tested scope. Updates are currently manual. This roadmap does not schedule a release, long-running soak, publication or branch merge.
 
 ## Review and completion
+
+Q1 and Q2 add offline editor assistance, reviewed alias changes, native plan trees and baseline comparisons, durable diagram layouts and a local SQL folder browser. Local validation includes **1,154 unit tests with three platform skips**, focused contracts across all seven engines, and **30 focused packaged workflows** on Apple Silicon. The Milestone 3 integration PR qualifies the combined C1, C2, Q1 and Q2 changes through development CI. See [Milestone 3 validation](DRIVER_TESTING.md#milestone-3-sql-intelligence-and-analysis-workspaces--3-november-2026).
 
 C2 compares scoped inventories of up to 1,000 objects per side, with detailed review for up to 40 per side. It compares up to 2,000 rows per side within the existing 4 MiB limit, orders supported table drops by visible foreign-key dependencies and exports reviewed synchronization plans for manual use. Local macOS Apple Silicon validation passed **1,140 unit tests with three platform skips**, **23 focused contracts across seven engines**, **two embedded 2,105-table contracts**, and **174 packaged workflows and three startup checks with ten platform or fixture skips**. Independent UI and documentation reviews are complete. Cross-platform CI and release qualification remain separate. See [C2 qualification](DRIVER_TESTING.md#c2-comparison-and-migrations--3-november-2026).
 

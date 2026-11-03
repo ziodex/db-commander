@@ -115,7 +115,7 @@ async function saveSqlFile(request: SaveSqlFileRequest, track = true): Promise<i
   const doc = sqlFiles.document(request.tabId)
   let target: string | undefined
   if (request.saveAs || !doc) {
-    const chosen = await dialog.showSaveDialog(window!, { title: 'Save SQL file as', defaultPath: doc?.path ?? 'query.sql', filters: [{ name: 'SQL', extensions: ['sql'] }] })
+    const chosen = await dialog.showSaveDialog(window!, { title: 'Save SQL file as', defaultPath: doc?.path ?? (track && sqlFiles.projectPath ? join(sqlFiles.projectPath, 'query.sql') : 'query.sql'), filters: [{ name: 'SQL', extensions: ['sql'] }] })
     if (chosen.canceled || !chosen.filePath) return null
     target = chosen.filePath
   }
@@ -544,6 +544,13 @@ function registerIpc(): void {
   handle('checkSqlFiles', () => fileOperation(() => sqlFiles.check()))
   handle('forgetSqlFile', value => fileOperation(() => sqlFiles.forget(idSchema.parse(value))))
   handle('clearRecentSqlFiles', () => fileOperation(() => sqlFiles.clearRecent()))
+  handle('chooseSqlProject', () => fileOperation(async () => {
+    const chosen = await dialog.showOpenDialog(window!, { title: 'Choose SQL project folder', properties: ['openDirectory'] })
+    if (chosen.canceled || !chosen.filePaths[0]) return null
+    return sqlFiles.chooseProject(chosen.filePaths[0])
+  }))
+  handle('listSqlProject', () => fileOperation(() => sqlFiles.listProject()))
+  handle('closeSqlProject', () => fileOperation(() => sqlFiles.closeProject()))
   handle('reloadSqlFile', value => fileOperation(async () => {
     const request = reloadSqlFileSchema.parse(value)
     if (sqlFiles.dirty(request.tabId, request.sql)) {
@@ -570,6 +577,7 @@ function registerIpc(): void {
   })
   handle('openSql', value => fileOperation(async () => {
     const request = openSqlFileSchema.parse(value)
+    if (request.projectEntryId) return sqlFiles.openProjectFile(request.tabId, request.projectEntryId)
     let path: string
     if (request.recentId) path = sqlFiles.recentPath(request.recentId)
     else {

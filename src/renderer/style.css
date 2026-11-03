@@ -843,3 +843,40 @@ body[data-resizing=horizontal], body[data-resizing=horizontal] * { cursor: row-r
 .schema-list .catalog-paging button { width: auto; padding: 3px 6px; font-size: 12px; justify-content: center; }
 .catalog-paging[aria-label="catalog pages"] { position: sticky; top: 0; z-index: 1; background: var(--surface); border-block: 1px solid var(--border); }
 :root[data-theme] .database-explorer .schema-search input:enabled::placeholder { color: var(--muted); opacity: 1; }
+
+.sql-rename-dialog { width: min(740px, 94vw); }
+.sql-rename-dialog .dialog-actions { flex-wrap: wrap; }
+.sql-rename-preview h3 { font-size: 14px; overflow-wrap: anywhere; }
+.sql-rename-preview table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 12px; }
+.sql-rename-preview :is(td, th) { padding: 8px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+.sql-rename-preview th:first-child { width: 64px; }
+.sql-rename-preview code { white-space: pre-wrap; }
+.sql-rename-preview code strong { background: var(--info-background); }
+
+.sql-project-dialog { width: min(690px, 94vw); }
+.sql-project-path { overflow-wrap: anywhere; }
+.sql-project-path span { display: block; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sql-project-files { padding: 4px; margin: 0; list-style: none; max-height: 280px; overflow: auto; border: 1px solid var(--border); }
+.sql-project-files button { width: 100%; text-align: start; justify-content: flex-start; overflow-wrap: anywhere; white-space: normal; }
+
+.diagram-saved-layouts { flex-shrink: 0; max-height: 34vh; overflow: auto; border-bottom: 1px solid var(--border); }
+.diagram-saved-layouts > summary { margin-bottom: 8px; }
+.diagram-layout-fields { display: flex; flex-wrap: wrap; align-items: end; gap: 0 20px; }
+.diagram-saved-layouts .comparison-controls { margin-top: 0; align-items: end; }
+.diagram-saved-layouts label { margin: 0; min-width: min(160px, 100%); }
+@media (max-height: 540px) {
+  :is(.explain-dialog, .sql-project-dialog, .sql-rename-dialog) .dialog-heading {
+    position: sticky; z-index: 2; top: -24px; margin-top: -10px; padding: 10px 0; background: var(--surface-raised);
+  }
+  .diagram-dialog { overflow: auto; }
+  .diagram-toolbar { flex-shrink: 0; }
+  .diagram-saved-layouts { max-height: none; overflow: visible; }
+  .diagram-body { min-height: 280px; flex: none; }
+}
+
+.plan-comparison { margin-top: 16px; padding-top: 10px; border-top: 1px solid var(--border); }
+.plan-comparison-scroll { overflow-x: auto; }
+.plan-comparison table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 13px; }
+.plan-comparison :is(th, td) { text-align: start; vertical-align: top; padding: 8px; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.plan-comparison th:first-child { width: 43%; }
+.plan-node strong { overflow-wrap: anywhere; }

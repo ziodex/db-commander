@@ -4,6 +4,7 @@ import { _electron as electron, test as base, expect, type ElectronApplication, 
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { SQL_FILE_REGISTRY_VERSION } from '../../src/shared/sql-files'
 
 interface Harness {
   directory: string; app: ElectronApplication; page: Page
@@ -159,7 +160,7 @@ test('SQL files retain their association and dirty buffer when registry publicat
 
 test('SQL files preserve a newer registry while recovered buffers remain usable', async ({ files: h }) => {
   const registry = join(h.directory, 'sql-files.json'), target = join(h.directory, 'must-not-exist.sql')
-  const future = JSON.stringify({ version: 2, documents: [], recent: [], futureMetadata: 'must remain intact' })
+  const future = JSON.stringify({ version: SQL_FILE_REGISTRY_VERSION + 1, documents: [], recent: [], futureMetadata: 'must remain intact' })
   await enter(h.page, 'SELECT newer_registry_recovery;')
   await h.restart(1, () => writeFileSync(registry, future))
   expect(readFileSync(registry, 'utf8')).toBe(future)

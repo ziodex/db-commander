@@ -160,6 +160,9 @@ const api: DesktopApi = {
   finishSqlFileReload: request => ipcRenderer.invoke('sql:finishSqlFileReload', request),
   forgetSqlFile: id => ipcRenderer.invoke('sql:forgetSqlFile', id),
   clearRecentSqlFiles: () => ipcRenderer.invoke('sql:clearRecentSqlFiles'),
+  chooseSqlProject: () => ipcRenderer.invoke('sql:chooseSqlProject'),
+  listSqlProject: () => ipcRenderer.invoke('sql:listSqlProject'),
+  closeSqlProject: () => ipcRenderer.invoke('sql:closeSqlProject'),
   onFileCommand: listener => {
     const callback = (_event: Electron.IpcRendererEvent, command: unknown) => { if (typeof command === 'string' && ['open', 'save', 'save-as', 'recent', 'reload'].includes(command)) listener(command as SqlFileCommand) }
     ipcRenderer.on('sql:file-command', callback)
