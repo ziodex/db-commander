@@ -29,5 +29,5 @@ export interface CatalogPage {
 export interface CatalogSnapshot { objects: CatalogObject[]; truncated: boolean; notice: string }
 export interface CatalogSection { title: string; columns: string[]; rows: Cell[][]; truncated?: boolean }
 export interface ObjectDetail { object: CatalogObject; sections: CatalogSection[]; definition: { sql: string | null; source: 'native' | 'generated' | 'unavailable'; notice?: string; truncated?: boolean }; fetchedAt: string; source: 'catalog-connection' | 'session' }
-export interface CatalogResponse { page?: CatalogPage; diagram?: import('./diagram').DiagramSnapshot; catalog?: CatalogSnapshot; detail?: ObjectDetail }
+export interface CatalogResponse { incoming?: import('./contracts').GridTable[]; page?: CatalogPage; diagram?: import('./diagram').DiagramSnapshot; catalog?: CatalogSnapshot; detail?: ObjectDetail }
 export function objectKey(object: CatalogObject) { return JSON.stringify([object.catalog ?? '', object.schema, object.kind, object.name, object.identity, object.parent ?? '']) }

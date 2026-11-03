@@ -90,6 +90,20 @@ describe('migration export', () => {
     store.forget(comparison.source.sessionId)
     expect(() => store.reviewed({ id: both.id, reviewed: true, destructiveApproved: true })).toThrow(/closed/)
   })
+  it('refuses executable drop plans for a captured foreign-key cycle', () => {
+    const store = new MigrationExports()
+    const comparison: SchemaComparison = {
+      engine: 'postgres', source: { sessionId: randomUUID(), schema: 'a' }, target: { sessionId: randomUUID(), schema: 'b' },
+      sourceLabel: 'source', targetLabel: 'target', fetchedAt: new Date().toISOString(), notices: [],
+      objects: ['a', 'b'].map((name, i) => ({
+        key: name, name, kind: 'table', status: 'target-only', notices: [], sql: [], destructiveSql: [`DROP TABLE b.${name};`],
+        requiredDrops: [{ key: i ? 'a' : 'b', name: i ? 'a' : 'b' }]
+      }))
+    }
+    const sourceId = store.retainComparison(comparison)!
+    expect(() => store.prepare({ ...request(sourceId), selected: ['a'], includeDestructive: true })).toThrow(/still references/)
+    expect(() => store.prepare({ ...request(sourceId), selected: ['a', 'b'], includeDestructive: true })).toThrow(/foreign-key cycle/)
+  })
   it('writes exact UTF-8 bytes and refuses existing files, symlinks and non-SQL paths', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'migration-file-'))
     try {

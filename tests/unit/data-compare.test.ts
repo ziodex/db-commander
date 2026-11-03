@@ -1,5 +1,6 @@
+import { DatabaseSync } from 'node:sqlite'
 import { describe, it, expect } from 'vitest'
-import { dataCompareSchema, type DataCaptureRequest, type DataCapture } from '../../src/shared/data-compare'
+import { DATA_ROWS, dataCompareSchema, type DataCaptureRequest, type DataCapture } from '../../src/shared/data-compare'
 import { gridRequestSchema, type GridColumn, type SessionInfo } from '../../src/shared/contracts'
 import { captureData } from '../../src/driver/data-capture'
 import { GridSql } from '../../src/driver/grid-sql'
@@ -16,7 +17,7 @@ const read = (rows: (string | null)[][], overrides: Partial<DataCaptureRequest> 
 describe('bounded keyed comparison', () => {
   it('validates scopes and refuses public access to the host-only capture operation', () => {
     expect(() => gridRequestSchema.parse(request)).toThrow()
-    for (const change of [{ maxRows: 201 }, { maxRows: 0 }, { keys: ['id', 'id'] }, { keys: Array.from({ length: 9 }, (_, i) => String(i)) }, { sql: 'DELETE FROM t' }]) expect(() => dataCompareSchema.parse({ ...input, ...change })).toThrow()
+    for (const change of [{ maxRows: DATA_ROWS + 1 }, { maxRows: 0 }, { keys: ['id', 'id'] }, { keys: Array.from({ length: 9 }, (_, i) => String(i)) }, { sql: 'DELETE FROM t' }]) expect(() => dataCompareSchema.parse({ ...input, ...change })).toThrow()
   })
   it('matches by composite keys rather than order and keeps tuple boundaries', () => {
     const cols = [column('a'), column('b'), column('v', 'text')], keys = ['a', 'b']
@@ -71,4 +72,42 @@ describe('bounded keyed comparison', () => {
     await expect(compareData(input, reader({ transaction: 'transaction' }), reader())).rejects.toThrow(/Commit or roll back/)
     await expect(compareData(input, reader(), reader())).rejects.toThrow(/base table is unavailable/)
   })
+})
+
+
+it('withholds an oversized wide result at the native transport boundary', async () => {
+  const db = new DatabaseSync(':memory:')
+  try {
+    db.exec(`CREATE TABLE items(id INTEGER PRIMARY KEY, a TEXT, b TEXT, c TEXT);
+      WITH RECURSIVE ids(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM ids WHERE i<1000)
+      INSERT INTO items SELECT i, printf('%03000d',0), printf('%03000d',0), printf('%03000d',0) FROM ids`)
+    const selected = { schema: 'main', name: 'items' }
+    const available = [column('id', 'integer', true), ...['a', 'b', 'c'].map(name => column(name, 'text'))]
+    let wire: (string | null)[][] = []
+    await expect(captureData(new GridSql('sqlite'), selected, available, { ...request, table: selected, maxRows: 1000 }, async (sql, values) => {
+      const statement = db.prepare(sql)
+      statement.setReturnArrays(true)
+      wire = (statement.all(...values ?? []) as unknown as unknown[][]).map(row => row.map(value => value === null ? null : String(value)))
+      return { rows: wire, affected: 0 }
+    })).rejects.toThrow(/4 MiB/)
+    expect(wire).toHaveLength(1000)
+    expect(wire.every(row => row.slice(0, -2).every(value => value === null) && row.at(-2) === 'overflow')).toBe(true)
+  } finally { db.close() }
+})
+
+it('refuses SQLite text containing NUL rather than comparing a prefix', async () => {
+  const db = new DatabaseSync(':memory:')
+  try {
+    db.exec('CREATE TABLE items(id INTEGER PRIMARY KEY, value TEXT); INSERT INTO items VALUES(1, char(97,0,98));')
+    const selected = { schema: 'main', name: 'items' }
+    await expect(captureData(new GridSql('sqlite'), selected, columns, { ...request, table: selected }, async (sql, values) => {
+      const statement = db.prepare(sql)
+      statement.setReturnArrays(true)
+      return { rows: statement.all(...values ?? []) as unknown as (string | null)[][], affected: 0 }
+    })).rejects.toThrow(/containing NUL/)
+  } finally { db.close() }
+})
+
+it('rejects a silently capped driver fetch even when it is below the selected row limit', async () => {
+  await expect(read([['1', 'value', 'ok', '202']], { maxRows: 1000 })).rejects.toThrow(/incomplete capture/)
 })

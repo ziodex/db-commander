@@ -410,11 +410,19 @@ export function App() {
     }} onOpen={sql=>{if(workspaceRef.current.tabs.length>=MAX_TABS||workspaceRef.current.tabs.reduce((size,tab)=>size+tab.sql.length,sql.length)>5_000_000)throw new Error('Close a query tab or shorten SQL buffers before opening builder SQL.');newTab(undefined,{sql,title:'visual-query.sql'});setBuilderOpen(null)}}/>}
     {dataCompareOpen?.tabId===tabId && dataCompareOpen.sessionId===session?.id && <DataCompareDialog key={session.id} target={session} initialTable={dataCompareOpen.table} tabs={workspace.tabs.map(tab=>({id:tab.id,title:tab.title,state:states[tab.id]})).filter(tab=>tab.state)} onClose={()=>setDataCompareOpen(null)} load={async request=>{
       const owners=Object.entries(statesRef.current).filter(([,s])=>s.session&&[request.source.sessionId,request.target.sessionId].includes(s.session.id))
+      if (owners.some(([, state]) => tabOperationBusy(state) || state.gridChanges.length) ||
+          ![request.source.sessionId, request.target.sessionId].every(sessionId => owners.some(([, state]) => state.session?.id === sessionId))) {
+        throw new Error('Wait for both connections to become idle before comparing.')
+      }
       for(const [id] of owners)patchState(id,{schemaLoading:true})
-      try{return await api.compareData(request)}finally{for(const [id,previous] of owners){if(statesRef.current[id]?.session?.id===previous.session?.id)patchState(id,{schemaLoading:false})}}
+      try{return await api.compareData(request)}finally{for(const [id,previous] of owners){if(statesRef.current[id]?.session?.id===previous.session?.id)patchState(id,{schemaLoading:false});cleanupLostSession(previous.session!.id)}}
     }}/>}
     {compareOpen?.tabId===tabId && compareOpen.sessionId===session?.id && <SchemaCompareDialog key={session.id} target={session} tabs={workspace.tabs.map(tab=>({id:tab.id,title:tab.title,state:states[tab.id]})).filter(tab=>tab.state)} onClose={()=>setCompareOpen(null)} load={async request=>{
       const owners=Object.entries(statesRef.current).filter(([,s])=>s.session&&[request.source.sessionId,request.target.sessionId].includes(s.session.id))
+      if (owners.some(([, state]) => tabOperationBusy(state) || state.gridChanges.length) ||
+          ![request.source.sessionId, request.target.sessionId].every(sessionId => owners.some(([, state]) => state.session?.id === sessionId))) {
+        throw new Error('Wait for both connections to become idle before comparing.')
+      }
       for(const [id] of owners)patchState(id,{schemaLoading:true})
       try{return await api.compareSchemas(request)}finally{for(const [id,previous] of owners){if(statesRef.current[id]?.session?.id===previous.session?.id)patchState(id,{schemaLoading:false});cleanupLostSession(previous.session!.id)}}
     }} onOpen={sql=>{if(workspace.tabs.length>=MAX_TABS||workspace.tabs.reduce((size,tab)=>size+tab.sql.length,sql.length)>5_000_000){report(new Error('Close a tab or shorten SQL buffers before opening comparison SQL.'));return};setCompareOpen(null);newTab(undefined,{sql,title:'schema-comparison.sql'})}}/>}

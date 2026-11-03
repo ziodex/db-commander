@@ -1,6 +1,6 @@
 # Db Commander product roadmap
 
-Updated **2 November 2026** against development and the C1 catalog-navigation implementation. Qualification remains scoped to the evidence below.
+Updated **3 November 2026** against development and the C1 and C2 work. Qualification remains scoped to the evidence below.
 
 ## Product goal
 
@@ -46,7 +46,7 @@ Complete the confirmed correctness fixes first, then improve daily navigation an
 | --- | --- | --- | --- |
 | Q1 | Develop SQL intelligence | Add dialect-aware diagnostics, richer derived/correlated-query completion, routine signatures, definition/reference navigation and previewed rename refactoring. Analyze without executing the SQL being edited. | Planned |
 | C1 | Navigate large catalogs | Replace preview-only discovery with lazy loading, paging and server-side object search. Find objects beyond the current 2,000-object preview while retaining bounded memory and responsive navigation. | Complete · local validation |
-| C2 | Deepen comparison and migrations | Scale schema/data comparison beyond small captured sets; generate dependency-aware migration scripts and reviewed synchronization plans. Show scope, consistency model and destructive operations; never infer missing data from partial reads. | Planned |
+| C2 | Deepen comparison and migrations | Scale schema and data comparison beyond small captured sets. Generate dependency-aware migration scripts and reviewed synchronization plans. Show scope, consistency and destructive operations. Refuse partial captures. | Complete · local validation |
 | Q2 | Improve analysis workspaces | Extend graphical execution plans beyond PostgreSQL, add useful plan comparison and performance context, persist diagram layouts, and support projects/SQL directories suited to source control. | Planned |
 
 ## Milestone 4 — Administration depth
@@ -80,6 +80,8 @@ This is a delivery checklist alongside the product roadmap, not a feature freeze
 Release qualification stays tied to its exact candidate and tested scope. Updates are currently manual. This roadmap does not schedule a release, long-running soak, publication or branch merge.
 
 ## Review and completion
+
+C2 compares scoped inventories of up to 1,000 objects per side, with detailed review for up to 40 per side. It compares up to 2,000 rows per side within the existing 4 MiB limit, orders supported table drops by visible foreign-key dependencies and exports reviewed synchronization plans for manual use. Local macOS Apple Silicon validation passed **1,140 unit tests with three platform skips**, **23 focused contracts across seven engines**, **two embedded 2,105-table contracts**, and **174 packaged workflows and three startup checks with ten platform or fixture skips**. Independent UI and documentation reviews are complete. Cross-platform CI and release qualification remain separate. See [C2 qualification](DRIVER_TESTING.md#c2-comparison-and-migrations--3-november-2026).
 
 C1 now provides server-side search beyond the old preview, 100-object forward/backward pages, lazy table children and targeted inspection while preserving physical-owner locks and SQL buffers/results. Local macOS Apple Silicon qualification passes **1,134 unit tests / three platform skips**, **173 packaged workflows and three startup checks**, focused catalog checks on all seven engines, five server overflow contracts, five native server explorer cases, embedded driver checks at 10,000/20,000 tables and native checks at 20,000 tables. Independent UI review resolved the single contrast finding; the existing visual system is retained. Completion and feature snapshots retain their documented limits; cross-platform CI and release gates remain separate. See [C1 qualification](DRIVER_TESTING.md#c1-catalog-navigation--2-november-2026).
 

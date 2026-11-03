@@ -5,6 +5,11 @@ import type { CatalogQuery } from './common'
 /** Internal reads may retain the old bounded completion/diagram preview. */
 export type CatalogRead = Omit<CatalogPageRequest, 'sessionId' | 'search' | 'rootsOnly'> & {
   search?: string; rootsOnly?: boolean; limit?: number; object?: CatalogObject; relations?: GridTable[]
+  inventory?: boolean
+  incoming?: CatalogObject
+  namespace?: Pick<GridTable, 'schema' | 'catalog'>
+  kinds?: CatalogObject['kind'][]
+  nameContains?: string
 }
 const names = ['catalog_name', 'schema_name', 'kind', 'object_name', 'identity_name', 'parent_name']
 const rank = (o: CatalogObject) => ['table', 'view', 'materialized view'].includes(o.kind) ? '0' : '1'
@@ -25,19 +30,22 @@ export async function catalogRows(query: CatalogQuery, engine: DatabaseEngine, s
     if (read.relations) {
       predicates.push("kind IN ('table','view','materialized view')", '(' + read.relations.map(o => '(' + [equal('catalog_name', o.catalog), equal('schema_name', o.schema), equal('object_name', o.name)].join(' AND ') + ')').join(' OR ') + ')')
     }
+    if (read.namespace) predicates.push(equal('catalog_name', read.namespace.catalog), equal('schema_name', read.namespace.schema))
+    if (read.kinds?.length) predicates.push(`kind IN (${read.kinds.map(bind).join(',')})`)
     if (read.kind) predicates.push(`kind=${bind(read.kind)}`)
     if (read.rootsOnly) predicates.push('parent_name IS NULL')
     if (read.parent) {
       const o = read.parent
       predicates.push(equal('catalog_name', o.catalog), equal('schema_name', o.schema), equal('parent_name', o.name))
     }
-    if (read.search) {
+    if (read.search || read.nameContains) {
       const wildcards = ['sqlserver', 'azure-sql'].includes(engine) ? /[!%_\[]/g : /[!%_]/g
-      const search = '%' + read.search.toLowerCase().replace(wildcards, c => '!' + c) + '%'
+      const search = '%' + (read.nameContains ?? read.search!).toLowerCase().replace(wildcards, c => '!' + c) + '%'
       const namespace = ['mysql', 'mariadb', 'sqlserver', 'azure-sql'].includes(engine)
         ? "CONCAT(COALESCE(CONCAT(catalog_name,'.'),''),schema_name,'.',object_name)"
         : "(CASE WHEN catalog_name IS NULL THEN '' ELSE catalog_name||'.' END)||schema_name||'.'||object_name"
-      predicates.push('(' + ['catalog_name', 'schema_name', 'object_name', 'parent_name', 'signature_name', 'constraint_type', namespace].map(name => `LOWER(${name}) LIKE ${bind(search)} ESCAPE '!'`).join(' OR ') + ')')
+      const fields = read.nameContains ? ['object_name'] : ['catalog_name', 'schema_name', 'object_name', 'parent_name', 'signature_name', 'constraint_type', namespace]
+      predicates.push('(' + fields.map(name => `LOWER(${name}) LIKE ${bind(search)} ESCAPE '!'`).join(' OR ') + ')')
     }
   }
   const fill = engine === 'oracle' ? ' ' : ''

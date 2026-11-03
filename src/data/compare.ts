@@ -1,6 +1,6 @@
 import type { DatabaseDriver } from '../driver/driver'
 import { objectKey } from '../shared/catalog'
-import { dataCompareSchema, type DataCapture, type DataCompareRequest, type DataComparison, type DataDifference, type DataScope } from '../shared/data-compare'
+import { DATA_ROWS, dataCompareSchema, type DataCapture, type DataCompareRequest, type DataComparison, type DataDifference, type DataScope } from '../shared/data-compare'
 import type { SessionInfo } from '../shared/contracts'
 
 type Reader = Pick<DatabaseDriver, 'getSession' | 'explore' | 'editGrid'>
@@ -30,9 +30,12 @@ export async function compareData(input: DataCompareRequest, source: Reader, tar
   const budget = () => { if (performance.now() - started > 45_000) throw new Error('The comparison collection budget was exceeded. Narrow the scope and retry.') }
   const identity = async (driver: Reader, scope: DataScope) => {
     budget()
-    const catalog = (await driver.explore(scope.sessionId)).catalog
-    if (!catalog || catalog.truncated) throw new Error('A complete visible catalog is required. Refresh the schema before comparing.')
-    const object = catalog.objects.find(o => o.kind === 'table' && o.schema === scope.table.schema && o.name === scope.table.name && (o.catalog ?? '') === (scope.table.catalog ?? ''))
+    const table = { ...scope.table, catalog: scope.table.catalog ?? (a.engine === 'duckdb' ? driver.getSession(scope.sessionId).database : undefined) }
+    const catalog = (await driver.explore(scope.sessionId, undefined, undefined, {
+      inventory: true, relations: [table], kind: 'table', limit: 2
+    })).catalog
+    if (!catalog || catalog.truncated) throw new Error('The selected table identity could not be verified. Refresh the schema before comparing.')
+    const object = catalog.objects.find(o => o.kind === 'table' && o.schema === table.schema && o.name === table.name && (o.catalog ?? '') === (table.catalog ?? ''))
     if (!object) throw new Error('The selected base table is unavailable. Refresh the schema and check permissions.')
     return objectKey(object)
   }
@@ -48,12 +51,18 @@ export async function compareData(input: DataCompareRequest, source: Reader, tar
   const left = await read(source, request.source), right = await read(target, request.target)
   const rows = matchData(left, right), counts: DataComparison['counts'] = { 'source-only': 0, 'target-only': 0, changed: 0, matching: 0 }
   for (const row of rows) counts[row.status]++
+  const samePrimaryKey = (capture: DataCapture) =>
+    capture.primaryKey?.length === capture.keys.length && capture.keys.every(name => capture.primaryKey!.includes(name))
+  const synchronization = {
+    primaryKey: samePrimaryKey(left) && samePrimaryKey(right),
+    generatedTargetColumns: right.columns.filter(column => column.generated).map(column => column.name)
+  }
   const label = (session: SessionInfo, scope: DataScope) => `${session.name} / ${session.host}${session.port ? ':' + session.port : ''} / ${session.database} / ${[scope.table.catalog, scope.table.schema, scope.table.name].filter(Boolean).join('.')}`
-  return { engine: a.engine, request, sourceLabel: label(a, request.source), targetLabel: label(b, request.target), capturedAt: new Date().toISOString(), columns: left.columns, keys: left.keys, sourceRows: left.rows.length, targetRows: right.rows.length, counts, rows, notices: [
+  return { engine: a.engine, request, sourceLabel: label(a, request.source), targetLabel: label(b, request.target), capturedAt: new Date().toISOString(), columns: left.columns, keys: left.keys, sourceRows: left.rows.length, targetRows: right.rows.length, synchronization, counts, rows, notices: [
     'Both filtered sets fit the chosen limit. Only selected columns and visible rows are compared; row-level permissions can hide data. No writes or synchronization SQL are performed.',
     'Sequential live reads, not an atomic cross-database snapshot. Concurrent writes can produce transient differences. Refresh before acting on a result.',
     'Keys and values use exact, case-sensitive captured strings (NULL is distinct from empty text); database collation, numeric/date session formatting and JSON whitespace are not normalized. Selected native types must match.',
-    'Limits: 200 rows per side, 32 columns including up to 8 key columns, 4,096 characters per value and 4 MiB per side. Limits bound captured data, not server scan work or time. Native reads may outlast the collection budget.',
+    `Limits are ${DATA_ROWS.toLocaleString('en-US')} rows per side, 32 columns including up to 8 key columns, 4,096 characters per value and 4 MiB per side. The database may scan more rows, and native reads may outlast the collection budget.`,
     ...(a.engine === 'sqlite' ? ['SQLite values include storage-class prefixes (integer:, real:, text:, blob:) so different stored types remain distinct.'] : [])
   ] }
 }

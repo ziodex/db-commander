@@ -80,3 +80,10 @@ Major architecture changes should add a dated decision here explaining the exist
 ## Catalog navigation ownership — 2 November 2026
 
 `CatalogBrowser` composes the incumbent explorer tree and one bounded lazy table-child page. `use-catalog-page` owns debounce, request identity, obsolete-response rejection and replaceable page state; `use-workspace-sessions.readCatalog` owns physical/shared connection availability and host-generation checks. The initial page reserves its owner before paint; an explicit Browse into a new shared tab settles that read and rechecks the target before using the existing guarded table-data operation. `DriverRegistry.catalogPage` validates the strict read-only request and acquires the existing session operation reservation. The existing adapters own permissions and metadata connections; `catalog/paging` supplies bound filters and deterministic keyset positions, while `catalog/common` validates targeted identities and bounds parent context. No catalog rows or cursors are persisted, and editor SQL/results are not inputs to discovery. The bounded language/feature snapshot remains a separate contract.
+
+
+## Comparison and migration ownership — 3 November 2026
+
+The registry reserves both participating physical connections before comparison. The schema comparison service uses bounded, scoped catalog reads and targeted incoming foreign-key checks. The migration store retains host-generated SQL and its dependency requirements through preview and reviewed export. Catalog filters, definition selection and synchronization review carry no mutation authority.
+
+The data comparison service verifies base-table identities around bounded single-statement captures. For larger captures, a SQL byte total withholds oversized payloads and a row count detects an incomplete transport fetch. The renderer pages captured differences and assembles selected proposals with their expected target values. The main process saves reviewed JSON to a new file through the native dialog. Comparison values and selections stay out of workspace and history storage.

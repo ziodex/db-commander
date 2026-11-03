@@ -267,11 +267,20 @@ function registerIpc(): void {
     await writeGeneratedFile(result.filePath, request.text, { replace: true }); return result.filePath
   })
   handle('saveValue', async value => {
-    const request=z.object({text:z.string().max(1_000_000),format:z.enum(['json','xml','text'])}).strict().parse(value)
-    const extension=request.format==='text'?'txt':request.format
-    const result=await dialog.showSaveDialog(window!,{title:'Save displayed value',defaultPath:`value.${extension}`,filters:[{name:'Displayed value',extensions:[extension]}]})
-    if(result.canceled||!result.filePath)return null
-    await writeGeneratedFile(result.filePath,request.text,{replace:true});return result.filePath
+    const request=z.object({text:z.string().max(1_000_000),format:z.enum(['json','xml','text','synchronization-plan'])}).strict().parse(value)
+    const plan = request.format === 'synchronization-plan'
+    const extension = plan ? 'json' : request.format === 'text' ? 'txt' : request.format
+    const name = plan ? 'Synchronization plan' : 'Displayed value'
+    if (plan && Buffer.byteLength(request.text, 'utf8') > 1_000_000) throw new Error('The synchronization plan exceeds 1 MB. Select fewer rows.')
+    const result = await dialog.showSaveDialog(window!, {
+      title: `Save ${name.toLowerCase()}`,
+      defaultPath: plan ? 'dbcommander-synchronization-plan.json' : `value.${extension}`,
+      filters: [{ name, extensions: [extension] }]
+    })
+    if (result.canceled || !result.filePath) return null
+    if (plan && !result.filePath.toLowerCase().endsWith('.json')) throw new Error('Choose a new filename ending in .json.')
+    await writeGeneratedFile(result.filePath, request.text, { replace: !plan })
+    return result.filePath
   })
   handle('sessionSafety', async value => rpc('sessionSafety', idSchema.parse(value)))
   handle('lockSession', async value => rpc('lockSession', idSchema.parse(value)))

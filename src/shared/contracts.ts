@@ -156,7 +156,7 @@ export interface DesktopApi {
   explain(request: import('./explain').ExplainRequest): Promise<import('./explain').ExplainResult>
   cancelExplain(sessionId: string): Promise<{ requested: boolean }>
   savePlan(value: { text: string; format: 'json' | 'xml' | 'text' | 'table' }): Promise<string | null>
-  saveValue(value: { text: string; format: 'json' | 'xml' | 'text' }): Promise<string | null>
+  saveValue(value: { text: string; format: 'json' | 'xml' | 'text' | 'synchronization-plan' }): Promise<string | null>
 
   prepareSchemaChange(request: import('./schema-changes').PrepareSchemaChange): Promise<import('./schema-changes').SchemaChangePlan>
   applySchemaChange(request: import('./schema-changes').ApplySchemaChange): Promise<import('./schema-changes').SchemaChangeResult>

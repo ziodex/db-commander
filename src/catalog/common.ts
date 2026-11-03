@@ -1,4 +1,5 @@
-import type { Cell } from '../shared/contracts'
+import { incomingKeys } from './incoming-keys'
+import type { Cell, DatabaseEngine } from '../shared/contracts'
 import { CATALOG_PAGE_SIZE, constraintKinds, objectKey, type CatalogObject, type CatalogPage, type CatalogResponse, type CatalogSection, type CatalogSnapshot, type ObjectDetail } from '../shared/catalog'
 import type { CatalogRead } from './paging'
 export type CatalogQuery = (sql: string, values?: Cell[]) => Promise<Cell[][]>
@@ -6,6 +7,16 @@ export interface CatalogAdapter { list(read?: CatalogRead): Promise<CatalogSnaps
 export const LIMIT = 2000
 export function catalog(rows: Cell[][], notice: string, limit = LIMIT): CatalogSnapshot {
   return { objects: rows.slice(0, limit).map(row => ({ catalog: row[0] ?? undefined, schema: row[1]!, name: row[2]!, kind: row[3] as CatalogObject['kind'], identity: row[4]!, parent: row[5] ?? undefined, signature: row[6]?.slice(0, 2048), constraintType: row[3] === 'constraint' ? constraintKinds.find(type => type === row[7]?.toLowerCase()) ?? 'other' : undefined })), truncated: rows.length > limit, notice }
+}
+/** Internal comparisons can request a bounded inventory without public pager context. */
+export async function readCatalog(adapter: CatalogAdapter, query: CatalogQuery, engine: DatabaseEngine, read: CatalogRead, source: ObjectDetail['source']): Promise<CatalogResponse> {
+  if (read.incoming) {
+    const object = (await adapter.list({ object: read.incoming })).objects.find(item => objectKey(item) === objectKey(read.incoming!))
+    if (object?.kind !== 'table') throw new Error('The table is no longer visible. Refresh the comparison.')
+    return { incoming: await incomingKeys(query, engine, object) }
+  }
+  if (read.inventory) return { catalog: await adapter.list(read) }
+  return { page: await catalogPage(adapter, read, source) }
 }
 export async function catalogPage(adapter: CatalogAdapter, read: CatalogRead, source: ObjectDetail['source']): Promise<CatalogPage> {
   if (read.parent) {

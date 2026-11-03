@@ -4,7 +4,7 @@ import { readActivity } from '../activity/read'
 import type { DiagramScope } from '../shared/diagram'
 import { readDiagram } from '../catalog/diagram'
 import { bindRequest, boundValue } from './parameters'
-import { catalogPage, inspect } from '../catalog/common'
+import { readCatalog, inspect } from '../catalog/common'
 import { postgresCatalog } from '../catalog/postgres'
 import type { CatalogObject } from '../shared/catalog'
 import type { DriverRunRequest } from './driver'
@@ -221,7 +221,7 @@ export class PostgresDriver implements DatabaseDriver {
       await client.connect(); await client.query('SET statement_timeout = 10000'); await client.query("SET search_path = pg_catalog")
       const query: import('../catalog/common').CatalogQuery = async (text, values = []) => (await client.query({ text, values, rowMode: 'array' })).rows.map(row => row.map((cell: unknown) => cell == null ? null : String(cell)))
       const adapter=postgresCatalog(query)
-      return diagram ? { diagram: await readDiagram(adapter,query,'postgres',diagram,'catalog-connection') } : page ? { page: await catalogPage(adapter, page, 'catalog-connection') } : await inspect(adapter,object)
+      return diagram ? { diagram: await readDiagram(adapter,query,'postgres',diagram,'catalog-connection') } : page ? await readCatalog(adapter, query, 'postgres', page, 'catalog-connection') : await inspect(adapter,object)
     } finally { await client.end().catch(() => {}) }
   }
   async schema(id: string) {

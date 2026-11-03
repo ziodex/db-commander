@@ -6,7 +6,8 @@ import { expect } from 'vitest'
 import { DriverRegistry } from '../../src/driver/registry'
 import { quoteIdentifier } from '../../src/shared/sql/common'
 import type { ConnectionConfig, DatabaseEvent } from '../../src/shared/contracts'
-import type { DataCompareRequest } from '../../src/shared/data-compare'
+import { synchronizationBlocker, synchronizationPlan } from '../../src/shared/synchronization-plan'
+import { DATA_ROWS, type DataCompareRequest } from '../../src/shared/data-compare'
 
 export async function verifyDataComparison(config: ConnectionConfig) {
   const directory = mkdtempSync(join(tmpdir(), 'dbcommander-data-compare-')), engine = config.engine, embedded = ['sqlite','duckdb'].includes(engine)
@@ -45,11 +46,18 @@ export async function verifyDataComparison(config: ConnectionConfig) {
     expect(result.counts).toEqual({ 'source-only': 1, 'target-only': 1, changed: 1, matching: 2 })
     expect(result.rows.find(row => row.key.some(k => k.includes('9007199254740993')))?.status).toBe('matching')
     expect(result.rows.find(row => row.status === 'changed')?.changedColumns).toContain(label)
+    const proposed = synchronizationPlan(result, new Set(result.rows.filter(row => row.status !== 'matching').map(row => JSON.stringify(row.key))))
+    expect(proposed.operations.map(operation => operation.action).sort()).toEqual(['delete', 'insert', 'update'])
+    expect(proposed.operations.find(operation => operation.action === 'update')?.columnsToWrite).toContain(label)
+    expect(proposed.operations.find(operation => operation.action === 'insert')?.expectedTarget).toBeNull()
+
     await expect(driver.compareData({ ...request, maxRows: 3 })).rejects.toThrow(/row limit was exceeded/)
     await expect(driver.compareData({ ...request, keys: ['tenant'] })).rejects.toThrow(/not unique/)
     await expect(driver.compareData({ ...request, keys: ['nullable'] })).rejects.toThrow(/NULL/)
     const filtered = await driver.compareData({ ...request, maxRows: 1, source: { ...request.source, filters: [{ column: label, operator: 'contains', value: "quote' %_" }] }, target: { ...request.target, filters: [{ column: label, operator: 'contains', value: "quote' %_" }] } })
     expect(filtered.counts).toEqual({ 'source-only': 1, 'target-only': 0, changed: 0, matching: 0 })
+    expect(synchronizationBlocker(filtered, filtered.rows[0])).toMatch(/unfiltered/)
+
     const exact = await driver.compareData({ ...request, columns: [label], source: { ...request.source, filters: [{ column: key, operator: 'eq', value: '9007199254740993' }] }, target: { ...request.target, filters: [{ column: key, operator: 'eq', value: '9007199254740993' }] } })
     expect(exact.counts.matching).toBe(1)
     await driver.exportCsv(cached, 0, join(directory, 'cached.csv')); expect(readFileSync(join(directory, 'cached.csv'), 'utf8')).toContain('42')
@@ -61,6 +69,29 @@ export async function verifyDataComparison(config: ConnectionConfig) {
     // Comparison must leave the previously captured originals usable.
     const edited = await driver.editGrid({ action: 'apply', sessionId: a.id, snapshotId: snapshot.id, changes: [{ kind: 'update', row: 0, values: [{ column: snapshot.columns.findIndex(c => c.name === label), value: 'retained snapshot' }] }] })
     expect(edited.error).toBeUndefined(); expect(edited.applied).toBe(1); await run('ROLLBACK')
+    for (const [table, id] of [[source, a.id], [target, b.id]] as const) {
+      const count = DATA_ROWS - 4
+      if (engine === 'oracle') {
+        await run(`INSERT INTO ${full(table)} (${names}) SELECT 10000+LEVEL,'scale','value',NULL FROM dual CONNECT BY LEVEL<=${count}`, id)
+        await run('COMMIT', id)
+      } else {
+        for (let offset = 0; offset < count; offset += 200) {
+          const values = Array.from({ length: Math.min(200, count - offset) }, (_, i) => `(${10001 + offset + i},'scale','value',NULL)`)
+          await run(`INSERT INTO ${full(table)} (${names}) VALUES ${values.join(',')}`, id)
+        }
+      }
+    }
+    const beforeScale = events.length
+    const large = await driver.compareData({ ...request, maxRows: DATA_ROWS })
+    expect(large.sourceRows).toBe(DATA_ROWS); expect(large.targetRows).toBe(DATA_ROWS)
+    expect(large.counts).toEqual({ 'source-only': 1, 'target-only': 1, changed: 1, matching: DATA_ROWS - 2 })
+    expect(events).toHaveLength(beforeScale)
+    await expect(driver.compareData({ ...request, maxRows: DATA_ROWS - 1 })).rejects.toThrow(/No partial comparison/)
+    for (const [table, id] of [[source, a.id], [target, b.id]] as const) {
+      // The original fixture includes a deliberately large integer key.
+      await run(`DELETE FROM ${full(table)} WHERE ${q(key)} BETWEEN 10001 AND 12000`, id)
+      if (engine === 'oracle') await run('COMMIT', id)
+    }
     if (engine !== 'oracle') {
       await run(`UPDATE ${full(source)} SET ${q(label)}='${'x'.repeat(4097)}' WHERE ${q(key)}=2`)
       await expect(driver.compareData(request)).rejects.toThrow(/no truncated values/)

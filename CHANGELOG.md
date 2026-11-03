@@ -2,6 +2,8 @@
 
 ## Unreleased — beta preparation
 
+- Added scoped schema inventories and focused definition review, larger exact data comparisons, dependency ordering for reviewed table drops, and reviewed JSON synchronization plans.
+
 - Added server-side catalog search, forward/backward object pages and lazy table children, with targeted inspection beyond the completion preview. Existing permissions, session ownership and metadata limits remain explicit.
 
 No beta release has been declared. Package version 0.2.3 remains a developer preview; signed distribution and the final beta version are pending the [release gates](docs/PLAN.md#beta-release-checklist).

@@ -677,6 +677,14 @@ body[data-resizing=horizontal], body[data-resizing=horizontal] * { cursor: row-r
 .schema-compare-dialog { width:min(1100px,94vw); max-height:92vh; overflow:auto; }
 .comparison-scope { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px; border:1px solid var(--border-strong); }
 .comparison-scope label { min-width:0; margin:0; }
+.comparison-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 12px 0; }
+.comparison-list .inventory-entry { display: flex; flex-direction: row; align-items: center; gap: 8px; margin: 0; padding: 2px 4px; color: var(--text); }
+.inventory-entry > span { min-width: 0; overflow-wrap: anywhere; }
+.migration-export-dialog .dialog-actions { flex-wrap: wrap; }
+.migration-export-dialog section > label { margin-bottom: 8px; }
+.migration-export-dialog section + details { margin-top: 12px; }
+.comparison-name-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); gap: 12px; }
+.comparison-scope { grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr)); }
 .comparison-list { max-height:230px; overflow:auto; border:1px solid var(--border-strong); padding:6px; }
 .comparison-list>div { display:flex; gap:8px; align-items:center; }
 .comparison-list button { justify-content:flex-start; white-space:normal; text-align:left; width:100%; }
