@@ -44,8 +44,12 @@ for (const engine of engineSchema.options) test(`data comparison ${engine}: boun
     await page.getByRole('button', { name: 'New query tab', exact: true }).click(); await expect(page.getByRole('button', { name: /^Run SQL/ })).toBeEnabled()
     await run(`CREATE TABLE ${full(target)} ${definition}`)
     for (const value of ["(4,'dup','target',NULL)", "(2,'dup','new',NULL)", "(1,'dup','same',NULL)"]) await run(`INSERT INTO ${full(target)} VALUES ${value}`)
-    if (engine === 'oracle') await run('COMMIT'); await page.getByLabel('Filter database objects').fill(prefix)
+    if (engine === 'oracle') await run('COMMIT')
+    await page.getByLabel('Filter database objects').fill(prefix)
+    // The debounced catalog search can reserve the connection after typing starts.
+    await expect(tableNode(page, target)).toBeVisible()
     await run(engine === 'oracle' ? 'SAVEPOINT UI_GUARD' : ['sqlserver','azure-sql'].includes(engine) ? 'BEGIN TRANSACTION' : 'BEGIN')
+    await expect(page.getByRole('status', { name: 'Transaction status' })).toHaveText('In transaction')
     await open(); await expect(dialog.getByRole('button', { name: 'Compare data', exact: true })).toBeDisabled(); await expect(dialog.getByRole('alert')).toContainText('commit or roll back')
     await dialog.getByRole('button', { name: 'Close data comparison' }).click(); await run('ROLLBACK'); await open()
     const sourceValue = await dialog.getByLabel('Source table', { exact: true }).locator('option').filter({ hasText: source }).getAttribute('value')
