@@ -9,7 +9,7 @@
 
 - Added server-side catalog search, forward/backward object pages and lazy table children, with targeted inspection beyond the completion preview. Existing permissions, session ownership and metadata limits remain explicit.
 
-No beta release has been declared. Package version 0.2.3 remains a developer preview; signed distribution and the final beta version are pending the [release gates](docs/PLAN.md#beta-release-checklist).
+No beta release has been declared. Package version 0.2.4 remains a developer preview; signed distribution and the final beta version are pending the [release gates](docs/PLAN.md#beta-release-checklist).
 
 - Added guided backup/restore configuration and advisory checks, native file/tools-folder choices with remembered folders, clearer server-side locations, searchable job history and explicit connections to successful restored targets without SQL replay. Existing target, transaction, cancellation and recovery protections remain in force.
 
