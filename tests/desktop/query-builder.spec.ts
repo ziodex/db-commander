@@ -1,4 +1,4 @@
-import { waitForWorkspaceReady } from './workspace-ready'
+import { enterWorkspaceSql, waitForConnectionIdle, waitForWorkspaceReady } from './workspace-ready'
 import { _electron as electron, test, expect } from '@playwright/test'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -16,7 +16,13 @@ for(const engine of engineSchema.options) test(`visual query builder ${engine}: 
   const q=(s:string)=>quoteIdentifier(s,engine),prefix='builder_ui_'+Date.now(),parent=prefix+'_parent',child=prefix+'_child',embedded=['sqlite','duckdb'].includes(engine)
   const schema=engine==='postgres'?'public':['sqlserver','azure-sql'].includes(engine)?'dbo':engine==='oracle'?'DBCOMMANDER':embedded?'main':'dbcommander',catalog=engine==='duckdb'?'data':undefined
   const full=(name:string)=>[catalog,schema,name].filter((s):s is string=>!!s).map(q).join('.'),dialog=page.getByRole('dialog',{name:'Visual query builder',exact:true})
-  async function run(sql:string){await expect(page.getByRole('button',{name:/^Run SQL/})).toBeEnabled();await page.locator('.monaco-editor').click();await page.keyboard.press(process.platform==='darwin'?'Meta+A':'Control+A');await page.keyboard.insertText(sql);await page.keyboard.press('Escape');await page.getByRole('button',{name:/^Run SQL/}).click();await expect(page.locator('.status-text')).toHaveText('Completed');await expect(page.getByRole('button',{name:/^Run SQL/})).toBeEnabled()}
+  async function run(sql: string) {
+    await waitForConnectionIdle(page)
+    await enterWorkspaceSql(page, sql)
+    await page.getByRole('button', { name: /^Run SQL/ }).click()
+    await expect(page.locator('.status-text')).toHaveText('Completed')
+    await waitForConnectionIdle(page)
+  }
   async function open(){await tableNode(page,parent).click({button:'right'});await page.getByRole('menuitem',{name:`Build query from ${parent}`,exact:true}).click();await expect(dialog).toBeVisible()}
   async function review(){await dialog.getByRole('button',{name:'Review builder SQL',exact:true}).click();await expect(dialog.getByLabel('Builder SQL preview')).toBeVisible({timeout:30000});await expect(dialog.getByRole('status')).toHaveText('SQL reviewed against current schema. No query executed.')}
   try {
@@ -31,7 +37,10 @@ for(const engine of engineSchema.options) test(`visual query builder ${engine}: 
     await page.getByRole('button',{name:'Begin',exact:true}).click();await expect(page.locator('.transaction-badge')).toHaveText('In transaction');await open()
     await expect(dialog.getByRole('button',{name:'Review builder SQL',exact:true})).toBeDisabled();await expect(dialog.getByRole('alert')).toContainText(/Commit or roll back/)
     await page.keyboard.press('Escape');await expect(dialog).not.toBeVisible();await page.getByRole('button',{name:'Rollback',exact:true}).click();await expect(page.locator('.status-text')).toHaveText('Completed')
-    await run(engine==='oracle'?'SELECT 42 FROM dual':'SELECT 42');const buffer=await page.locator('.monaco-editor').innerText(),history=(await page.evaluate(()=>window.dbCommander.history())).length
+    await expect(page.getByRole('status', { name: 'Transaction status' })).toHaveText(engine === 'oracle' ? 'Manual commit mode' : 'Autocommit')
+    await run(engine==='oracle'?'SELECT 42 FROM dual':'SELECT 42')
+    await expect(page.locator('.results-region')).toContainText('42')
+    const buffer=await page.locator('.monaco-editor').innerText(),history=(await page.evaluate(()=>window.dbCommander.history())).length
     await open();await expect(dialog.getByLabel('Output 1 column')).toHaveValue(JSON.stringify([0,'id']))
     await dialog.getByLabel('Join table',{exact:true}).selectOption(builderTableKey({catalog,schema,name:child}));await dialog.getByRole('button',{name:'Add join',exact:true}).click();await dialog.getByLabel('Join t2 type').selectOption('left')
     await expect(dialog.getByLabel('Query sources')).toContainText(`t2 · ${child}`)

@@ -1,4 +1,4 @@
-import { waitForWorkspaceReady } from './workspace-ready'
+import { enterWorkspaceSql, waitForConnectionIdle, waitForWorkspaceReady } from './workspace-ready'
 import { tableAction, tableNode } from './explorer-actions'
 import { _electron as electron, test, expect } from '@playwright/test'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
@@ -15,8 +15,8 @@ for (const engine of engineSchema.options) test(`catalog ${engine}: object group
   const app = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: process.env.SQLCOMMANDER_TEST_EXECUTABLE } : { args: [resolve('.')] }), env: env as Record<string, string> })
   const page = await app.firstWindow(), name = `catalog_ui_${Date.now()}`, q = (value: string) => quoteIdentifier(value, engine)
   async function run(sql: string) {
-    await expect(page.getByRole('button', { name: /^Run SQL/ })).toBeEnabled()
-    await page.locator('.monaco-editor').click(); await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A'); await page.keyboard.insertText(sql); await page.keyboard.press('Escape')
+    await waitForConnectionIdle(page)
+    await enterWorkspaceSql(page, sql)
     await page.getByRole('button', { name: /^Run SQL/ }).click(); await expect(page.locator('.status-text')).toHaveText('Completed')
     await expect(page.getByRole('button', { name: /^Run SQL/ })).toBeEnabled()
     await expect(page.getByRole('button', { name: 'Refresh schema', exact: true })).toBeEnabled({ timeout: 60000 })
@@ -126,6 +126,7 @@ for (const engine of engineSchema.options) test(`catalog ${engine}: object group
     await expect.poll(() => page.locator('.monaco-editor').innerText()).toBe(buffer)
     await expect(page.locator('.transaction-badge')).toHaveText('In transaction')
     await page.getByRole('button', { name: 'Rollback', exact: true }).click(); await expect(page.locator('.status-text')).toHaveText('Completed')
+    await expect(page.getByRole('status', { name: 'Transaction status' })).toHaveText(engine === 'oracle' ? 'Manual commit mode' : 'Autocommit')
     await run(`ALTER TABLE ${q(name)} ADD ${q('fresh_column')} INTEGER`)
     await tableAction(page, `${name}`, 'Object details')
     await expect(detail.getByRole('table', { name: 'Columns', exact: true })).toContainText('fresh_column')
