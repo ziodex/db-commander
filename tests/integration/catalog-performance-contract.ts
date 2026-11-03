@@ -22,7 +22,7 @@ export async function verifyCatalogPerformance(config:ConnectionConfig) {
     expect(done?.status,done?.error).toBe('completed')
     return events.flatMap(event => event.type==='rows' && event.queryId===id ? event.rows : [])
   }
-  async function probe(target:string,tables:number,record:{refreshMs:number[];inspectMs:number[]}) {
+  async function probe(target:string,tables:number,record:{refreshMs:number[];inspectMs:number[];searchMs:number[]}) {
     for(let sample=0;sample<3;sample++) {
       let start=performance.now(); const schema=await driver.schema(target); record.refreshMs.push(performance.now()-start)
       expect(schema.truncated).toBe(true); expect(schema.objects.flatMap(object => object.columns)).toHaveLength(10000)
@@ -32,14 +32,19 @@ export async function verifyCatalogPerformance(config:ConnectionConfig) {
       const last=schema.catalog!.objects.find(object => object.name===table(1900))!
       expect(last).toBeDefined(); expect(schema.objects.some(object => object.name===last.name)).toBe(false)
       start=performance.now(); const detail=await driver.inspectObject({sessionId:target,object:last}); record.inspectMs.push(performance.now()-start)
+      start=performance.now()
+      const late=await driver.catalogPage({sessionId:target,search:table(tables-1),kind:'table',rootsOnly:true})
+      record.searchMs.push(performance.now()-start)
+      expect(late.objects).toHaveLength(1);expect(late.objects[0].name).toBe(table(tables-1))
       expect(detail.definition.sql).toContain(last.name); expect(detail.sections.find(section => section.title==='Columns')!.rows).toHaveLength(8)
     }
     expect(Math.max(...record.refreshMs),'refresh').toBeLessThan(10000)
     expect(Math.max(...record.inspectMs),'inspection').toBeLessThan(5000)
+    expect(Math.max(...record.searchMs),'paged catalog search').toBeLessThan(2000)
   }
   try {
     for (const tables of PERFORMANCE_CATALOG_SIZES) {
-      const record={tables,seedMs:0,refreshMs:[] as number[],inspectMs:[] as number[],memory:undefined as ReturnType<typeof catalogProcessMemory>|undefined}; measurements.push(record)
+      const record={tables,seedMs:0,refreshMs:[] as number[],inspectMs:[] as number[],searchMs:[] as number[],memory:undefined as ReturnType<typeof catalogProcessMemory>|undefined}; measurements.push(record)
       let start=performance.now()
       while(created<tables) {
         const start=created; created=Math.min(tables,created+150)
@@ -58,7 +63,7 @@ export async function verifyCatalogPerformance(config:ConnectionConfig) {
       console.log(engine,JSON.stringify(record))
     }
     if(engine==='sqlserver') {
-      const azure=await driver.connect({...config,engine:'azure-sql'}), record={profile:'azure-sql',tables:PERFORMANCE_CATALOG_SIZES[1],refreshMs:[] as number[],inspectMs:[] as number[],memory:undefined as ReturnType<typeof catalogProcessMemory>|undefined}; measurements.push(record)
+      const azure=await driver.connect({...config,engine:'azure-sql'}), record={profile:'azure-sql',tables:PERFORMANCE_CATALOG_SIZES[1],refreshMs:[] as number[],inspectMs:[] as number[],searchMs:[] as number[],memory:undefined as ReturnType<typeof catalogProcessMemory>|undefined}; measurements.push(record)
       try {
         await run(`BEGIN TRANSACTION; UPDATE ${q(table(0))} SET label='uncommitted' WHERE id=1`,azure.id); events.length=0
         await probe(azure.id,record.tables,record)

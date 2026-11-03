@@ -49,6 +49,11 @@ for (const engine of engineSchema.options) test(`explain ${engine}: selected SQL
       if (await collapse.count()) { await collapse.click(); await expect(plan.getByRole('button',{name:/^Plan node/})).toHaveCount(1); await plan.getByRole('button',{name:'Expand all nodes'}).click() }
       await page.screenshot({path:testInfo.outputPath('postgres-plan-tree.png')})
       await plan.getByRole('button',{name:'Raw plan',exact:true}).click()
+    } else {
+      await plan.getByRole('button', { name: 'Plan tree', exact: true }).click()
+      await expect(plan.getByRole('button', { name: /^Plan node/ }).first()).toBeVisible()
+      await expect(plan.getByRole('table', { name: 'Plan node details' })).toBeVisible()
+      await plan.getByRole('button', { name: 'Raw plan', exact: true }).click()
     }
     await expect(plan.getByLabel('Raw query plan')).toHaveValue(/.+/)
     const marker = ['mysql','mariadb'].includes(engine) ? 'query_block' : engine === 'sqlite' ? 'SEARCH' : engine === 'oracle' ? 'SELECT STATEMENT' : engine === 'duckdb' ? 'JOIN' : engine === 'postgres' ? 'Node Type' : 'ShowPlanXML'

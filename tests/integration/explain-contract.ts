@@ -6,6 +6,7 @@ import { expect } from 'vitest'
 import { DriverRegistry } from '../../src/driver/registry'
 import { quoteIdentifier } from '../../src/shared/sql/common'
 import { postgresPlan, separatePlanConnection } from '../../src/shared/explain'
+import { explainTree } from '../../src/shared/plan-tree'
 import type { ConnectionConfig, DatabaseEvent } from '../../src/shared/contracts'
 import type { QueryParameter } from '../../src/shared/parameters'
 import { tunneledConfig } from './connection-contract'
@@ -37,6 +38,7 @@ export async function verifyExplain(config: ConnectionConfig) {
     const csv = join(directory, 'retained.csv'); await driver.exportCsv(cached.queryId, 0, csv); expect(readFileSync(csv,'utf8')).toContain('"1","10"')
     if (config.engine === 'postgres') expect(postgresPlan(plan.raw).nodes.length).toBeGreaterThan(0)
     if (server) expect(plan.raw).toContain('ShowPlanXML')
+    else expect(explainTree(plan).nodes.length).toBeGreaterThan(0)
     const parameter = (name: string, type: QueryParameter['type'], value = ''): QueryParameter => ({ name, type, value })
     const boundSelect = `SELECT ${q('id')} FROM ${table} WHERE ${q('id')}=:id OR ${q('id')}=:id`
     const values = [parameter('id', 'integer', '1')]

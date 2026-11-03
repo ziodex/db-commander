@@ -2,7 +2,7 @@ import { _electron as electron, expect, test, type ElectronApplication, type Loc
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { waitForWorkspaceReady } from './workspace-ready'
+import { enterWorkspaceSql as enter, waitForConnectionIdle, waitForWorkspaceReady } from './workspace-ready'
 import { withClipboard } from './clipboard-fixture'
 
 const key = process.platform === 'darwin' ? 'Meta' : 'Control'
@@ -19,14 +19,6 @@ async function connect(page: Page, engine: 'sqlite' | 'duckdb') {
   await page.getByRole('button', { name: 'Connect database', exact: true }).click()
   const form = page.getByRole('dialog'); await form.getByLabel('Database engine').selectOption(engine); await form.getByLabel('Open mode').selectOption('memory')
   await form.getByLabel('Save connection profile').uncheck(); await form.getByRole('button', { name: 'Connect', exact: true }).click(); await expect(form).toHaveCount(0)
-}
-async function enter(page: Page, sql: string) {
-  const editor = page.locator('.monaco-editor'), input = editor.locator('textarea.inputarea')
-  await expect(input).toBeEditable(); await editor.click(); await expect(input).toBeFocused()
-  await page.keyboard.press(`${key}+A`); await page.keyboard.insertText(sql); await page.keyboard.press('Escape')
-  // Monaco virtualizes wrapped lines; the native keystrokes must reach the
-  // complete persisted buffer, including lines outside its current viewport.
-  await expect.poll(async () => { const value = await page.evaluate(() => window.dbCommander.loadWorkspace()); return value?.tabs.find(tab => tab.id === value.activeTabId)?.sql }).toBe(sql)
 }
 async function run(page: Page, sql: string) {
   await enter(page, sql); await page.getByRole('button', { name: /^Run SQL/ }).click(); await expect(page.locator('.status-text')).toHaveText('Completed')
@@ -122,6 +114,7 @@ for (const engine of ['sqlite', 'duckdb'] as const) {
       await run(page, "SELECT 'new live value' AS label;")
       await expect(cell(live(page), 0, 0)).toHaveText('new live value'); await expect(cell(pinned(page), 0, 0)).toHaveText('retained before change')
       await page.getByRole('button', { name: 'New query tab', exact: true }).click()
+      await waitForConnectionIdle(page)
       await page.getByRole('button', { name: 'Close Untitled.sql', exact: true }).click()
       const confirmation = page.getByRole('dialog', { name: 'Close query tab', exact: true }); await confirmation.getByRole('button', { name: 'Close tab', exact: true }).click(); await expect(confirmation).toHaveCount(0)
       await page.getByRole('button', { name: 'Disconnect', exact: true }).click(); await expect(page.locator('.status-text')).toHaveText('Disconnected')

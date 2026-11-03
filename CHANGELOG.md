@@ -2,7 +2,14 @@
 
 ## Unreleased — beta preparation
 
-No beta release has been declared. Package version 0.2.3 remains a developer preview; signed distribution and the final beta version are pending the [release gates](docs/PLAN.md#beta-release-checklist).
+- Added editor SQL diagnostics, scoped completion, catalog signatures, definition and reference navigation, and reviewed alias rename.
+- Extended plan trees across engines and added captured-plan comparison, saved ER diagram layouts and a SQL project-folder browser.
+
+- Added scoped schema inventories and focused definition review, larger exact data comparisons, dependency ordering for reviewed table drops, and reviewed JSON synchronization plans.
+
+- Added server-side catalog search, forward/backward object pages and lazy table children, with targeted inspection beyond the completion preview. Existing permissions, session ownership and metadata limits remain explicit.
+
+No beta release has been declared. Package version 0.2.4 remains a developer preview; signed distribution and the final beta version are pending the [release gates](docs/PLAN.md#beta-release-checklist).
 
 - Added guided backup/restore configuration and advisory checks, native file/tools-folder choices with remembered folders, clearer server-side locations, searchable job history and explicit connections to successful restored targets without SQL replay. Existing target, transaction, cancellation and recovery protections remain in force.
 
@@ -34,4 +41,4 @@ No beta release has been declared. Package version 0.2.3 remains a developer pre
 - Added opt-in minimize to tray, replaced the default application icon and fixed retained editor state after closing scratch tabs.
 - Added packaged dependency inventories, complete unpacked-file hashes and notice sidecars. Installed verification rejects missing or extra unpacked files and redirected paths. Oracle packages include the supported Thin implementation and exclude unused Thick-mode binaries. Electron's upstream license/notices are now included and verified in application payloads. Native/vendor composition and redistribution review remain open.
 
-Catalog pagination and automatic updates are deferred. Preview, workspace, recovery, engine and authentication limits are documented in [beta notes](docs/BETA_NOTES.md). Updates are manual, and downgrade compatibility is not guaranteed. Support and private reporting use [post@detego.no](mailto:post@detego.no); see [support guidance](SUPPORT.md).
+Automatic updates are deferred. Preview, workspace, recovery, engine and authentication limits are documented in [beta notes](docs/BETA_NOTES.md). Updates are manual, and downgrade compatibility is not guaranteed. Support and private reporting use [post@detego.no](mailto:post@detego.no); see [support guidance](SUPPORT.md).

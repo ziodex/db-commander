@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { gridFilterSchema, gridTableSchema, idSchema, type Cell, type DatabaseEngine, type GridColumn } from './contracts'
 
-const DATA_ROWS = 200
+export const DATA_ROWS = 2000
 export const DATA_COLUMNS = 32
 export const DATA_CELL = 4096
 export const DATA_BYTES = 4 * 1024 * 1024
@@ -16,7 +16,7 @@ export type DataScope = z.infer<typeof dataScopeSchema>
 export type DataCompareRequest = z.infer<typeof dataCompareSchema>
 // Host-only operation: never accepted by the public grid IPC schema.
 export type DataCaptureRequest = DataScope & Pick<DataCompareRequest, 'keys' | 'columns' | 'maxRows'> & { action: 'compare-data' }
-export interface DataCapture { columns: GridColumn[]; keys: string[]; rows: Cell[][] }
+export interface DataCapture { columns: GridColumn[]; keys: string[]; rows: Cell[][]; primaryKey?: string[] }
 export interface DataDifference {
   key: string[]; status: 'source-only' | 'target-only' | 'changed' | 'matching'
   source?: Cell[]; target?: Cell[]; changedColumns: string[]
@@ -24,5 +24,6 @@ export interface DataDifference {
 export interface DataComparison {
   engine: DatabaseEngine; request: DataCompareRequest; sourceLabel: string; targetLabel: string; capturedAt: string
   columns: GridColumn[]; keys: string[]; sourceRows: number; targetRows: number
+  synchronization: { primaryKey: boolean; generatedTargetColumns: string[] };
   counts: Record<DataDifference['status'], number>; rows: DataDifference[]; notices: string[]
 }

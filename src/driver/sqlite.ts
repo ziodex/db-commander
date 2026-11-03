@@ -139,10 +139,10 @@ export class SqliteDriver implements DatabaseDriver {
     if (!session.lost) await this.rpc(session, 'close')
     this.results.forget(id); this.sessions.delete(id)
   }
-  async explore(id: string, object?: CatalogObject, diagram?: DiagramScope) {
+  async explore(id: string, object?: CatalogObject, diagram?: DiagramScope, page?: import('../catalog/paging').CatalogRead) {
     const session = this.session(id)
     if (session.busy || session.inspection) throw new Error('Wait for the SQLite operation to finish before inspecting objects.')
-    return this.rpc(session, 'explore', {object,diagram})
+    return this.rpc(session, 'explore', {object,diagram,page})
   }
   async schema(id: string): Promise<SchemaSnapshot> {
     const session = this.session(id)

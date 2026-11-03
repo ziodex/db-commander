@@ -20,7 +20,7 @@ export function sessionOwners(states: Record<string, QueryTabState>, sessionId: 
 export function reconcileSessionBusy(states: Record<string, QueryTabState>) {
   return Object.fromEntries(Object.entries(states).map(([id, state]) => {
     const sharedSessionBusy = Boolean(state.session && Object.entries(states).some(([other, peer]) => other !== id && peer.session?.id === state.session!.id && (
-      peer.running || peer.connecting || peer.closing || peer.schemaLoading || peer.backupBusy || peer.transferBusy || peer.gridBusy || peer.switching || peer.databasesLoading || peer.gridChanges.length
+      peer.running || peer.connecting || peer.closing || peer.schemaLoading || peer.catalogLoading || peer.backupBusy || peer.transferBusy || peer.gridBusy || peer.switching || peer.databasesLoading || peer.gridChanges.length
     )))
     return [id, Boolean(state.sharedSessionBusy) === sharedSessionBusy ? state : { ...state, sharedSessionBusy }]
   }))

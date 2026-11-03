@@ -9,7 +9,7 @@ import { catalogProcessMemory, performanceCatalogSeed, performanceTable as catal
 import { tableAction, tableNode } from './explorer-actions'
 import {openMysqlTransport,type MysqlTransport} from '../../src/driver/mysql-transport'
 
-const total=PERFORMANCE_CATALOG_SIZES[1], visible=2000
+const total=PERFORMANCE_CATALOG_SIZES[1]
 type Resources={sample:number;postGcHeapBytes:number;documents:number;nodes:number;jsEventListeners:number;memory:ReturnType<typeof catalogProcessMemory>}
 const engines:('sqlite'|'duckdb'|'mariadb')[]=(process.env.SQLCOMMANDER_TEST_DRIVERS??'').split(',').includes('mariadb')?['mariadb']:['sqlite','duckdb']
 for (const engine of engines) test(`catalog performance ${engine}: 20000 tables, repeated refresh and responsive editor`, async ({}, testInfo) => {
@@ -17,9 +17,8 @@ for (const engine of engines) test(`catalog performance ${engine}: 20000 tables,
   test.setTimeout(240000)
   const directory = mkdtempSync(join(tmpdir(), 'dbcommander-catalog-performance-')), path = join(directory, 'catalog.db')
   let fixture:MysqlTransport|undefined,created=0
-  // The core server fixture's view survives in the column preview even when
-  // the rich catalog's 2000 slots are occupied by tables.
-  const expectedVisible=visible+(engine==='mariadb'?1:0)
+  // The explorer retains one page regardless of the full catalog size.
+  const expectedVisible=100
   const ca=engine==='mariadb'?readFileSync(process.env.SQLCOMMANDER_MARIADB_CA!,'utf8'):''
   // Seed a private file before the app opens it; never open a second descriptor
   // to an active DuckDB file (POSIX locks are process scoped).
@@ -40,7 +39,7 @@ for (const engine of engines) test(`catalog performance ${engine}: 20000 tables,
     }
     const env: Record<string, string | undefined> = { ...process.env, SQLCOMMANDER_USER_DATA: directory }; delete env.ELECTRON_RUN_AS_NODE
     const app = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: process.env.SQLCOMMANDER_TEST_EXECUTABLE } : { args: [resolve('.')] }), env: env as Record<string, string> })
-    const page = await app.firstWindow(), timings: Record<string, number> = {}, resources:Resources[]=[], last = catalogTable(1900), key = process.platform === 'darwin' ? 'Meta' : 'Control'
+    const page = await app.firstWindow(), timings: Record<string, number> = {}, resources:Resources[]=[], last = catalogTable(total - 1), key = process.platform === 'darwin' ? 'Meta' : 'Control'
     const cdp=await page.context().newCDPSession(page); await cdp.send('Performance.enable')
     const refresh = page.getByRole('button', { name: 'Refresh schema', exact: true }), filter = page.getByLabel('Filter database objects')
     const sqlText = () => page.evaluate(async () => { const workspace = await window.dbCommander.loadWorkspace(); return workspace!.tabs.find(tab => tab.id === workspace!.activeTabId)!.sql })
@@ -55,11 +54,11 @@ for (const engine of engines) test(`catalog performance ${engine}: 20000 tables,
       } else {await form.getByLabel('Open mode').selectOption('read-write'); await form.getByLabel('Database file').fill(path)}
       let start = performance.now(); await form.getByRole('button', { name: 'Connect', exact: true }).click()
       await expect(form).not.toBeVisible(); await expect(refresh).toBeEnabled()
-      await expect(tableNode(page, last)).toHaveCount(1); timings.connect = performance.now() - start
-      await expect(page.getByText('Schema preview limit reached; some objects or columns are omitted.', { exact: true })).toBeVisible()
-      await expect(page.getByText('Catalog limit reached (2,000 objects). Some objects are omitted.', { exact: true })).toBeVisible()
+      await expect(tableNode(page, catalogTable(0))).toHaveCount(1); timings.connect = performance.now() - start
+      await expect(page.getByRole('button', { name: 'Next catalog page', exact: true })).toBeEnabled()
+      await expect(tableNode(page, last)).toHaveCount(0)
       expect(await page.locator('.schema-object').count()).toBe(expectedVisible)
-      if(engine==='mariadb')await expect(tableNode(page,'customer_projects')).toHaveCount(1)
+      if(engine==='mariadb') { await filter.fill('customer_projects'); await expect(tableNode(page,'customer_projects')).toHaveCount(1); await filter.fill(''); await expect(tableNode(page,catalogTable(0))).toHaveCount(1) }
       await expect(tableNode(page,catalogTable(total-1))).toHaveCount(0)
       let buffer = 'SELECT 42 AS preserved; -- catalog performance'
       await page.locator('.monaco-editor').click(); await page.keyboard.press(`${key}+A`); await page.keyboard.insertText(buffer); await page.keyboard.press('Escape')
@@ -76,7 +75,7 @@ for (const engine of engines) test(`catalog performance ${engine}: 20000 tables,
             await expect.poll(sqlText).toBe(buffer); timings[`refreshTyping${sample}`]=performance.now()-typed
           })()
         ])
-        await expect(tableNode(page,last)).toHaveCount(1)
+        await expect(tableNode(page,catalogTable(0))).toHaveCount(1)
         expect(await page.evaluate(() => window.dbCommander.history())).toEqual(history)
         expect(timings[`refresh${sample}`]).toBeLessThan(10000); expect(timings[`refreshTyping${sample}`]).toBeLessThan(2000)
         await cdp.send('HeapProfiler.collectGarbage')

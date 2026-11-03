@@ -31,6 +31,8 @@ for (const engine of ['sqlite', 'duckdb'] as const) test(`saved table layouts ${
     await expect(page.locator('.status-text')).toHaveText('Completed'); await expect(page.getByRole('button', { name: /^Run SQL/ })).toBeEnabled()
   }
   async function browse() {
+    // An explicit schema refresh also repopulates the paged explorer.
+    await expect(page.getByRole('button', { name: /^Run SQL/ })).toBeEnabled()
     await tableAction(page, 'saved_columns', 'Browse data'); await expect(page.locator('.status-text')).toHaveText('Table loaded')
   }
   const columns = () => page.getByRole('dialog', { name: 'Column controls', exact: true })

@@ -16,7 +16,7 @@ import { diagramRequestSchema, type DiagramRequest } from '../shared/diagram'
 import { explainRequestSchema, planFormat, separatePlanConnection, type ExplainRequest, type ExplainResult } from '../shared/explain'
 import { explainSql, explainStatement } from '../explain/sql'
 import { isolatedPlan, PlanCollector, rawPlan } from '../explain/execution'
-import { inspectObjectSchema, type InspectObjectRequest } from '../shared/catalog'
+import { catalogPageSchema, inspectObjectSchema, type InspectObjectRequest } from '../shared/catalog'
 import { MAX_TABS, type ConnectionConfig, type RunRequest, type GridRequest, gridRequestSchema, connectionSchema, switchDatabaseSchema, type SwitchDatabaseRequest, type DatabaseCatalog } from '../shared/contracts'
 import { type Completion, type DatabaseDriver, type Emit } from './driver'
 import { OracleDriver } from './oracle'
@@ -417,6 +417,16 @@ export class DriverRegistry {
     })
   }
   tables(id: string) { const driver = this.driver(id); return this.operation(id, () => driver.tables(id)) }
+  catalogPage(input: import('../shared/catalog').CatalogPageRequest) {
+    const { sessionId, ...read } = catalogPageSchema.parse(input), driver = this.driver(sessionId)
+    if (this.running.has(sessionId)) throw new Error('Wait for the query to finish before reading the catalog.')
+    if (['failed', 'unknown'].includes(driver.getSession(sessionId).transaction)) throw new Error('Resolve the transaction before reading the catalog.')
+    return this.operation(sessionId, async () => {
+      const page = (await driver.explore(sessionId, undefined, undefined, read)).page
+      if (!page) throw new Error('Catalog paging is unavailable for this connection.')
+      return page
+    })
+  }
   schema(id: string) {
     const driver = this.driver(id)
     return this.operation(id, async () => {

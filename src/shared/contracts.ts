@@ -1,9 +1,11 @@
 import { MAX_SQL_CHARACTERS, MAX_WORKSPACE_SQL_CHARACTERS } from './workspace-limits'
 import { z } from 'zod'
+import { idSchema } from './id-schema'
 import { parametersSchema } from './parameters'
 import { layoutSchema, type LayoutCommand } from './layout'
 import { editorSettingsSchema } from './editor-settings'
 import { editorViewsSchema } from './editor-views'
+import { diagramLayoutsSchema } from './diagram-layouts'
 import { tableLayoutsSchema } from './table-layouts'
 import type { PasswordStatus } from './credentials'
 import { profileOptions, sshSecretsSchema, type ConnectionSafety } from './connection-options'
@@ -41,7 +43,7 @@ export const profileSchema = connectionFields.omit({ password: true, accessToken
 export const DEFAULT_PROFILE: ConnectionProfile = { engine: 'postgres', name: 'Local PostgreSQL', host: 'localhost', port: 5432, database: 'postgres', user: 'postgres', tls: 'verify-full', ca: '' }
 export const MAX_TABS = 20
 export const MAX_PROFILES = 100
-export const idSchema = z.string().uuid()
+export { idSchema } from './id-schema'
 export const switchDatabaseSchema = z.object({ sessionId: idSchema, database: z.string().min(1).max(255), retainSource: z.boolean().optional() }).strict()
 export type SwitchDatabaseRequest = z.infer<typeof switchDatabaseSchema>
 export interface DatabaseCatalog { databases: string[]; current: string; switchable: boolean; notice?: string }
@@ -70,7 +72,8 @@ export interface HistoryEntry { engine?: DatabaseEngine; database?: string; favo
 // Version 1 is accepted only by the storage migration, never by new IPC writes.
 export const legacyWorkspaceSchema = z.object({ sql: z.string().max(MAX_SQL_CHARACTERS), profile: profileSchema.optional() }).strict()
 export const workspaceSchema = z.object({ version: z.literal(2), tabs: z.array(workspaceTabSchema).min(1).max(MAX_TABS), activeTabId: idSchema,
-  profiles: z.array(savedProfileSchema).max(MAX_PROFILES), layout: layoutSchema.optional(), editorSettings: editorSettingsSchema.optional(), editorViews: editorViewsSchema.optional(), tableLayouts: tableLayoutsSchema.optional() }).strict().superRefine((workspace, context) => {
+  profiles: z.array(savedProfileSchema).max(MAX_PROFILES), layout: layoutSchema.optional(), editorSettings: editorSettingsSchema.optional(), editorViews: editorViewsSchema.optional(),
+  tableLayouts: tableLayoutsSchema.optional(), diagramLayouts: diagramLayoutsSchema.optional() }).strict().superRefine((workspace, context) => {
   const tabs = new Set(workspace.tabs.map(tab => tab.id)), profiles = new Set(workspace.profiles.map(profile => profile.id))
   if (tabs.size !== workspace.tabs.length || profiles.size !== workspace.profiles.length) context.addIssue({ code: 'custom', message: 'Tab and profile IDs must be unique.' })
   if (!tabs.has(workspace.activeTabId)) context.addIssue({ code: 'custom', message: 'The active tab must exist.' })
@@ -156,7 +159,7 @@ export interface DesktopApi {
   explain(request: import('./explain').ExplainRequest): Promise<import('./explain').ExplainResult>
   cancelExplain(sessionId: string): Promise<{ requested: boolean }>
   savePlan(value: { text: string; format: 'json' | 'xml' | 'text' | 'table' }): Promise<string | null>
-  saveValue(value: { text: string; format: 'json' | 'xml' | 'text' }): Promise<string | null>
+  saveValue(value: { text: string; format: 'json' | 'xml' | 'text' | 'synchronization-plan' }): Promise<string | null>
 
   prepareSchemaChange(request: import('./schema-changes').PrepareSchemaChange): Promise<import('./schema-changes').SchemaChangePlan>
   applySchemaChange(request: import('./schema-changes').ApplySchemaChange): Promise<import('./schema-changes').SchemaChangeResult>
@@ -207,6 +210,7 @@ export interface DesktopApi {
   compareData(request: import('./data-compare').DataCompareRequest): Promise<import('./data-compare').DataComparison>
   diagram(request: import('./diagram').DiagramRequest): Promise<import('./diagram').DiagramSnapshot>
   saveDiagram(request: import('./diagram').DiagramExport): Promise<string|null>
+  catalogPage(request: import('./catalog').CatalogPageRequest): Promise<import('./catalog').CatalogPage>
   inspectObject(request: import('./catalog').InspectObjectRequest): Promise<import('./catalog').ObjectDetail>
   editGrid(request: GridRequest): Promise<GridResponse>
   loadWorkspace(): Promise<(Workspace & { recoveryNotice?: string }) | null>
@@ -239,7 +243,10 @@ export interface DesktopApi {
   onFileCommand(listener: (command: import('./sql-files').SqlFileCommand) => void): () => void
   chooseSqliteFile(create: boolean): Promise<string | null>
   chooseDuckdbFile(create: boolean): Promise<string | null>
-  openSql(request: { tabId: string; recentId?: string }): Promise<import('./sql-files').OpenedSqlFile | null>
+  openSql(request: import('./sql-files').OpenSqlFileRequest): Promise<import('./sql-files').OpenedSqlFile | null>
+  chooseSqlProject(): Promise<import('./sql-files').SqlProject | null>
+  listSqlProject(): Promise<import('./sql-files').SqlProject | null>
+  closeSqlProject(): Promise<void>
   onEvent(listener: (event: DatabaseEvent) => void): () => void
   onSaveRequested(listener: () => Promise<void>): () => void
 }

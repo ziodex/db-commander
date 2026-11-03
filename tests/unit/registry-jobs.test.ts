@@ -6,6 +6,26 @@ import { DEFAULT_PROFILE, type SessionInfo } from '../../src/shared/contracts'
 
 afterEach(() => vi.restoreAllMocks())
 
+it('reserves a catalog read before metadata starts and keeps SQL/disconnect blocked until settlement', async () => {
+  const session: SessionInfo = { ...DEFAULT_PROFILE, id: randomUUID(), version: 'fixture', transaction: 'idle', tls: true }
+  vi.spyOn(PostgresDriver.prototype, 'connect').mockResolvedValue(session)
+  vi.spyOn(PostgresDriver.prototype, 'getSession').mockReturnValue(session)
+  const start = vi.spyOn(PostgresDriver.prototype, 'start').mockReturnValue(randomUUID())
+  let resolve!: (value: { page: import('../../src/shared/catalog').CatalogPage }) => void
+  const pending = new Promise<{ page: import('../../src/shared/catalog').CatalogPage }>(yes => { resolve = yes })
+  vi.spyOn(PostgresDriver.prototype, 'explore').mockReturnValue(pending)
+  const registry = new DriverRegistry(() => {})
+  try {
+    await registry.connect({ ...DEFAULT_PROFILE, password: '' })
+    const reading = registry.catalogPage({ sessionId: session.id, search: '', rootsOnly: true })
+    expect(() => registry.start({ sessionId: session.id, sql: 'SELECT 1', maxRows: 1 })).toThrow('operation')
+    await expect(registry.disconnect(session.id)).rejects.toThrow('operation')
+    expect(start).not.toHaveBeenCalled()
+    resolve({ page: { objects: [], source: 'catalog-connection', notice: '', fetchedAt: 'now' } })
+    expect((await reading).objects).toEqual([])
+  } finally { await registry.close() }
+})
+
 it('reserves the backup session before publishing the first running event', async () => {
   const session: SessionInfo = { ...DEFAULT_PROFILE, id: randomUUID(), version: 'fixture', transaction: 'idle', tls: true }
   vi.spyOn(PostgresDriver.prototype, 'connect').mockResolvedValue(session)

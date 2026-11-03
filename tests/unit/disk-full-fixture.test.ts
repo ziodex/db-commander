@@ -47,16 +47,35 @@ it('retries a busy owned volume without forcing eject and succeeds when its hand
   const pause = vi.fn((ms: number) => { time += ms })
   detachDiskImage('/private/fixture/volume', execute, pause, undefined, () => time)
   expect(execute).toHaveBeenCalledTimes(9)
-  for (const args of execute.mock.calls) expect(args).toEqual(['hdiutil', ['detach', '/private/fixture/volume'], { stdio: 'pipe', timeout: 5000 }])
+  for (const args of execute.mock.calls) expect(args).toEqual(['hdiutil', ['detach', '/private/fixture/volume'], { stdio: 'pipe', timeout: 15000 }])
   expect(time).toBe(4000); expect(pause.mock.calls.every(([ms]) => ms === 500)).toBe(true)
 })
 
 it('retains the original busy error after bounded retries so a mounted fixture is not removed', () => {
   const busy = Object.assign(new Error('still busy'), { stderr: 'Resource busy' })
   let time = 0
-  const execute = vi.fn(() => { throw busy }), pause = vi.fn((ms: number) => { time += ms })
+  const execute = vi.fn().mockImplementation(() => { throw busy })
+  const pause = vi.fn((ms: number) => { time += ms })
   expect(() => detachDiskImage('/private/fixture/volume', execute, pause, undefined, () => time)).toThrow(busy)
-  expect(time).toBe(30000); expect(execute).toHaveBeenCalledTimes(61); expect(pause).toHaveBeenCalledTimes(60)
+  expect(time).toBe(30000); expect(execute).toHaveBeenCalledTimes(60); expect(pause).toHaveBeenCalledTimes(60)
+  expect(execute.mock.calls.map(([, , options]) => options.timeout)).toEqual(
+    Array.from({ length: 60 }, (_, attempt) => Math.min(15000, 30000 - attempt * 500))
+  )
+})
+
+it('lets a single native detach finish after a slow flush without exceeding the teardown budget', () => {
+  let time = 0
+  const execute = vi.fn().mockImplementation((_command, _args, { timeout }) => {
+    time += Math.min(8000, timeout)
+    if (time < 8000) throw Object.assign(new Error('client timeout'), { code: 'ETIMEDOUT' })
+    return Buffer.from('detached')
+  })
+  const pause = vi.fn(), verify = vi.fn(() => false)
+  detachDiskImage('/private/fixture/volume', execute, pause, verify, () => time)
+  expect(execute).toHaveBeenCalledOnce()
+  expect(time).toBe(8000)
+  expect(verify).not.toHaveBeenCalled()
+  expect(pause).not.toHaveBeenCalled()
 })
 
 it('does not retry unrelated detach failures or command timeouts', () => {

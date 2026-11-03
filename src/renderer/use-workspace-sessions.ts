@@ -2,8 +2,9 @@ import { useRef, useState, type RefObject } from 'react'
 import { connectionProfile, sameConnectionProfile } from '../shared/connection-profiles'
 import { MAX_PROFILES, type ConnectionConfig, type ConnectionProfile, type DatabaseEvent, type DesktopApi, type WorkspaceTab } from '../shared/contracts'
 import { passwordEligible, type PasswordChoice } from '../shared/credentials'
+import type { CatalogPage } from '../shared/catalog'
 import type { EditorSettings } from '../shared/editor-settings'
-import { canCloseTab, canSwitchDatabase, emptyTabState } from './query-tabs'
+import { canCloseTab, canSwitchDatabase, emptyTabState, tabOperationBusy } from './query-tabs'
 import { sessionOwners } from './shared-sessions'
 import { DUCKDB_INITIAL_SQL, INITIAL_PROFILE, INITIAL_SQL, MYSQL_INITIAL_SQL, ORACLE_INITIAL_SQL, SQLITE_INITIAL_SQL, SQLSERVER_INITIAL_SQL, starterSql } from './starter-sql'
 import type { useSqlFiles } from './use-sql-files'
@@ -21,6 +22,7 @@ export function useWorkspaceSessions({ api, runtime, tab, readyRef, sqlFiles, ed
   const lostSessions = useRef(new Set<string>())
 
   const generation = useRef(0)
+  const catalogReads = useRef(new Map<string, Promise<CatalogPage>>())
 
   const [dialogInfo, setDialogInfo] = useState<{ tabId: string; profile: ConnectionProfile; profileId?: string; saveOnly?: boolean } | null>(null)
 
@@ -46,9 +48,39 @@ export function useWorkspaceSessions({ api, runtime, tab, readyRef, sqlFiles, ed
     if (lostSessions.current.has(sessionId)) void api.disconnect(sessionId).then(() => lostSessions.current.delete(sessionId)).catch(() => {})
   }
 
+  async function readCatalog(request: import('../shared/catalog').CatalogPageRequest) {
+    const owner = tabId, current = statesRef.current[owner], epoch = generation.current
+    if (current?.session?.id !== request.sessionId || tabOperationBusy(current)) throw new Error('Wait for this connection to become idle before reading the catalog.')
+    const database = current.session.database
+    patchState(owner, { catalogLoading: true })
+    const reading: Promise<CatalogPage> = (async () => {
+      try {
+        const page = await api.catalogPage(request)
+        if (generation.current !== epoch || statesRef.current[owner]?.session?.id !== request.sessionId || statesRef.current[owner]?.session?.database !== database) throw new Error('This catalog belongs to a previous connection. Refresh the current database.')
+        return page
+      } finally {
+        if (generation.current === epoch && statesRef.current[owner]?.session?.id === request.sessionId) patchState(owner, { catalogLoading: false })
+        cleanupLostSession(request.sessionId)
+      }
+    })()
+    catalogReads.current.set(request.sessionId, reading)
+    const settled = () => { if (catalogReads.current.get(request.sessionId) === reading) catalogReads.current.delete(request.sessionId) }
+    void reading.then(settled, settled)
+    return reading
+  }
+
+  async function waitForCatalog(sessionId: string) {
+    const epoch = generation.current
+    // Explicit Browse can create a tab whose initial metadata read owns the
+    // connection before its continuation resumes. Settle that read first;
+    // openGrid still checks every operation and session guard afterwards.
+    await catalogReads.current.get(sessionId)?.catch(() => {})
+    return generation.current === epoch
+  }
+
   async function refreshTables(id = tabId, sessionId = statesRef.current[id]?.session?.id) {
     const current = statesRef.current[id]
-    if (!sessionId || current?.sharedSessionBusy || current?.schemaLoading || current?.running || current?.backupBusy || current?.transferBusy || current?.gridBusy || current?.switching || current?.databasesLoading) return
+    if (!sessionId || current?.sharedSessionBusy || current?.schemaLoading || current?.catalogLoading || current?.running || current?.backupBusy || current?.transferBusy || current?.gridBusy || current?.switching || current?.databasesLoading) return
     patchState(id, { schemaLoading: true, schemaError: '' })
     try {
       const schema = await api.schema(sessionId)
@@ -60,7 +92,7 @@ export function useWorkspaceSessions({ api, runtime, tab, readyRef, sqlFiles, ed
 
   async function refreshDatabases(id = tabId, sessionId = statesRef.current[id]?.session?.id) {
     const current = statesRef.current[id]
-    if (!sessionId || current?.sharedSessionBusy || current?.databasesLoading || current?.schemaLoading || current?.running || current?.backupBusy || current?.transferBusy || current?.gridBusy || current?.switching) return
+    if (!sessionId || current?.sharedSessionBusy || current?.databasesLoading || current?.schemaLoading || current?.catalogLoading || current?.running || current?.backupBusy || current?.transferBusy || current?.gridBusy || current?.switching) return
     patchState(id, { databasesLoading: true, databasesError: '' })
     try {
       const databases = await api.databases(sessionId)
@@ -113,7 +145,7 @@ export function useWorkspaceSessions({ api, runtime, tab, readyRef, sqlFiles, ed
     patchState(id, { connecting: true, error: '' }); setDialogError('')
     if (target.savedConnection) setConnectionWarning(null)
     try {
-      if (previous.session) { if (sessionOwners(statesRef.current, previous.session.id).length === 1) await api.disconnect(previous.session.id); else await api.editGrid({ action: 'release', sessionId: previous.session.id, viewId: id }); patchState(id, { session: null, tables: [], schema: null, schemaLoading: false, schemaError: '', databases: null, databasesError: '', databasesLoading: false, results: [], queryId: '', status: 'Disconnected' }) }
+      if (previous.session) { if (sessionOwners(statesRef.current, previous.session.id).length === 1) await api.disconnect(previous.session.id); else await api.editGrid({ action: 'release', sessionId: previous.session.id, viewId: id }); patchState(id, { session: null, tables: [], schema: null, schemaLoading: false, catalogLoading: false, schemaError: '', databases: null, databasesError: '', databasesLoading: false, results: [], queryId: '', status: 'Disconnected' }) }
       const useSaved = target.savedConnection && target.profileId && passwordEligible(config) ? (await api.passwordStatus(target.profileId)).saved : choice?.useSaved
       const connected = useSaved && target.profileId ? await api.connectSavedPassword(target.profileId, connectionProfile(config), config.sshSecrets) : await api.connect(config)
       if (generation.current !== epoch || !workspaceRef.current.tabs.some(tab => tab.id === id)) { await api.disconnect(connected.id).catch(() => {}); return }
@@ -202,7 +234,7 @@ export function useWorkspaceSessions({ api, runtime, tab, readyRef, sqlFiles, ed
       try {
         if (sessionOwners(statesRef.current, sessionId).every(id => ids.includes(id))) await api.disconnect(sessionId)
         else for (const { tab } of owners) await api.editGrid({ action: 'release', sessionId, viewId: tab.id })
-        for (const { tab } of owners) patchState(tab.id, { session: null, tables: [], schema: null, schemaLoading: false, schemaError: '', databases: null, databasesError: '', databasesLoading: false, results: [], queryId: '', status: 'Disconnected' })
+        for (const { tab } of owners) patchState(tab.id, { session: null, tables: [], schema: null, schemaLoading: false, catalogLoading: false, schemaError: '', databases: null, databasesError: '', databasesLoading: false, results: [], queryId: '', status: 'Disconnected' })
       } catch (error) { report(new Error(`${owners[0].tab.title}: ${message(error)}`)) }
       finally { for (const { tab } of owners) patchState(tab.id, { closing: false }) }
     }))
@@ -218,5 +250,5 @@ export function useWorkspaceSessions({ api, runtime, tab, readyRef, sqlFiles, ed
   return { dialogInfo, setDialogInfo, dialogError, setDialogError, connectionWarning, setConnectionWarning,
     profileBusy, deleteProfileId, setDeleteProfileId, switchTarget, setSwitchTarget, setDialog,
     connect, openIndependentConnection, saveProfile, deleteProfile, disconnect, disconnectTabs,
-    requestSwitch, switchDatabase, refreshTables, refreshDatabases, cleanupLostSession, handleSessionEvent }
+    requestSwitch, switchDatabase, readCatalog, waitForCatalog, refreshTables, refreshDatabases, cleanupLostSession, handleSessionEvent }
 }

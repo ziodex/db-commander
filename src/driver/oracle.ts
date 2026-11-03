@@ -4,7 +4,7 @@ import { readActivity } from '../activity/read'
 import type { DiagramScope } from '../shared/diagram'
 import { readDiagram } from '../catalog/diagram'
 import { bindRequest, boundValue } from './parameters'
-import { inspect } from '../catalog/common'
+import { readCatalog, inspect } from '../catalog/common'
 import { endpoint, isRouted } from '../connections/transport'
 import { oracleCatalog } from '../catalog/oracle'
 import type { CatalogObject } from '../shared/catalog'
@@ -116,9 +116,9 @@ export class OracleDriver implements DatabaseDriver {
     const session = this.session(request.sessionId)
     if (request.action === 'release') this.results.forget(request.sessionId, request.viewId)
     if (session.busy) throw new Error('Wait for the running query before editing data.')
-    session.editor ??= new TableEditor('oracle', async (sql, values = []) => {
+    session.editor ??= new TableEditor('oracle', async (sql, values = [], rowLimit) => {
       const binds = Object.fromEntries(values.map((value, index) => [`p${index + 1}`, { val: value, type: oracledb.STRING }]))
-      const result = await session.client.execute<unknown[]>(sql, binds, { outFormat: oracledb.OUT_FORMAT_ARRAY, autoCommit: false, maxRows: 202 })
+      const result = await session.client.execute<unknown[]>(sql, binds, { outFormat: oracledb.OUT_FORMAT_ARRAY, autoCommit: false, maxRows: rowLimit ?? 202 })
       const rows: Cell[][] = []
       for (const row of result.rows ?? []) {
         const cells: Cell[] = []
@@ -292,7 +292,7 @@ export class OracleDriver implements DatabaseDriver {
       }})
     } finally { await client.close().catch(()=>{}) }
   }
-  async explore(id: string, object?: CatalogObject, diagram?: DiagramScope) {
+  async explore(id: string, object?: CatalogObject, diagram?: DiagramScope, page?: import('../catalog/paging').CatalogRead) {
     const session = this.session(id), client = await openOracle(session.config)
     let definitionClient: oracledb.Connection | undefined
     const deadline = Date.now() + 45000
@@ -323,7 +323,7 @@ export class OracleDriver implements DatabaseDriver {
         return rows
       }
       const query = queryFor(client), adapter=oracleCatalog(query, definitionClient && queryFor(definitionClient))
-      return diagram?{diagram:await readDiagram(adapter,query,'oracle',diagram,'catalog-connection')}:await inspect(adapter,object)
+      return diagram?{diagram:await readDiagram(adapter,query,'oracle',diagram,'catalog-connection')}:page ? await readCatalog(adapter, query, 'oracle', page, 'catalog-connection') : await inspect(adapter,object)
     } finally {
       const readers = definitionClient ? [client, definitionClient] : [client]
       const closed = await Promise.allSettled(readers.map(async reader => { await reader.close() }))

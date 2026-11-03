@@ -18,7 +18,7 @@ import { compareSchemaSchema } from '../shared/schema-compare'
 import { diagramRequestSchema, diagramExportSchema, diagramSvg } from '../shared/diagram'
 import { historySearchSchema, historySettingsSchema, snippetSchema, snippetSearchSchema } from '../shared/query-library'
 import { explainRequestSchema, PLAN_LIMIT } from '../shared/explain'
-import { inspectObjectSchema } from '../shared/catalog'
+import { catalogPageSchema, inspectObjectSchema } from '../shared/catalog'
 import { sshSecretsSchema } from '../shared/connection-options'
 import { prepareSchemaChangeSchema, applySchemaChangeSchema } from '../shared/schema-changes'
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, MenuItem, net, powerMonitor, shell, utilityProcess, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron'
@@ -115,7 +115,7 @@ async function saveSqlFile(request: SaveSqlFileRequest, track = true): Promise<i
   const doc = sqlFiles.document(request.tabId)
   let target: string | undefined
   if (request.saveAs || !doc) {
-    const chosen = await dialog.showSaveDialog(window!, { title: 'Save SQL file as', defaultPath: doc?.path ?? 'query.sql', filters: [{ name: 'SQL', extensions: ['sql'] }] })
+    const chosen = await dialog.showSaveDialog(window!, { title: 'Save SQL file as', defaultPath: doc?.path ?? (track && sqlFiles.projectPath ? join(sqlFiles.projectPath, 'query.sql') : 'query.sql'), filters: [{ name: 'SQL', extensions: ['sql'] }] })
     if (chosen.canceled || !chosen.filePath) return null
     target = chosen.filePath
   }
@@ -267,11 +267,20 @@ function registerIpc(): void {
     await writeGeneratedFile(result.filePath, request.text, { replace: true }); return result.filePath
   })
   handle('saveValue', async value => {
-    const request=z.object({text:z.string().max(1_000_000),format:z.enum(['json','xml','text'])}).strict().parse(value)
-    const extension=request.format==='text'?'txt':request.format
-    const result=await dialog.showSaveDialog(window!,{title:'Save displayed value',defaultPath:`value.${extension}`,filters:[{name:'Displayed value',extensions:[extension]}]})
-    if(result.canceled||!result.filePath)return null
-    await writeGeneratedFile(result.filePath,request.text,{replace:true});return result.filePath
+    const request=z.object({text:z.string().max(1_000_000),format:z.enum(['json','xml','text','synchronization-plan'])}).strict().parse(value)
+    const plan = request.format === 'synchronization-plan'
+    const extension = plan ? 'json' : request.format === 'text' ? 'txt' : request.format
+    const name = plan ? 'Synchronization plan' : 'Displayed value'
+    if (plan && Buffer.byteLength(request.text, 'utf8') > 1_000_000) throw new Error('The synchronization plan exceeds 1 MB. Select fewer rows.')
+    const result = await dialog.showSaveDialog(window!, {
+      title: `Save ${name.toLowerCase()}`,
+      defaultPath: plan ? 'dbcommander-synchronization-plan.json' : `value.${extension}`,
+      filters: [{ name, extensions: [extension] }]
+    })
+    if (result.canceled || !result.filePath) return null
+    if (plan && !result.filePath.toLowerCase().endsWith('.json')) throw new Error('Choose a new filename ending in .json.')
+    await writeGeneratedFile(result.filePath, request.text, { replace: !plan })
+    return result.filePath
   })
   handle('sessionSafety', async value => rpc('sessionSafety', idSchema.parse(value)))
   handle('lockSession', async value => rpc('lockSession', idSchema.parse(value)))
@@ -321,6 +330,7 @@ function registerIpc(): void {
     if(result.canceled||!result.filePath)return null
     await writeGeneratedFile(result.filePath,svg,{replace:true});return result.filePath
   })
+  handle('catalogPage', async value => rpc('catalogPage', catalogPageSchema.parse(value)))
   handle('inspectObject', async value => rpc('inspectObject', inspectObjectSchema.parse(value)))
   handle('inspectImport', async value => {
     const request = importSourceSchema.parse(value)
@@ -534,6 +544,13 @@ function registerIpc(): void {
   handle('checkSqlFiles', () => fileOperation(() => sqlFiles.check()))
   handle('forgetSqlFile', value => fileOperation(() => sqlFiles.forget(idSchema.parse(value))))
   handle('clearRecentSqlFiles', () => fileOperation(() => sqlFiles.clearRecent()))
+  handle('chooseSqlProject', () => fileOperation(async () => {
+    const chosen = await dialog.showOpenDialog(window!, { title: 'Choose SQL project folder', properties: ['openDirectory'] })
+    if (chosen.canceled || !chosen.filePaths[0]) return null
+    return sqlFiles.chooseProject(chosen.filePaths[0])
+  }))
+  handle('listSqlProject', () => fileOperation(() => sqlFiles.listProject()))
+  handle('closeSqlProject', () => fileOperation(() => sqlFiles.closeProject()))
   handle('reloadSqlFile', value => fileOperation(async () => {
     const request = reloadSqlFileSchema.parse(value)
     if (sqlFiles.dirty(request.tabId, request.sql)) {
@@ -560,6 +577,7 @@ function registerIpc(): void {
   })
   handle('openSql', value => fileOperation(async () => {
     const request = openSqlFileSchema.parse(value)
+    if (request.projectEntryId) return sqlFiles.openProjectFile(request.tabId, request.projectEntryId)
     let path: string
     if (request.recentId) path = sqlFiles.recentPath(request.recentId)
     else {

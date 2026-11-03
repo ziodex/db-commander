@@ -215,10 +215,21 @@ export async function verifyProcedureCall(config: ConnectionConfig) {
     expect(object).toBeDefined()
     const call = routineCall(engine, await driver.inspectObject({ sessionId: session.id, object }))
     expect(call.sql, call.notice).toBeTruthy(); expect(call.arguments).toHaveLength(1)
-    const id = driver.start({ sessionId: session.id, sql: call.sql!, maxRows: 10, parameters: [{ name: 'arg1', type: 'integer', value: '7331' }] }); await driver.wait(session.id)
-    expect(events.find(event => event.type === 'complete' && event.queryId === id)).toMatchObject({ status: 'completed' })
-    expect(JSON.stringify(events.filter(event => 'queryId' in event && event.queryId === id))).not.toContain('7331')
-    expect((await run(`SELECT id FROM ${full(table)}`)).map(row => row[0])).toEqual(['7331'])
+    // The execution ID deliberately contains the test value. Check the
+    // correlation envelope separately from the content exposed by the call.
+    const value = '-1973318651', queryId = 'd2c1bd31-19ee-45d0-a486-197331865100'
+    const id = driver.start({ sessionId: session.id, queryId, sql: call.sql!, maxRows: 10, parameters: [{ name: 'arg1', type: 'integer', value }] })
+    expect(id).toBe(queryId)
+    await driver.wait(session.id)
+    const payloads = events.flatMap(event => {
+      if (!('queryId' in event) || event.queryId !== id) return []
+      const { queryId, sessionId, ...payload } = event
+      expect(sessionId).toBe(session.id)
+      return [payload]
+    })
+    expect(payloads).toContainEqual(expect.objectContaining({ type: 'complete', status: 'completed' }))
+    expect(JSON.stringify(payloads)).not.toContain(value)
+    expect((await run(`SELECT id FROM ${full(table)}`)).map(row => row[0])).toEqual([value])
     if (engine === 'postgres') {
       const outName = name + '_out'
       try {

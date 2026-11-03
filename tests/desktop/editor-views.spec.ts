@@ -134,6 +134,8 @@ test('split editor views route selected and current SQL to independent duckdb se
     expect(history[0].sql).toBe(selected)
     await page.locator(`#query-view-${first.id}`).getByRole('button', { name: 'Focus', exact: true }).click()
     await expect(page.getByRole('cell', { name: '11', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: /^Run SQL/ })).toBeEnabled()
+    await expect(page.getByRole('status', { name: 'Transaction status' })).toHaveText('In transaction')
     await page.getByRole('button', { name: `Close ${first.title}`, exact: true }).click()
     await expect(page.locator('.error-banner')).toContainText('transaction')
     await page.locator(`#query-view-${first.id}`).getByRole('button', { name: /Hide query view/ }).click()

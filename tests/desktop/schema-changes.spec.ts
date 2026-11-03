@@ -1,4 +1,4 @@
-import { waitForWorkspaceReady } from './workspace-ready'
+import { enterWorkspaceSql, waitForConnectionIdle, waitForWorkspaceReady } from './workspace-ready'
 import { databaseAction } from './workspace-actions'
 import { tableAction, tableNode } from './explorer-actions'
 import { verifyMigrationExport } from './migration-export'
@@ -23,10 +23,15 @@ for (const engine of engineSchema.options) test(`schema changes ${engine}: revie
   // inspection. Allow it to finish on hosted runners before asserting the result.
   const metadataTimeout = engine === 'oracle' ? 60000 : 5000
   async function run(sql: string) {
-    await expect(page.getByRole('button', { name: /^Run SQL/ })).toBeEnabled()
-    await page.locator('.monaco-editor').click(); await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A'); await page.keyboard.insertText(sql); await page.keyboard.press('Escape')
+    await waitForConnectionIdle(page)
+    await enterWorkspaceSql(page, sql)
     await page.getByRole('button', { name: /^Run SQL/ }).click(); await expect(page.locator('.status-text')).toHaveText('Completed')
-    await expect(page.getByRole('button', { name: /^Run SQL/ })).toBeEnabled()
+    await waitForConnectionIdle(page)
+  }
+  async function openSchema() {
+    await waitForConnectionIdle(page)
+    await databaseAction(page, 'Schema changes')
+    await expect(editor).toBeVisible()
   }
   async function review() {
     await editor.getByRole('button', { name: 'Review SQL', exact: true }).click()
@@ -51,15 +56,16 @@ for (const engine of engineSchema.options) test(`schema changes ${engine}: revie
   }
   async function settle(commit = true) {
     await editor.getByRole('button', { name: 'Close schema changes', exact: true }).click()
+    await expect(editor).toBeHidden()
     if (transactional) {
       await expect(page.locator('.transaction-badge')).toHaveText('In transaction')
       await page.getByRole('button', { name: commit ? 'Commit' : 'Rollback', exact: true }).click()
       await expect(page.locator('.status-text')).toHaveText('Completed')
     }
-    await expect(page.getByRole('button', { name: /^Run SQL/ })).toBeEnabled()
+    await waitForConnectionIdle(page)
   }
   async function create() {
-    await databaseAction(page, 'Schema changes')
+    await openSchema()
     await editor.getByLabel('New object name').fill(name)
     if (engine !== 'duckdb') await editor.getByLabel('Column 1 generation').selectOption('identity')
     await editor.getByRole('button', { name: 'Add another column', exact: true }).click()
@@ -108,7 +114,7 @@ for (const engine of engineSchema.options) test(`schema changes ${engine}: revie
     await form.getByRole('button', { name: 'Connect', exact: true }).click(); await expect(form).not.toBeVisible()
     await run(engine === 'oracle' ? 'SELECT 42 AS preserved FROM dual' : 'SELECT 42 AS preserved')
     const buffer = await page.locator('.monaco-editor').innerText(), history = await page.evaluate(() => window.dbCommander.history())
-    await databaseAction(page, 'Schema changes')
+    await openSchema()
     await editor.getByLabel('New object name').fill(name+'_draft')
     await editor.getByLabel('Column 1 default kind').selectOption('expression')
     await editor.getByLabel('Column 1 default expression').fill('1 + 2')
@@ -157,7 +163,10 @@ for (const engine of engineSchema.options) test(`schema changes ${engine}: revie
     await tableAction(page, `${name}`, 'Alter table')
     await expect(editor.getByRole('button', { name: 'Review SQL', exact: true })).toBeDisabled(); await expect(editor.getByRole('alert')).toContainText('Commit or roll back')
     await editor.getByRole('button', { name: 'Close schema changes', exact: true }).click()
+    await expect(editor).toBeHidden()
+    await waitForConnectionIdle(page)
     await page.getByRole('button', { name: 'Rollback', exact: true }).click(); await expect(page.locator('.status-text')).toHaveText('Completed')
+    await expect(page.getByRole('status', { name: 'Transaction status' })).toHaveText(engine === 'oracle' ? 'Manual commit mode' : 'Autocommit')
     if (['postgres','mysql','mariadb','oracle'].includes(engine)) {
       await tableAction(page, `${name}`, 'Alter table')
       await editor.getByLabel('Schema operation').selectOption('alter-column'); await editor.getByLabel('Existing column').selectOption('computed_value')
@@ -179,7 +188,7 @@ for (const engine of engineSchema.options) test(`schema changes ${engine}: revie
     }
     if (['mysql','mariadb'].includes(engine)) {
       const identityTable = `${name}_identity`
-      await databaseAction(page, 'Schema changes'); await editor.getByLabel('New object name').fill(identityTable)
+      await openSchema(); await editor.getByLabel('New object name').fill(identityTable)
       await editor.getByLabel('Column 1 generation').selectOption('identity'); await review(); await approve(); await apply(); await settle()
       await expect(tableNode(page, identityTable)).toBeVisible()
       await tableAction(page, identityTable, 'Alter table')

@@ -22,6 +22,7 @@ export interface QueryTabState {
   session: SessionInfo | null
   tables: SchemaTable[]
   schema: SchemaSnapshot | null
+  catalogLoading?: boolean
   schemaLoading: boolean
   schemaError: string
   schemaStale: boolean
@@ -42,12 +43,12 @@ export interface QueryTabState {
   duration: number | null
 }
 export function emptyTabState(): QueryTabState {
-  return { execution: undefined, failure: undefined, columnViews: {}, connectionDatabase: undefined, gridBack: [], databases: null, databasesLoading: false, databasesError: '', switching: false, grid: null, gridChanges: [], gridBusy: false, backupBusy: false, transferBusy: false, gridExpired: false, session: null, tables: [], schema: null, schemaLoading: false, schemaError: '', schemaStale: false, tableSearch: '', results: [], activeResult: 0, queryId: '', running: false, connecting: false, closing: false,
+  return { execution: undefined, failure: undefined, columnViews: {}, connectionDatabase: undefined, gridBack: [], databases: null, databasesLoading: false, databasesError: '', switching: false, grid: null, gridChanges: [], gridBusy: false, backupBusy: false, transferBusy: false, gridExpired: false, session: null, tables: [], schema: null, schemaLoading: false, catalogLoading: false, schemaError: '', schemaStale: false, tableSearch: '', results: [], activeResult: 0, queryId: '', running: false, connecting: false, closing: false,
     resultSelectionChanged: false, error: '', messages: [], showMessages: false, status: 'Ready', duration: null }
 }
 /** Shared operation availability; transaction and staged-edit policies stay explicit. */
 export function tabOperationBusy(state: QueryTabState): boolean {
-  return state.running || state.connecting || state.closing || state.schemaLoading || state.backupBusy
+  return state.running || state.connecting || state.closing || state.schemaLoading || state.catalogLoading || state.backupBusy
     || state.transferBusy || state.gridBusy || state.switching || state.databasesLoading || Boolean(state.sharedSessionBusy)
 }
 export function canCloseTab(state: QueryTabState): string | undefined {
@@ -57,15 +58,15 @@ export function canCloseTab(state: QueryTabState): string | undefined {
   if (state.switching || state.databasesLoading) return 'Wait for this tab’s database operation to finish.'
   if (state.gridChanges.length) return 'Apply or discard this tab’s staged table edits before closing it.'
   if (state.gridBusy) return 'Wait for this tab’s table operation to finish.'
-  if (state.connecting || state.closing || state.schemaLoading) return 'Wait for this tab’s connection operation to finish.'
+  if (state.connecting || state.closing || state.schemaLoading || state.catalogLoading) return 'Wait for this tab’s connection operation to finish.'
   if (state.running) return 'Stop this tab’s running query before closing it.'
   if (state.session && state.session.transaction !== 'idle') return 'Commit or roll back this tab’s transaction before closing it.'
 }
 /** Session and execution identity, never the active tab, owns incoming data. */
 export function applyDatabaseEvent(state: QueryTabState, event: DatabaseEvent): QueryTabState {
-  if (event.type === 'host-lost') return state.session || state.connecting ? { ...state, databases: null, databasesLoading: false, databasesError: '', switching: false, gridBusy: false, backupBusy: false, transferBusy: false, gridExpired: true, session: null, tables: [], schema: null, schemaLoading: false, schemaError: '', schemaStale: false, running: false, connecting: false, closing: false, queryId: '', resultPartial: state.running || state.resultPartial, failure: undefined, error: event.message, status: 'Disconnected' } : state
+  if (event.type === 'host-lost') return state.session || state.connecting ? { ...state, databases: null, databasesLoading: false, databasesError: '', switching: false, gridBusy: false, backupBusy: false, transferBusy: false, gridExpired: true, session: null, tables: [], schema: null, schemaLoading: false, catalogLoading: false, schemaError: '', schemaStale: false, running: false, connecting: false, closing: false, queryId: '', resultPartial: state.running || state.resultPartial, failure: undefined, error: event.message, status: 'Disconnected' } : state
   if (event.sessionId !== state.session?.id) return state
-  if (event.type === 'session-lost') return { ...state, databases: null, databasesLoading: false, databasesError: '', switching: false, gridBusy: false, backupBusy: false, transferBusy: false, gridExpired: true, session: null, tables: [], schema: null, schemaLoading: false, schemaError: '', schemaStale: false, running: false, queryId: '', resultPartial: state.running || state.resultPartial, failure: undefined, error: event.message, status: 'Disconnected' }
+  if (event.type === 'session-lost') return { ...state, databases: null, databasesLoading: false, databasesError: '', switching: false, gridBusy: false, backupBusy: false, transferBusy: false, gridExpired: true, session: null, tables: [], schema: null, schemaLoading: false, catalogLoading: false, schemaError: '', schemaStale: false, running: false, queryId: '', resultPartial: state.running || state.resultPartial, failure: undefined, error: event.message, status: 'Disconnected' }
   if (event.queryId !== state.queryId) return state
   if (event.type === 'result') {
     const results = [...state.results]

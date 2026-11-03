@@ -16,7 +16,9 @@ Azure SQL is **experimental**. Local SQL Server fixtures exercise its profile/sh
 
 ## Limits to expect
 
-- Explorer/completion previews retain approximately 2,000 catalog objects and 10,000 column rows. Object filters search only what was loaded. A database with 20,000 tables can pass performance checks while most tables remain outside the preview. Use explicitly named SQL for omitted objects; catalog pagination/server-side search is deferred.
+- Explorer search and 100-object pages read the visible database catalog beyond 2,000 objects, with bounded lazy table children and targeted inspection. Pages are live reads; permissions and engine-specific metadata visibility still apply. Completion and tools using the original snapshot retain their 2,000-object / 10,000-column-row preview limits; catalog discovery does not make those tools complete.
+- Schema comparison supports 1,000 visible inventory objects per side and focused definition review. Data comparison supports complete filtered sets up to 2,000 rows and 4 MiB per side. Synchronization plans are reviewed JSON proposals for manual application.
+- Editor intelligence uses the current SQL buffer and visible catalog preview. Alias rename covers resolvable local references. Plan comparisons use captured outputs from the same connection and mode.
 - Query results retain up to 1,000 rows per result set and 8 MiB of text per execution. **Export CSV** exports fetched rows without rerunning SQL; the separate full-result export executes the reviewed query and streams its output. Preview limits do not cap database work or network traffic.
 - SQL buffers allow 1,000,000 characters each, with 20 tabs and 5,000,000 SQL characters per workspace. Formatting/completion have smaller per-request bounds. Recovery never automatically reconnects or executes saved SQL.
 - Table editing requires an eligible keyed base table and supported values. Arbitrary query results, views, keyless tables and unsupported types remain read-only. Comparisons, diagrams, imports, native tools and generated changes retain documented bounds and permission requirements.

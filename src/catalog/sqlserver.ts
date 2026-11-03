@@ -1,13 +1,14 @@
+import { catalogRows } from './paging'
 import { catalog, definition, section, type CatalogAdapter, type CatalogQuery } from './common'
 import { quoteIdentifier } from '../shared/sql/common'
 export function sqlServerCatalog(query: CatalogQuery): CatalogAdapter {
   const q = (s: string) => quoteIdentifier(s, 'sqlserver')
   return {
-    async list() { return catalog(await query(`SELECT TOP (2001) * FROM (
-      SELECT NULL AS catalog_name,s.name AS schema_name,o.name AS object_name,CASE o.type WHEN 'U' THEN 'table' WHEN 'V' THEN 'view' WHEN 'P' THEN 'procedure' WHEN 'PC' THEN 'procedure' WHEN 'TR' THEN 'trigger' WHEN 'TA' THEN 'trigger' WHEN 'SO' THEN 'sequence' WHEN 'C' THEN 'constraint' WHEN 'D' THEN 'constraint' WHEN 'F' THEN 'constraint' WHEN 'PK' THEN 'constraint' WHEN 'UQ' THEN 'constraint' ELSE 'function' END AS kind,CONVERT(varchar(30),o.object_id) AS identity_name,OBJECT_NAME(NULLIF(o.parent_object_id,0)) AS parent_name,NULL AS signature_name,CASE o.type WHEN 'PK' THEN 'primary key' WHEN 'F' THEN 'foreign key' WHEN 'UQ' THEN 'unique' WHEN 'C' THEN 'check' WHEN 'D' THEN 'default' END AS constraint_type
+    async list(read) { return catalog(await catalogRows(query, 'sqlserver', `
+      SELECT CAST(NULL AS nvarchar(255)) AS catalog_name,s.name AS schema_name,o.name AS object_name,CASE o.type WHEN 'U' THEN 'table' WHEN 'V' THEN 'view' WHEN 'P' THEN 'procedure' WHEN 'PC' THEN 'procedure' WHEN 'TR' THEN 'trigger' WHEN 'TA' THEN 'trigger' WHEN 'SO' THEN 'sequence' WHEN 'C' THEN 'constraint' WHEN 'D' THEN 'constraint' WHEN 'F' THEN 'constraint' WHEN 'PK' THEN 'constraint' WHEN 'UQ' THEN 'constraint' ELSE 'function' END AS kind,CONVERT(varchar(30),o.object_id) AS identity_name,OBJECT_NAME(NULLIF(o.parent_object_id,0)) AS parent_name,NULL AS signature_name,CASE o.type WHEN 'PK' THEN 'primary key' WHEN 'F' THEN 'foreign key' WHEN 'UQ' THEN 'unique' WHEN 'C' THEN 'check' WHEN 'D' THEN 'default' END AS constraint_type
       FROM sys.objects o JOIN sys.schemas s ON s.schema_id=o.schema_id WHERE o.is_ms_shipped=0 AND o.type IN ('U','V','P','PC','TR','TA','SO','C','D','F','PK','UQ','FN','IF','TF','FS','FT')
       UNION ALL SELECT NULL,s.name,i.name,'index',CONCAT(i.object_id,':',i.index_id),o.name,NULL,NULL FROM sys.indexes i JOIN sys.objects o ON o.object_id=i.object_id JOIN sys.schemas s ON s.schema_id=o.schema_id WHERE o.is_ms_shipped=0 AND i.name IS NOT NULL AND o.type IN ('U','V')
-      ) objects ORDER BY CASE WHEN kind IN ('table','view') THEN 0 ELSE 1 END,schema_name,kind,object_name,identity_name`), 'Visible user objects from a separate catalog connection. Definition access follows SQL Server metadata permissions; encrypted modules have no readable definition.') },
+`, [], read), 'Visible user objects from a separate catalog connection. Definition access follows SQL Server metadata permissions; encrypted modules have no readable definition.', read?.object ? 1 : read?.limit) },
     async detail(o) {
       const sections = [], table = o.parent ?? o.name, params = [o.schema,table]
       if (['table','view','index','constraint','trigger'].includes(o.kind)) {

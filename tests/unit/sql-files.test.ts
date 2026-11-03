@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SqlFiles, sqlHash } from '../../src/files/sql-files'
-import { openSqlFileSchema, saveSqlFileSchema } from '../../src/shared/sql-files'
+import { openSqlFileSchema, saveSqlFileSchema, SQL_FILE_REGISTRY_VERSION } from '../../src/shared/sql-files'
 
 const directories: string[] = []
 async function fixture() {
@@ -32,7 +32,7 @@ async function reload(files: SqlFiles, tabId: string) {
 describe('SQL file safety', () => {
   it('preserves a newer registry and blocks file writes without preventing buffer recovery', async () => {
     const { path, id, registry, directory } = await fixture()
-    const future = JSON.stringify({ version: 2, documents: [], recent: [], futureMetadata: 'must remain intact' })
+    const future = JSON.stringify({ version: SQL_FILE_REGISTRY_VERSION + 1, documents: [], recent: [], futureMetadata: 'must remain intact' })
     await writeFile(registry, future)
     const files = new SqlFiles(registry); await files.load()
     await expect(files.restore([id])).rejects.toThrow('newer Db Commander version')

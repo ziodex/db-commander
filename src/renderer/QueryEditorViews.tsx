@@ -2,6 +2,7 @@ import { Fragment, useEffect, useRef } from 'react'
 import type * as Monaco from 'monaco-editor'
 import { X } from './WorkbenchIcons'
 import type { WorkspaceTab } from '../shared/contracts'
+import type { CatalogObject } from '../shared/catalog'
 import { engineNames } from '../shared/database-engines'
 import { hasConfiguredConnection } from '../shared/connection-profiles'
 import type { EditorSettings } from '../shared/editor-settings'
@@ -16,6 +17,7 @@ interface Props {
   onResize(index: number, weight: number): void; onRun(id: string, current: boolean): void
   onReady(id: string, editor: Monaco.editor.IStandaloneCodeEditor | null): void
   onError(id: string, message: string): void; onChange(id: string, sql: string): void
+  onDefinition(id: string, object: CatalogObject): void; workspaceBudget(): number
 }
 
 export function QueryEditorViews(props: Props) {
@@ -50,6 +52,7 @@ function EditorView(props: Props & { tab: WorkspaceTab; index: number; weight: n
     </div>}
     <div className="query-view-editor"><SqlEditor theme={props.theme} settings={props.settings} tabId={tab.id} tabIds={props.tabs.map(tab => tab.id)} value={tab.sql}
       engine={session?.engine ?? tab.profile.engine} schema={session ? state.schema : null} noBackslashEscapes={session?.mysqlSqlMode?.noBackslashEscapes}
+      ansiQuotes={session?.mysqlSqlMode?.ansiQuotes} onDefinition={object => props.onDefinition(tab.id, object)} workspaceBudget={props.workspaceBudget}
       readOnly={!props.ready || props.blocked} canRun={props.ready && Boolean(session) && !busy && !props.blocked} editorRef={editor}
       onFocus={() => props.onActivate(tab.id)} onReady={editor => props.onReady(tab.id, editor)} onError={props.onError} onChange={props.onChange}
       onRun={() => props.onRun(tab.id, false)} onRunCurrent={() => props.onRun(tab.id, true)} ariaLabel={views ? `SQL editor: ${tab.title}` : 'SQL editor'}/></div>
