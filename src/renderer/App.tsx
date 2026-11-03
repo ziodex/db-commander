@@ -333,8 +333,8 @@ export function App() {
     { group: 'Data and library', label: 'Query library', action: openLibrary }
   ]
   const workspaceTools = [
-    { label: 'Workspace windows', action: () => setWindowsOpen(true), disabled: !ready },
     { label: 'SQL project files', action: () => void sqlFiles.showProject(), disabled: sqlFiles.busy || Boolean(closeId) },
+    { label: 'Workspace windows', action: () => setWindowsOpen(true), disabled: !ready },
     { label: 'Preferences', action: () => setEditorSettingsOpen(true), disabled: !ready }
   ]
   const profileConnections = profileConnectionStates(workspace.profiles, workspace.tabs, states, tabId)
@@ -359,7 +359,7 @@ export function App() {
             onEdit={savedProfile => { setDialogError(''); setDialogInfo({ tabId, profile: savedProfile.config, profileId: savedProfile.id, saveOnly: true }) }}
             onDelete={savedProfile => { setDialogError(''); setDeleteProfileId(savedProfile.id) }}
             onFavorite={(id, favorite) => changeWorkspace(previous => ({ ...previous, profiles: previous.profiles.map(profile => profile.id === id ? { ...profile, config: { ...profile.config, favorite } } : profile) }))}/>
-          {session ? <DatabaseExplorer readCatalog={readCatalog} browseDisabled={!ready || sqlFiles.busy || Boolean(closeId) || workspace.tabs.length >= MAX_TABS} onActivity={()=>setActivityOpen({tabId,sessionId:session.id})} onBuilder={table=>setBuilderOpen({tabId,sessionId:session.id,table})} onCompareData={table=>session&&setDataCompareOpen({tabId,sessionId:session.id,table})} key={tabId} state={state} onBackup={()=>setBackupOpen(true)} onCompare={()=>setCompareOpen({tabId,sessionId:session.id})} onDiagram={() => setDiagramOpen({tabId,sessionId:session.id})} onSchemaChange={target => setSchemaEditor({ tabId, sessionId: session.id, target })} onInspect={object => void inspectObject(object)} onRefreshDatabases={() => void refreshDatabases()} onRefreshSchema={() => void refreshTables()} onSwitch={requestSwitch} onFilter={setTableSearch} onAppendSelect={appendSelect} onEdit={table => void openGrid(table)} onBrowse={table => void browseTable(table)} /> : <p className="sidebar-description">Connect to load databases.</p>}
+          {session ? <DatabaseExplorer readCatalog={readCatalog} catalogPaused={closingTabs} browseDisabled={!ready || sqlFiles.busy || Boolean(closeId) || workspace.tabs.length >= MAX_TABS} onActivity={()=>setActivityOpen({tabId,sessionId:session.id})} onBuilder={table=>setBuilderOpen({tabId,sessionId:session.id,table})} onCompareData={table=>session&&setDataCompareOpen({tabId,sessionId:session.id,table})} key={tabId} state={state} onBackup={()=>setBackupOpen(true)} onCompare={()=>setCompareOpen({tabId,sessionId:session.id})} onDiagram={() => setDiagramOpen({tabId,sessionId:session.id})} onSchemaChange={target => setSchemaEditor({ tabId, sessionId: session.id, target })} onInspect={object => void inspectObject(object)} onRefreshDatabases={() => void refreshDatabases()} onRefreshSchema={() => void refreshTables()} onSwitch={requestSwitch} onFilter={setTableSearch} onAppendSelect={appendSelect} onEdit={table => void openGrid(table)} onBrowse={table => void browseTable(table)} /> : <p className="sidebar-description">Connect to load databases.</p>}
         </>}
       </aside>
       {layout.sidebarVisible && <Splitter orientation="vertical" label="Resize sidebar" controls="workspace-sidebar" value={sidebarWidth} preferredValue={layout.sidebarWidth} min={bounds.sidebarMin} max={bounds.sidebarMax} disabled={!ready}

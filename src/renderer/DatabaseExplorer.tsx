@@ -11,8 +11,9 @@ import { canSwitchDatabase, tabOperationBusy, type QueryTabState } from './query
 type MenuTarget = { kind: 'database'; name: string } | { kind: 'table'; table: GridTable; objectId?: string; object?: CatalogObject }
 type ExplorerMenu = Omit<MenuAnchor, 'items'> & { target: MenuTarget }
 
-export function DatabaseExplorer({ state, readCatalog, browseDisabled, onRefreshDatabases, onRefreshSchema, onSwitch, onFilter, onAppendSelect, onEdit, onBrowse, onInspect, onSchemaChange, onDiagram, onBackup, onCompare, onCompareData, onBuilder, onActivity }: {
+export function DatabaseExplorer({ state, readCatalog, catalogPaused, browseDisabled, onRefreshDatabases, onRefreshSchema, onSwitch, onFilter, onAppendSelect, onEdit, onBrowse, onInspect, onSchemaChange, onDiagram, onBackup, onCompare, onCompareData, onBuilder, onActivity }: {
   readCatalog: ReadCatalog
+  catalogPaused: boolean
   browseDisabled: boolean
   onActivity():void
   onBuilder(table?: GridTable): void
@@ -67,7 +68,7 @@ export function DatabaseExplorer({ state, readCatalog, browseDisabled, onRefresh
   }
   const names = [...new Set([...(catalog?.databases ?? []), ...(session.database ? [session.database] : [])])].sort()
   function objects() {
-    return <CatalogBrowser state={state} read={readCatalog} onFilter={onFilter} onInspect={onInspect} onContext={relationContext}/>
+    return <CatalogBrowser state={state} paused={catalogPaused} read={readCatalog} onFilter={onFilter} onInspect={onInspect} onContext={relationContext}/>
   }
   return <div className="database-explorer">
     {menu&&<ContextMenu anchor={{...menu,items:menuItems(menu.target)}} onClose={()=>setMenu(null)}/>}

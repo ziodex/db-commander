@@ -42,8 +42,8 @@ function Children({ parent, sessionId, revision, blocked, busy, read }: { parent
     {(loading || page?.next || page?.previous) && <Paging page={page} disabled={busy || loading} onPage={setCursor} label={`children of ${parent.name}`}/>}
   </>
 }
-export function CatalogBrowser({ state, read, onFilter, onInspect, onContext }: {
-  state: QueryTabState; read: ReadCatalog; onFilter(value: string): void; onInspect(object: CatalogObject): void
+export function CatalogBrowser({ state, paused, read, onFilter, onInspect, onContext }: {
+  state: QueryTabState; paused: boolean; read: ReadCatalog; onFilter(value: string): void; onInspect(object: CatalogObject): void
   onContext(event: MouseEvent<HTMLElement> | KeyboardEvent<HTMLElement>, table: GridTable, objectId?: string, object?: CatalogObject): void
 }) {
   const [kind, setKind] = useState('all'), [position, setPosition] = useState<{ scope: string; cursor: Cursor }>()
@@ -52,7 +52,9 @@ export function CatalogBrowser({ state, read, onFilter, onInspect, onContext }: 
   const scope = JSON.stringify([state.session!.id, state.session!.database, state.tableSearch.trim(), kind, state.schema?.fetchedAt])
   const cursor = position?.scope === scope ? position.cursor : undefined
   const request = useMemo(() => ({ sessionId: state.session!.id, search: state.tableSearch.trim(), kind: kind === 'all' ? undefined : kind as CatalogObject['kind'], rootsOnly: !state.tableSearch.trim() && kind === 'all', cursor }), [state.session, state.tableSearch, kind, cursor])
-  const busy = tabOperationBusy(state), blocked = tabOperationBusy({ ...state, catalogLoading: false })
+  // Closing several shared tabs can mount intermediate explorers. Their reads
+  // must wait so they cannot reserve the connection between tab releases.
+  const busy = paused || tabOperationBusy(state), blocked = paused || tabOperationBusy({ ...state, catalogLoading: false })
   const { page, error, loading, retry } = useCatalogPage(request, state.schema?.fetchedAt, blocked, read, Boolean(state.catalogLoading))
   const groups = useMemo(() => explorerTree([...(page?.parents ?? []), ...(page?.objects ?? [])], []), [page])
   function toggle(key: string) {

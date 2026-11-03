@@ -50,6 +50,8 @@ test('Q1 SQL intelligence keeps diagnostics, definition navigation and reviewed 
     await page.keyboard.press('F12')
     const definition = page.getByRole('dialog', { name: /object detail/i })
     await expect(definition.getByText('q1_sales', { exact: false }).first()).toBeVisible()
+    await expect(definition.getByRole('button', { name: 'Close object details', exact: true })).toBeEnabled()
+    await expect(definition.getByRole('textbox', { name: 'Object definition', exact: true })).toHaveValue(/CREATE TABLE.*q1_sales/i)
     await page.keyboard.press('Escape')
     await expect(definition).not.toBeVisible()
 
