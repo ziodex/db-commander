@@ -2,6 +2,8 @@ import { snippetExportSchema, snippetImportSchema } from '../shared/snippet-file
 import { watchWindowsOwner } from './owner-watchdog'
 import type { HostInput, HostMessage, HostHandlers } from '../shared/host-rpc'
 import { rollbackRequestSchema } from '../shared/rollback'
+import type { OperationEntry, OperationKind, OperationStatus } from '../shared/operation-history'
+import { applyScheduleChangeSchema, prepareScheduleChangeSchema } from '../shared/scheduler'
 import { prepareActivityActionSchema, applyActivityActionSchema } from '../shared/activity-control'
 import { activityRequestSchema } from '../shared/activity'
 import { dataCompareSchema } from '../shared/data-compare'
@@ -43,11 +45,28 @@ function initialize(): void {
   }, undefined, {}, job => port.postMessage({ backupJob: job }), job => port.postMessage({ transferJob: job }))
   // Enabling recording later must not capture work started while it was disabled.
   function historyContext(sessionId:string) {const context=driver.historyContext(sessionId);return {...context,enabled:context.enabled&&store.historySettings().enabled}}
+  const publishOperation = (operation: OperationEntry) => port.postMessage({ operation })
+  const startOperation = (kind: OperationKind, engine: OperationEntry['engine'], startedAt = new Date().toISOString()): OperationEntry =>
+    ({ id: randomUUID(), kind, engine, startedAt, status: 'running' })
+  const finishOperation = (entry: OperationEntry, status: OperationStatus) =>
+    publishOperation({ ...entry, status, finishedAt: new Date().toISOString() })
+  async function trackOperation<T>(entry: OperationEntry | undefined, run: () => Promise<T>, outcome: (result: T) => OperationStatus) {
+    if (entry) publishOperation(entry)
+    try {
+      const result = await run()
+      if (entry) finishOperation(entry, outcome(result))
+      return result
+    } catch (error) {
+      if (entry) finishOperation(entry, 'unknown')
+      throw error
+    }
+  }
   const handlers = {
     cancelExplain: payload => driver.cancelExplain(idSchema.parse(payload)),
     explain: async payload => {
       const request = explainRequestSchema.parse(payload), context = historyContext(request.sessionId), startedAt = new Date().toISOString()
-      const result = await driver.explain(request)
+      const entry = context.enabled ? startOperation('explain', context.engine, startedAt) : undefined
+      const result = await trackOperation(entry, () => driver.explain(request), result => result.status)
       if (result.submittedSql.length) {
         try { context.enabled && store.addHistory({ ...context, parameters: request.parameters?.map(({ name, type }) => ({ name, type })), id: randomUUID(), sql: result.submittedSql.join('\n\n'), status: result.status, startedAt, durationMs: result.durationMs }) }
         catch { result.message += ' Query history could not be saved.' }
@@ -64,7 +83,8 @@ function initialize(): void {
     cancelSchemaChange: payload => driver.cancelSchemaChange(idSchema.parse(payload)),
     applySchemaChange: async payload => {
       const request = applySchemaChangeSchema.parse(payload), context = historyContext(request.sessionId), startedAt = new Date().toISOString()
-      const result = await driver.applySchemaChange(request)
+      const entry = context.enabled ? startOperation('schema', context.engine, startedAt) : undefined
+      const result = await trackOperation(entry, () => driver.applySchemaChange(request), result => result.status)
       if (result.executedSql) {
         try { context.enabled && store.addHistory({ ...context, id: randomUUID(), sql: result.executedSql, status: result.status, startedAt, durationMs: result.durationMs }) }
         catch { result.message += ' Query history could not be saved.' }
@@ -87,14 +107,32 @@ function initialize(): void {
     databases: payload => driver.databases(idSchema.parse(payload)),
     switchDatabase: payload => driver.switchDatabase(switchDatabaseSchema.parse(payload)),
     tables: payload => driver.tables(idSchema.parse(payload)),
-    editGrid: payload => driver.editGrid(gridRequestSchema.parse(payload)),
+    editGrid: payload => {
+      const request = gridRequestSchema.parse(payload)
+      if (request.action !== 'apply') return driver.editGrid(request)
+      const entry = startOperation('grid', driver.historyContext(request.sessionId).engine)
+      const pending = driver.editGrid(request)
+      return trackOperation(entry, () => pending, result => result.session.transaction === 'unknown' ? 'unknown' : result.error ? 'failed' : 'completed')
+    },
     compareData: payload => driver.compareData(dataCompareSchema.parse(payload)),
     compareSchemas: payload => driver.compareSchemas(compareSchemaSchema.parse(payload)),
     prepareMigration: payload => driver.prepareMigration(prepareMigrationSchema.parse(payload)),
     prepareActivityAction: payload => driver.prepareActivityAction(prepareActivityActionSchema.parse(payload)),
-    applyActivityAction: payload => driver.applyActivityAction(applyActivityActionSchema.parse(payload)),
+    applyActivityAction: payload => {
+      const request = applyActivityActionSchema.parse(payload), engine = driver.historyContext(request.sessionId).engine
+      const pending = driver.applyActivityAction(request)
+      return trackOperation(startOperation('session-control', engine), () => pending, result => result.status === 'rejected' ? 'failed' : result.status)
+    },
     inspectRollback: payload => driver.inspectRollback(rollbackRequestSchema.parse(payload)),
     inspectActivity: payload => driver.inspectActivity(activityRequestSchema.parse(payload)),
+    inspectPerformance: payload => driver.inspectPerformance(idSchema.parse(payload)),
+    inspectScheduler: payload => driver.inspectScheduler(idSchema.parse(payload)),
+    prepareScheduleChange: payload => driver.prepareScheduleChange(prepareScheduleChangeSchema.parse(payload)),
+    applyScheduleChange: payload => {
+      const request = applyScheduleChangeSchema.parse(payload), engine = driver.historyContext(request.sessionId).engine
+      const pending = driver.applyScheduleChange(request)
+      return trackOperation(startOperation('scheduler', engine), () => pending, result => result.status)
+    },
     prepareQueryBuilder: payload => driver.prepareQueryBuilder(prepareBuilderSchema.parse(payload)),
     reviewedMigration: payload => driver.reviewedMigration(saveMigrationSchema.parse(payload)),
     diagram: payload => driver.diagram(diagramRequestSchema.parse(payload)),
@@ -105,10 +143,13 @@ function initialize(): void {
       const request = runSchema.parse(payload)
       const startedAt = new Date().toISOString()
       const context = historyContext(request.sessionId)
+      const entry = context.enabled ? startOperation('query', context.engine, startedAt) : undefined
       const queryId = driver.start(request, event => {
+        if (entry) finishOperation(entry, event.status)
         try { context.enabled && store.addHistory({ ...context, parameters: request.parameters?.map(({name,type})=>({name,type})), id: event.queryId, sql: request.sql, status: event.status, startedAt, durationMs: event.durationMs }) }
         catch { port.postMessage({ event: { type: 'notice', sessionId: request.sessionId, queryId: event.queryId, message: 'The query finished, but local history could not be saved. Check available disk space.' } }) }
       })
+      if (entry) publishOperation(entry)
       return { queryId };
     },
     cancel: payload => driver.cancel(idSchema.parse(payload)),

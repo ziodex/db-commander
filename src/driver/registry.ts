@@ -6,6 +6,11 @@ import { rollbackRequestSchema, type RollbackRequest } from '../shared/rollback'
 import { RollbackInspections } from '../activity/rollback'
 import { activityRequestSchema, type ActivityRequest, type ActivitySnapshot } from '../shared/activity'
 import { localActivity } from '../activity/read'
+import { localPerformance, readPerformance } from '../activity/performance'
+import { applySchedule, noScheduler, readScheduler, SchedulerReviews } from '../activity/scheduler'
+import { applyScheduleChangeSchema, prepareScheduleChangeSchema, type ApplyScheduleChange, type PrepareScheduleChange } from '../shared/scheduler'
+import { idSchema } from '../shared/id-schema'
+import type { PerformanceSnapshot } from '../shared/performance'
 import { ActivityReviews, readTarget, dispatchAction } from '../activity/control'
 import { prepareActivityActionSchema, applyActivityActionSchema, activityControlLimit, type PrepareActivityAction, type ApplyActivityAction } from '../shared/activity-control'
 import { dataCompareSchema, type DataCompareRequest, type DataComparison } from '../shared/data-compare'
@@ -41,10 +46,12 @@ import { prepareSchemaChangeSchema, applySchemaChangeSchema, type PrepareSchemaC
 
 /** Routes opaque session/query IDs inside the utility process. */
 export class DriverRegistry {
-  private activityReads = new Map<string,Promise<ActivitySnapshot>>()
+  private activityReads = new Map<string, Promise<unknown>>()
   private activityTargets = new Map<string,{ids:Set<string>;at:number}>()
   private activityReviews = new ActivityReviews()
   private activityActionPending = false
+  private schedulerReviews = new SchedulerReviews()
+  private schedulerChangePending = false
   private rollbackInspections = new RollbackInspections()
   private rollbackReads = new Set<string>()
   private drivers: Record<Exclude<ConnectionConfig['engine'], 'duckdb'>, DatabaseDriver> & { duckdb?: DatabaseDriver }
@@ -136,7 +143,7 @@ export class DriverRegistry {
   sessionSafety(id: string) { this.driver(id, true).getSession(id); return this.protection.status(id) }
   unlockSession(id: string, confirmation: string) { this.driver(id).getSession(id); return this.protection.unlock(id, confirmation) }
   lockSession(id: string) { this.driver(id, true).getSession(id); return this.protection.lock(id) }
-  private forgetConnection(id: string) { this.rollbackInspections.forget(id); this.activityTargets.delete(id);this.activityReviews.forget(id);this.tunnels.get(id)?.close(); this.tunnels.delete(id); this.protection.forget(id); this.sessions.delete(id); this.configs.delete(id); this.schemaChanges.forget(id); this.migrations.forget(id) }
+  private forgetConnection(id: string) { this.rollbackInspections.forget(id); this.activityTargets.delete(id);this.activityReviews.forget(id);this.schedulerReviews.forget(id);this.tunnels.get(id)?.close(); this.tunnels.delete(id); this.protection.forget(id); this.sessions.delete(id); this.configs.delete(id); this.schemaChanges.forget(id); this.migrations.forget(id) }
   private driver(id: string, allowOperation = false) {
     if (!allowOperation && this.operations.has(id)) throw new Error('Wait for the database operation to finish.')
     if (this.editing.has(id)) throw new Error('Wait for the table edit operation to finish.')
@@ -260,22 +267,81 @@ export class DriverRegistry {
     })
   }
   prepareMigration(request: PrepareMigration) { return this.migrations.prepare(request) }
-  inspectActivity(input:ActivityRequest):Promise<ActivitySnapshot> {
-    const {sessionId,includeSql}=activityRequestSchema.parse(input), driver=this.driver(sessionId), selected=driver.getSession(sessionId)
-    if(this.activityReads.has(sessionId)||this.activityReads.size+this.rollbackReads.size>=2) throw new Error('Wait for the current session inspection to finish (at most two inspections at once).')
-    this.activityReviews.forget(sessionId);this.activityTargets.delete(sessionId)
-    // Observers never use the query connection or own its execution slot. Stop,
-    // transaction settlement and other tabs remain usable during catalog reads.
-    const pending=Promise.resolve().then(async()=>{
-      if(['sqlite','duckdb'].includes(selected.engine)) {
-        const connections=[]
-        for(const [id,adapter] of this.sessions) { try { const info=adapter.getSession(id);if(info.engine===selected.engine)connections.push({info,busy:this.running.has(id)||this.operations.has(id)||this.editing.has(id)}) } catch{} }
-        return localActivity(selected.engine,selected,connections,includeSql)
+  private activityConnections(engine: ConnectionConfig['engine']) {
+    return [...this.sessions].flatMap(([id, adapter]) => {
+      try {
+        const info = adapter.getSession(id)
+        return info.engine === engine ? [{ info, busy: this.running.has(id) || this.operations.has(id) || this.editing.has(id) }] : []
+      } catch { return [] }
+    })
+  }
+  private activityRead<T>(sessionId: string, read: () => Promise<T> | T): Promise<T> {
+    if (this.activityReads.has(sessionId) || this.activityReads.size + this.rollbackReads.size >= 2) {
+      throw new Error('Wait for the current session inspection to finish (at most two inspections at once).')
+    }
+    // Observer reads do not reserve the query execution slot. Disconnect and
+    // database switches still wait for their observer to settle.
+    const pending = Promise.resolve().then(read).finally(() => this.activityReads.delete(sessionId))
+    this.activityReads.set(sessionId, pending)
+    return pending
+  }
+  inspectActivity(input: ActivityRequest): Promise<ActivitySnapshot> {
+    const { sessionId, includeSql } = activityRequestSchema.parse(input)
+    const driver = this.driver(sessionId), selected = driver.getSession(sessionId)
+    return this.activityRead(sessionId, async () => {
+      this.activityReviews.forget(sessionId); this.activityTargets.delete(sessionId)
+      const embedded = selected.engine === 'sqlite' || selected.engine === 'duckdb'
+      const inspect = driver.activity?.bind(driver)
+      if (!embedded && !inspect) throw new Error('Session inspection is unavailable for this engine.')
+      const snapshot = embedded
+        ? localActivity(selected.engine, selected, this.activityConnections(selected.engine), includeSql)
+        : await inspect!(sessionId, includeSql)
+      this.activityTargets.set(sessionId, { ids: new Set(snapshot.sessions.rows.map(row => row.id)), at: Date.now() })
+      return snapshot
+    })
+  }
+  inspectPerformance(input: string): Promise<PerformanceSnapshot> {
+    const sessionId = idSchema.parse(input)
+    const driver = this.driver(sessionId), selected = driver.getSession(sessionId)
+    return this.activityRead(sessionId, () => {
+      if (selected.engine === 'sqlite' || selected.engine === 'duckdb') {
+        return localPerformance(selected, this.activityConnections(selected.engine))
       }
-      if(!driver.activity)throw new Error('Session inspection is unavailable for this engine.')
-      return driver.activity(sessionId,includeSql)
-    }).then(snapshot=>{this.activityTargets.set(sessionId,{ids:new Set(snapshot.sessions.rows.map(r=>r.id)),at:Date.now()});return snapshot}).finally(()=>this.activityReads.delete(sessionId))
-    this.activityReads.set(sessionId,pending);return pending
+      if (!driver.withActivity) throw new Error('Performance inspection is unavailable for this engine.')
+      return driver.withActivity(sessionId, readPerformance)
+    })
+  }
+  inspectScheduler(input: string) {
+    const id = idSchema.parse(input)
+    const driver = this.driver(id), session = driver.getSession(id)
+    return this.activityRead(id, async () => {
+      this.schedulerReviews.forget(id)
+      const capture = driver.withActivity && session.engine !== 'postgres'
+        ? await driver.withActivity(id, readScheduler) : noScheduler(session.engine)
+      return this.schedulerReviews.remember(session, capture)
+    })
+  }
+  prepareScheduleChange(input: PrepareScheduleChange) {
+    const request = prepareScheduleChangeSchema.parse(input)
+    const session = this.driver(request.sessionId).getSession(request.sessionId)
+    return this.schedulerReviews.prepare(session, request.targetId)
+  }
+  applyScheduleChange(input: ApplyScheduleChange) {
+    const request = applyScheduleChangeSchema.parse(input), id = request.sessionId
+    const retained = this.schedulerReviews.consume(request), driver = this.driver(id), inspect = driver.withActivity?.bind(driver)
+    if (!inspect || this.activityReads.has(id) || this.schedulerChangePending) throw new Error('Wait for the current scheduler operation to finish, then refresh and review again.')
+    const check = () => {
+      const session = driver.getSession(id)
+      if (Date.parse(retained.review.expiresAt) <= Date.now()) throw new Error('The scheduler review expired before dispatch.')
+      if (session.database !== retained.database || this.running.has(id) || session.transaction !== 'idle' || session.engine !== 'oracle' && session.autocommit === false) {
+        throw new Error('Settle the issuing connection’s query and transaction before applying a scheduler change.')
+      }
+      this.protection.assert(id)
+    }
+    check()
+    this.schedulerChangePending = true
+    return this.operation(id, () => inspect(id, observer => applySchedule(observer, retained, check)))
+      .finally(() => { this.schedulerChangePending = false })
   }
   inspectRollback(input:RollbackRequest) {
     const request=rollbackRequestSchema.parse(input),driver=this.driver(request.sessionId),session=driver.getSession(request.sessionId)
@@ -490,5 +556,5 @@ export class DriverRegistry {
     if (!driver) throw new Error('This result is no longer available. Execute the query again explicitly.')
     return driver.exportCsv(id, index, path)
   }
-  async close() { await Promise.allSettled(this.activityReads.values()); await Promise.allSettled(this.operations.values()); await Promise.allSettled(this.editing.values()); await Promise.allSettled([this.transfers.close()]); await Promise.allSettled(Object.values(this.drivers).map(driver => driver.close())); for (const tunnel of this.tunnels.values()) tunnel.close(); this.tunnels.clear(); this.protection.clear(); this.activityTargets.clear(); this.activityReviews.clear(); this.rollbackInspections.clear(); this.migrations.clear(); this.sessions.clear(); this.queries.clear(); this.latest.clear(); this.configs.clear(); this.running.clear() }
+  async close() { await Promise.allSettled(this.activityReads.values()); await Promise.allSettled(this.operations.values()); await Promise.allSettled(this.editing.values()); await Promise.allSettled([this.transfers.close()]); await Promise.allSettled(Object.values(this.drivers).map(driver => driver.close())); for (const tunnel of this.tunnels.values()) tunnel.close(); this.tunnels.clear(); this.protection.clear(); this.activityTargets.clear(); this.activityReviews.clear(); this.schedulerReviews.clear(); this.rollbackInspections.clear(); this.migrations.clear(); this.sessions.clear(); this.queries.clear(); this.latest.clear(); this.configs.clear(); this.running.clear() }
 }

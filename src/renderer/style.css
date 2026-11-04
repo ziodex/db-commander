@@ -744,6 +744,25 @@ body[data-resizing=horizontal], body[data-resizing=horizontal] * { cursor: row-r
 .activity-views button[aria-pressed=true] { background: var(--success-background); color: var(--success); }
 .activity-table { overflow: auto; max-height: 360px; border: 1px solid var(--border); border-radius: 6px; }
 .activity-table table { border-collapse: collapse; width: 100%; min-width: 760px; font-size: 14px; }
+.performance-table table { min-width: 350px; }
+.scheduler-table table { min-width: 520px; }
+.operation-table table { min-width: 0; table-layout: fixed; }
+.operation-table th:nth-child(1), .operation-table th:nth-child(2) { width: 22%; }
+.operation-table th:nth-child(3) { width: 30%; }
+.operation-table td button { max-width: 100%; white-space: normal; }
+.operation-history .dialog-heading, .diagnostics-expanded .dialog-heading { margin-bottom: 8px; }
+.diagnostic-summary { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px 16px; margin: 12px 0; }
+.diagnostic-summary .activity-scope { margin: 0; }
+.activity-dialog .diagnostic-note { color: var(--muted); }
+.scheduler-review .backup-actions { z-index: 3; }
+.scheduler-expiry { flex-basis: 100%; margin: 0; color: var(--danger); }
+.activity-dialog:has(.scheduler-review) { scroll-padding-block: 70px 66px; }
+
+.performance-table td:nth-child(2), .operation-table td:nth-child(3) { font-variant-numeric: tabular-nums; }
+.operation-filters { align-items: flex-end; }
+.operation-filters label { flex: 1 1 170px; margin: 0; }
+.scheduler-review dt { color: var(--muted); }
+.scheduler-review dd { margin: 0 0 10px; overflow-wrap: anywhere; }
 .activity-table th, .activity-table td { text-align: left; padding: 9px; border-bottom: 1px solid var(--border); vertical-align: top; overflow-wrap: anywhere; max-width: 320px; }
 .activity-table th { position: sticky; top: 0; background: var(--surface-raised); }
 .activity-table td small { display: block; margin-top: 4px; color: var(--muted); }

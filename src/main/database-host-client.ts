@@ -5,6 +5,7 @@ import type { TransferJob } from '../shared/transfer'
 import type { HostArgs, HostMethod, HostResult, HostMessage } from '../shared/host-rpc'
 
 interface HostCallbacks {
+  operation(entry: import('../shared/operation-history').OperationEntry): void
   event(event: DatabaseEvent, token?: string): void
   backup(job: BackupJob): void
   transfer(job: TransferJob): void
@@ -19,8 +20,8 @@ interface HostProcess {
   once(event: 'exit', listener: () => void): void
 }
 
-const unbounded = new Set<HostMethod>(['applyActivityAction', 'editGrid', 'inspectImport', 'startTransfer', 'switchDatabase', 'databases', 'applySchemaChange', 'connect', 'explain', 'compareData'])
-const inspection = new Set<HostMethod>(['catalogPage', 'inspectRollback', 'inspectActivity', 'inspectObject', 'prepareSchemaChange', 'diagram', 'compareSchemas'])
+const unbounded = new Set<HostMethod>(['applyActivityAction', 'applyScheduleChange', 'editGrid', 'inspectImport', 'startTransfer', 'switchDatabase', 'databases', 'applySchemaChange', 'connect', 'explain', 'compareData'])
+const inspection = new Set<HostMethod>(['catalogPage', 'inspectRollback', 'inspectActivity', 'inspectPerformance', 'inspectScheduler', 'inspectObject', 'prepareSchemaChange', 'diagram', 'compareSchemas'])
 
 /** One workspace owns this host until exit, including after startup failure. */
 export class DatabaseHostClient {
@@ -49,6 +50,7 @@ export class DatabaseHostClient {
         if ('ready' in message) { clearTimeout(startup); resolve(); return }
         if ('backupJob' in message) { this.callbacks.backup(message.backupJob); return }
         if ('transferJob' in message) { this.callbacks.transfer(message.transferJob); return }
+        if ('operation' in message) { this.callbacks.operation(message.operation); return }
         if ('event' in message) {
           if (message.token) this.acknowledgements.add(message.token)
           this.callbacks.event(message.event, message.token)

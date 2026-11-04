@@ -55,7 +55,7 @@ Complete the confirmed correctness fixes first, then improve daily navigation an
 | --- | --- | --- | --- |
 | A1 | Manage security principals | Inspect and manage users/logins/roles/grants using each engine's privilege model. Preview changes and surface inherited/effective permissions and visibility limits. | Planned |
 | A2 | Manage database lifecycle and maintenance | Add reviewed database create/rename/drop operations, supported maintenance/statistics/index tools, and richer backup/restore workflows. Use engine-specific capabilities and accurate transaction/permission reporting. | Partial · guided backup/restore merged; lifecycle and maintenance remain |
-| A3 | Add operational diagnostics | Extend existing sessions/locks tooling with performance diagnostics, engine-specific job/schedule management where supported, and a unified operation/progress history. | Planned |
+| A3 | Add operational diagnostics | Extend existing sessions/locks tooling with performance diagnostics, engine-specific job/schedule management where supported, and a unified operation/progress history. | Complete · local validation |
 | A4 | Complete authentication workflows | Add interactive Entra sign-in and renewal, Windows integrated authentication where supported, and separately qualified cloud/network paths. Document each supported authentication/platform combination. | Partial · Windows SQL Server authentication exists; Entra and cloud qualification remain |
 
 
@@ -80,6 +80,8 @@ This is a delivery checklist alongside the product roadmap, not a feature freeze
 Release qualification stays tied to its exact candidate and tested scope. Updates are currently manual. This roadmap does not schedule a release, long-running soak, publication or branch merge.
 
 ## Review and completion
+
+A3 adds read-only performance snapshots, reviewed enable and disable for eligible SQL Server Agent definitions and Oracle jobs, and window-scoped operation history. Local macOS Apple Silicon qualification covered seven database engines and the local Azure-profile TDS path. The exact package passed **179 desktop workflows and three startup checks**. [A3 qualification and limits](DRIVER_TESTING.md#a3-operational-diagnostics--4-november-2026)
 
 Q1 and Q2 add offline editor assistance, reviewed alias changes, native plan trees and baseline comparisons, durable diagram layouts and a local SQL folder browser. Local validation includes **1,154 unit tests with three platform skips**, focused contracts across all seven engines, and **30 focused packaged workflows** on Apple Silicon. The Milestone 3 integration PR qualifies the combined C1, C2, Q1 and Q2 changes through development CI. See [Milestone 3 validation](DRIVER_TESTING.md#milestone-3-sql-intelligence-and-analysis-workspaces--3-november-2026).
 

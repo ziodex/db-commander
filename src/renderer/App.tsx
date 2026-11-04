@@ -18,6 +18,7 @@ import { WorkspaceWindowsDialog } from './WorkspaceWindowsDialog'
 import { EditorSettingsDialog } from './EditorSettingsDialog'
 import { useApplicationPreferences } from './use-application-preferences'
 import { DEFAULT_EDITOR_SETTINGS } from '../shared/editor-settings'
+import { OperationHistoryDialog } from './OperationHistoryDialog'
 import { ActivityDialog } from './ActivityDialog'
 import { QueryBuilderDialog } from './QueryBuilderDialog'
 import { DataCompareDialog } from './DataCompareDialog'
@@ -102,6 +103,9 @@ export function App() {
   const [diagramOpen,setDiagramOpen]=useState<{tabId:string;sessionId:string}|null>(null)
 
   const [backupOpen, setBackupOpen] = useState(false)
+  const [backupJobId, setBackupJobId] = useState<string>()
+  const [operationsOpen, setOperationsOpen] = useState(false)
+  function closeBackup() { setBackupOpen(false); setBackupJobId(undefined) }
 
   const [transfer, setTransfer] = useState<{ tabId: string; sessionId?: string; sql: string; sourceLabel?: string } | null>(null)
   const transferJobs = useJobFeed(api.onTransferJob, api.transferJobs, job => {
@@ -334,6 +338,7 @@ export function App() {
   ]
   const workspaceTools = [
     { label: 'SQL project files', action: () => void sqlFiles.showProject(), disabled: sqlFiles.busy || Boolean(closeId) },
+    { label: 'Operation history', action: () => setOperationsOpen(true), disabled: !ready },
     { label: 'Workspace windows', action: () => setWindowsOpen(true), disabled: !ready },
     { label: 'Preferences', action: () => setEditorSettingsOpen(true), disabled: !ready }
   ]
@@ -433,7 +438,10 @@ export function App() {
     }} onOpen={sql=>{if(workspace.tabs.length>=MAX_TABS||workspace.tabs.reduce((size,tab)=>size+tab.sql.length,sql.length)>5_000_000){report(new Error('Close a tab or shorten SQL buffers before opening comparison SQL.'));return};setCompareOpen(null);newTab(undefined,{sql,title:'schema-comparison.sql'})}}/>}
     {diagramOpen?.tabId===tabId && diagramOpen.sessionId===session?.id && <DiagramDialog key={session.id} initialTables={state.schema?.catalog?.objects??[]} title={`${session.name} · ${session.database}`} savedLayouts={savedDiagramLayouts()} onClose={()=>setDiagramOpen(null)} load={async scope=>{const id=session.id;patchState(tabId,{schemaLoading:true});try{return await api.diagram({sessionId:id,...scope})}finally{if(statesRef.current[tabId]?.session?.id===id)patchState(tabId,{schemaLoading:false});cleanupLostSession(id)}}}/>}
     {objectView && objectView.tabId === tabId && objectView.sessionId === session?.id && <ObjectInspector view={objectView} session={session} blocked={schemaChangeBlocked()} onPrepare={prepareSchemaChange} onApply={applySchemaChange} onClose={() => setObjectView(null)} onRefresh={() => void inspectObject(objectView.object)} onOpen={(sql, title) => { if (workspace.tabs.length >= MAX_TABS || workspace.tabs.reduce((size, tab) => size + tab.sql.length, sql.length) > 5_000_000) { setObjectView({ ...objectView, error: 'Close a query tab or save and shorten a SQL buffer before opening this definition. The workspace supports 20 tabs and 5 MB of SQL.' }); return }; setObjectView(null); newTab(undefined, { sql, title }) }} />}
-    {backupOpen && <BackupDialog key={session?.id ?? 'disconnected'} session={session} jobs={backupJobs} blocked={!session || tabOperationBusy(state) || Boolean(state.gridChanges.length) || inTransaction || session.engine !== 'oracle' && session.autocommit === false} canConnect={job => ready && !sqlFiles.busy && !closeId && workspace.tabs.length < MAX_TABS && Object.values(states).some(value => value.session?.id === job.sessionId && !value.closing && !value.connecting && !value.switching)} onConnect={job => { const opened = newTab(undefined, { title: 'Restored database.sql', sql: '', restored: job }, 'independent'); if (opened) setBackupOpen(false) }} onClose={() => setBackupOpen(false)} />}
+    {operationsOpen && <OperationHistoryDialog onClose={() => setOperationsOpen(false)} onBackup={id => {
+      setOperationsOpen(false); setBackupJobId(id); setBackupOpen(true)
+    }}/>}
+    {backupOpen && <BackupDialog initialJobId={backupJobId} key={session?.id ?? 'disconnected'} session={session} jobs={backupJobs} blocked={!session || tabOperationBusy(state) || Boolean(state.gridChanges.length) || inTransaction || session.engine !== 'oracle' && session.autocommit === false} canConnect={job => ready && !sqlFiles.busy && !closeId && workspace.tabs.length < MAX_TABS && Object.values(states).some(value => value.session?.id === job.sessionId && !value.closing && !value.connecting && !value.switching)} onConnect={job => { const opened = newTab(undefined, { title: 'Restored database.sql', sql: '', restored: job }, 'independent'); if (opened) closeBackup() }} onClose={closeBackup} />}
     {dialogInfo && <ConnectionDialog key={`${dialogInfo.tabId}:${dialogInfo.saveOnly}`} profile={dialogInfo.profile} profileId={dialogInfo.profileId} saveOnly={dialogInfo.saveOnly} busy={Boolean(states[dialogInfo.tabId]?.connecting) || profileBusy} error={dialogError} onClose={() => setDialog(false)} onConnect={async (config, save, choice) => { await connect(config, save, undefined, choice) }} onSave={saveProfile} />}
     {profileLibrary.preview && <ProfileImportDialog preview={profileLibrary.preview} existing={workspace.profiles} busy={profileLibrary.busy} onImport={profileLibrary.apply} onClose={profileLibrary.close}/>}
     {connectionWarning && <ModalDialog className="confirmation-dialog" aria-label="Connection failed" onDismiss={() => setConnectionWarning(null)}>

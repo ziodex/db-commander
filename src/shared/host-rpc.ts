@@ -16,7 +16,8 @@ type Forwarded =
   | 'inspectImport' | 'startTransfer' | 'cancelTransfer' | 'startBackup' | 'inspectBackup' | 'cancelBackup'
   | 'inspectDataFile' | 'transferMappings' | 'saveTransferMapping' | 'removeTransferMapping' | 'discardTransferCapture'
   | 'compareData' | 'compareSchemas' | 'prepareMigration' | 'prepareQueryBuilder'
-  | 'prepareActivityAction' | 'applyActivityAction' | 'inspectRollback' | 'inspectActivity'
+  | 'prepareActivityAction' | 'applyActivityAction' | 'inspectRollback' | 'inspectActivity' | 'inspectPerformance'
+  | 'inspectScheduler' | 'prepareScheduleChange' | 'applyScheduleChange'
   | 'catalogPage' | 'diagram' | 'inspectObject' | 'saveWorkspace' | 'history' | 'clearHistory'
   | 'searchHistory' | 'historySettings' | 'saveHistorySettings' | 'deleteHistory'
   | 'snippets' | 'saveSnippet' | 'deleteSnippet' | 'applySnippetImport' | 'discardSnippetImport'
@@ -44,5 +45,6 @@ type HostRequest = { [K in HostMethod]: { id: string; method: K; payload: HostPa
 export type HostInput = HostRequest | { ack: string }
 type HostReply = { id: string; ok: true; value: HostResult<HostMethod> } | { id: string; ok: false; error: string }
 export type HostMessage = HostReply | { ready: true } | { startupError: string }
+  | { operation: import('./operation-history').OperationEntry }
   | { event: DatabaseEvent; token?: string } | { backupJob: BackupJob } | { transferJob: TransferJob }
 export type HostHandlers = { [K in HostMethod]: (payload: unknown) => HostResult<K> | Promise<HostResult<K>> }

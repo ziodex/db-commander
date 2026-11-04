@@ -2,6 +2,7 @@ import { DatabaseHostClient } from './database-host-client'
 import { SqlFiles } from '../files/sql-files'
 import { openSqlFileSchema, saveSqlFileSchema, reloadSqlFileSchema, finishSqlFileReloadSchema, type SaveSqlFileRequest } from '../shared/sql-files'
 import { rollbackRequestSchema } from '../shared/rollback'
+import { applyScheduleChangeSchema, prepareScheduleChangeSchema } from '../shared/scheduler'
 import { prepareActivityActionSchema, applyActivityActionSchema } from '../shared/activity-control'
 import { activityRequestSchema, activitySnapshotSchema } from '../shared/activity'
 import { dataCompareSchema } from '../shared/data-compare'
@@ -44,6 +45,7 @@ import { passwordEligible } from '../shared/credentials'
 import { layoutCommands, layoutCommandForInput } from '../shared/layout-commands'
 import { backupCapabilities, backupRequestSchema, type BackupJob } from '../shared/backup'
 import { BackupJournal } from '../backup/journal'
+import { OperationHistory } from './operation-history'
 import { BackupHistory } from '../backup/history'
 import { dataFileSchema, importSourceSchema, transferRequestSchema, type TransferJob } from '../shared/transfer'
 import { transferMappingSchema } from '../shared/transfer-mappings'
@@ -165,11 +167,17 @@ let recoveryNotice: string | undefined
 let checkingClose = false
 const saveRequests = new Map<string, (saved: boolean) => void>()
 const sessions = new Map<string, SessionInfo>()
-const backupJobs = new BackupHistory(new BackupJournal(join(directory, 'backup-jobs.json')), job => window?.webContents.send('sql:backup-job', job))
+const notifyOperations = () => window?.webContents.send('sql:operation-history-changed')
+const operations = new OperationHistory(notifyOperations)
+const backupJobs = new BackupHistory(new BackupJournal(join(directory, 'backup-jobs.json')), job => {
+  window?.webContents.send('sql:backup-job', job)
+  notifyOperations()
+})
 function publishBackup(job: BackupJob) { backupJobs.publish(job) }
 const running = new Map<string, string>()
 const transferJobs = new Map<string, TransferJob>()
 function publishTransfer(job: TransferJob) {
+  operations.transfer(job, sessions.get(job.sessionId)?.engine)
   transferJobs.set(job.id, job)
   for (const [id, previous] of transferJobs) if (transferJobs.size > 40 && previous.status !== 'running') transferJobs.delete(id)
   if (job.reviewOnly) { window?.webContents.send('sql:transfer-job', job); return }
@@ -212,11 +220,13 @@ const host = new DatabaseHostClient(
       if (event.type === 'session-lost') { running.delete(event.sessionId); sessions.delete(event.sessionId); sessionCredentials.delete(event.sessionId) }
       window?.webContents.send('sql:event', event, token)
     },
+    operation: entry => operations.update(entry),
     backup: publishBackup,
     transfer: publishTransfer,
     exited(startupFailure) {
       for (const job of transferJobs.values()) if (job.status === 'running') publishTransfer({ ...job, status: 'unknown', phase: 'Database host stopped. Reconnect and inspect transaction state and the destination before retrying. Nothing was replayed.' })
       for (const job of backupJobs.values()) if (job.status === 'running') publishBackup({ ...job, status: 'unknown', finishedAt: new Date().toISOString(), phase: 'Database host stopped. The backup or restore outcome is unknown. Inspect the artifact and target before retrying.' })
+      operations.interrupt()
       sessions.clear(); sessionCredentials.clear(); running.clear()
       if (!closing) window?.webContents.send('sql:event', { type: 'host-lost', message: startupFailure ?? 'Database host stopped. The editor is preserved; reconnect explicitly. In-flight outcomes may be unknown.' })
     }
@@ -291,6 +301,15 @@ function registerIpc(): void {
   handle('applyActivityAction', async value => rpc('applyActivityAction',applyActivityActionSchema.parse(value)))
   handle('inspectRollback', async value => rpc('inspectRollback',rollbackRequestSchema.parse(value)))
   handle('inspectActivity', async value => rpc('inspectActivity',activityRequestSchema.parse(value)))
+  handle('inspectPerformance', async value => rpc('inspectPerformance', idSchema.parse(value)))
+  handle('inspectScheduler', async value => rpc('inspectScheduler', idSchema.parse(value)))
+  handle('prepareScheduleChange', async value => rpc('prepareScheduleChange', prepareScheduleChangeSchema.parse(value)))
+  handle('applyScheduleChange', async value => {
+    const request = applyScheduleChangeSchema.parse(value), id = request.sessionId
+    if (running.has(id)) throw new Error('This tab already has a running operation.')
+    running.set(id, `scheduler:${request.reviewId}`)
+    try { return await rpc('applyScheduleChange', request) } finally { running.delete(id) }
+  })
   handle('saveActivity', async value => {
     const snapshot=activitySnapshotSchema.parse(value)
     const result=await dialog.showSaveDialog(window!,{title:'Save session and lock report',defaultPath:'dbcommander-activity.json',filters:[{name:'JSON report',extensions:['json']}]})
@@ -363,6 +382,7 @@ function registerIpc(): void {
   })
   handle('startBackup', async value => rpc('startBackup', backupRequestSchema.parse(value)))
   handle('inspectBackup', async value => rpc('inspectBackup', backupRequestSchema.parse(value)))
+  handle('operationHistory', async value => { z.undefined().parse(value); return operations.list(backupJobs.list()) })
   handle('backupJobs', async () => backupJobs.list())
   handle('retryBackupHistory', async () => backupJobs.retry())
   handle('cancelBackup', async value => rpc('cancelBackup', idSchema.parse(value)))
@@ -492,7 +512,10 @@ function registerIpc(): void {
     return workspace ? { ...workspace, recoveryNotice: [recoveryNotice, workspace.recoveryNotice, credentialNotice].filter(Boolean).join(' ') || undefined } : null
   }))
   handle('history',async()=>rpc('history'))
-  handle('clearHistory',async value=>rpc('clearHistory',z.boolean().optional().parse(value)))
+  handle('clearHistory', async value => {
+    await rpc('clearHistory', z.boolean().optional().parse(value))
+    operations.clearQueryEntries()
+  })
   handle('searchHistory',async value=>rpc('searchHistory',historySearchSchema.parse(value)))
   handle('historySettings',async()=>rpc('historySettings'))
   handle('saveHistorySettings',async value=>rpc('saveHistorySettings',historySettingsSchema.parse(value)))
