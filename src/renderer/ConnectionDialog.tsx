@@ -150,7 +150,7 @@ export function ConnectionDialog({ profile, profileId, busy, error, saveOnly, on
     if (!validateEntra(config)) return
     const choice = { remember: Boolean((saveOnly || saveConnection) && remember && passwordEligible(config)), useSaved: Boolean(!saveOnly && canUseSaved && useSaved && !config.password) }
     if (choice.remember && !config.password && !(vaultStatus?.saved && sameBinding && !addsProfile)) { setFileError(addsProfile ? 'Enter a password to remember it for the new profile, or uncheck Remember password. The existing saved password is kept.' : 'Enter a password to remember it for these connection settings.'); return }
-    setFileError('')
+    setFileError(''); setTestResult(null)
     void (saveOnly ? onSave(config, choice) : onConnect(config, saveConnection, choice, interactive ? beginEntra(connectButton.current) : undefined))
   }
   return <ModalDialog className="connection-dialog connection-form" aria-labelledby="connection-title" onDismiss={() => { if (signingIn) cancelSignIn(); else if (!blocked && !testInFlight.current) onClose() }}><form onSubmit={event => { event.preventDefault(); submit() }}>
