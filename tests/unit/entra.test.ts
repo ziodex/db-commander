@@ -54,6 +54,7 @@ it('uses a state-bound loopback and PKCE and coalesces silent renewal for live o
     const url = new URL(value)
     expect(await callback(url, { state: 'forged' })).toBe(400)
     expect(await callback(url, {})).toBe(200)
+    expect(await callback(url, {})).toBe(410)
   }, () => sdk)
   const grant = await broker.open(profile)
   const authorize = sdk.getAuthCodeUrl.mock.calls[0][0] as unknown as { codeChallenge: string; codeChallengeMethod: string }
@@ -99,6 +100,7 @@ it('reports expiry separately and closes the expired callback', async () => {
   const broker = new EntraGrants(async value => { opened(new URL(value)) }, () => sdk, notify)
   const active = broker.open(profile)
   const url = await browser
+  await expect.poll(() => notify.mock.lastCall?.[0].phase).toBe('browser')
   timer.abort(new DOMException('Fixture expired', 'TimeoutError'))
   await expect(active).rejects.toThrow('sign-in expired')
   expect(timeout).toHaveBeenCalledWith(120_000)

@@ -42,7 +42,7 @@ function checkToken(result: AuthenticationResult, tenant: string): Credential['t
 async function authorize(identity: Identity, authority: string, openBrowser: Browser, signal: AbortSignal, progress: (phase: 'browser' | 'finishing') => void, hint?: string) {
   const state = randomBytes(32).toString('base64url'), verifier = randomBytes(32).toString('base64url')
   let resolveCode!: (code: string) => void, rejectCode!: (error: Error) => void
-  let redirect = ''
+  let redirect = '', received = false
   const callback = new Promise<string>((resolve, reject) => { resolveCode = resolve; rejectCode = reject })
   void callback.catch(() => {}) // Cancellation can arrive while building the browser URL.
   const server = createServer({ requestTimeout: 5000, headersTimeout: 5000, maxHeaderSize: 8192 }, (req, res) => {
@@ -58,6 +58,8 @@ async function authorize(identity: Identity, authority: string, openBrowser: Bro
       url.searchParams.getAll('state').length !== 1 || !/^[A-Za-z0-9_-]{43}$/.test(actual) || !timingSafeEqual(Buffer.from(actual), Buffer.from(state))) {
       reply(400, 'Invalid sign-in response.'); return
     }
+    if (received || signal.aborted) { reply(410, 'This sign-in has already ended. Return to Db Commander.'); return }
+    received = true
     const codes = url.searchParams.getAll('code')
     if (url.searchParams.has('error') || codes.length !== 1 || !codes[0] || codes[0].length > 8192) {
       reply(400, 'Sign-in did not finish. Return to Db Commander.')
@@ -88,10 +90,11 @@ async function authorize(identity: Identity, authority: string, openBrowser: Bro
     }
     signal.throwIfAborted()
     await openBrowser(address)
+    signal.throwIfAborted()
     progress('browser')
     const code = await callback
-    progress('finishing')
     signal.throwIfAborted()
+    progress('finishing')
     const result = await identity.acquireTokenByCode({ authority, scopes, redirectUri: redirect, code, codeVerifier: verifier })
     signal.throwIfAborted()
     return result
