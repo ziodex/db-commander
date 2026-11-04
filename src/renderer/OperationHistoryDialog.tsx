@@ -6,7 +6,8 @@ import { ModalDialog } from './ModalDialog'
 
 const statuses = {
   running: 'Running', completed: 'Completed', failed: 'Failed', cancelled: 'Cancelled',
-  unknown: 'Outcome unknown', 'not-applied': 'Not applied', requested: 'Request accepted'
+  unknown: 'Outcome unknown', 'not-applied': 'Not applied', requested: 'Request accepted',
+  partial: 'Partially applied', issues: 'Completed with issues'
 } satisfies Record<OperationStatus, string>
 const pageSize = 15
 

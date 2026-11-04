@@ -100,7 +100,12 @@ function initialize(): void {
     },
     prepareSchemaChange: payload => driver.prepareSchemaChange(prepareSchemaChangeSchema.parse(payload)),
     prepareAdministration: payload => driver.prepareAdministration(prepareAdministrationSchema.parse(payload)),
-    applyAdministration: payload => driver.applyAdministration(applyAdministrationSchema.parse(payload)),
+    applyAdministration: payload => {
+      const request = applyAdministrationSchema.parse(payload)
+      const entry = startOperation('administration', driver.historyContext(request.sessionId).engine)
+      return trackOperation(entry, () => driver.applyAdministration(request),
+        result => result.status === 'applied' ? 'completed' : result.status === 'rejected' ? 'not-applied' : result.status)
+    },
     cancelSchemaChange: payload => driver.cancelSchemaChange(idSchema.parse(payload)),
     applySchemaChange: async payload => {
       const request = applySchemaChangeSchema.parse(payload), context = historyContext(request.sessionId), startedAt = new Date().toISOString()
@@ -151,7 +156,12 @@ function initialize(): void {
     },
     inspectRollback: payload => driver.inspectRollback(rollbackRequestSchema.parse(payload)),
     preparePrincipalChange: payload => driver.preparePrincipalChange(preparePrincipalChangeSchema.parse(payload)),
-    applyPrincipalChange: payload => driver.applyPrincipalChange(applyPrincipalChangeSchema.parse(payload)),
+    applyPrincipalChange: payload => {
+      const request = applyPrincipalChangeSchema.parse(payload)
+      const entry = startOperation('principal-change', driver.historyContext(request.sessionId).engine)
+      return trackOperation(entry, () => driver.applyPrincipalChange(request),
+        result => result.status === 'applied' ? 'completed' : result.status === 'unknown' ? 'unknown' : 'not-applied')
+    },
     inspectPrincipals: payload => driver.inspectPrincipals(principalRequestSchema.parse(payload)),
     inspectActivity: payload => driver.inspectActivity(activityRequestSchema.parse(payload)),
     inspectPerformance: payload => driver.inspectPerformance(idSchema.parse(payload)),

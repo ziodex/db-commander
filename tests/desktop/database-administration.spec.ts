@@ -180,6 +180,11 @@ test('database administration PostgreSQL reviews lifecycle and table maintenance
     expect((await fixture.query('SELECT attname FROM pg_stats WHERE schemaname = $1 AND tablename = $2', ['public', table])).rows).toEqual([{ attname: 'id' }])
     await expect(page.getByRole('cell', { name: '42', exact: true })).toBeVisible()
     expect(await page.evaluate(() => window.dbCommander.history())).toEqual(history)
+    await expect.poll(async () => (await page.evaluate(() => window.dbCommander.operationHistory()))
+      .filter(entry => entry.kind === 'administration').map(entry => entry.status)).toEqual(Array(4).fill('completed'))
+    const operations = JSON.stringify(await page.evaluate(() => window.dbCommander.operationHistory()))
+    expect(operations).not.toContain(database)
+    expect(operations).not.toContain('local-test-only')
   } finally {
     await app?.evaluate(({ app }) => app.exit()).catch(() => {})
     await app?.close().catch(() => {})

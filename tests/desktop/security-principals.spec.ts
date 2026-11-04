@@ -224,6 +224,11 @@ test('security principals PostgreSQL inspects effective access and copies a manu
       await expect(trigger).toBeFocused()
     }
     expect(await page.evaluate(() => window.dbCommander.history())).toEqual(before)
+    await expect.poll(async () => (await page.evaluate(() => window.dbCommander.operationHistory()))
+      .filter(entry => entry.kind === 'principal-change').map(entry => entry.status)).toEqual(['completed'])
+    const operations = JSON.stringify(await page.evaluate(() => window.dbCommander.operationHistory()))
+    expect(operations).not.toContain(reviewed)
+    expect(operations).not.toContain('local-test-only')
     await expect(page.getByRole('cell', { name: '42', exact: true })).toBeVisible()
     const acl = await fixture.query('SELECT relacl::text AS acl FROM pg_class WHERE oid = $1::regclass', [prefix + '.example'])
     expect(acl.rows[0].acl).not.toContain(member + '=r')
