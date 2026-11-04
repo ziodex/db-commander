@@ -8,6 +8,11 @@ on:
         type: boolean
         default: false
 
+      windows_auth:
+        description: Test Windows Authentication using SQL Server Express on the disposable runner
+        type: boolean
+        default: false
+
 permissions:
   contents: read
 
@@ -40,6 +45,22 @@ jobs:
         run: node scripts/smoke-package.mjs
         env:
           SQLCOMMANDER_STARTUP_ONLY: 'true'
+      - name: Prepare Windows integrated authentication fixture
+        if: inputs.windows_auth
+        shell: powershell
+        run: ./scripts/prepare-windows-auth-fixture.ps1
+      - name: Verify native Windows SQL Server authentication
+        if: inputs.windows_auth
+        run: pnpm exec vitest run tests/integration/windows-auth.test.ts --reporter=default --reporter=junit --outputFile.junit=.test-artifacts/ci-results/windows-auth-driver.xml
+        env:
+          SQLCOMMANDER_WINDOWS_AUTH_TEST: '1'
+      - name: Verify packaged Windows authentication and Entra controls
+        if: inputs.windows_auth
+        run: |
+          $env:SQLCOMMANDER_TEST_EXECUTABLE = (Resolve-Path 'release/win-unpacked/DbCommander.exe').Path
+          pnpm exec playwright test tests/desktop/windows-auth.spec.ts tests/desktop/entra-sign-in.spec.ts --reporter=line,junit
+        env:
+          SQLCOMMANDER_WINDOWS_AUTH_TEST: '1'
       - name: Build unsigned NSIS installers and upgrade fixture
         if: inputs.installers
         run: |
