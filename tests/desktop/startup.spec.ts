@@ -3,7 +3,7 @@ import { _electron as electron, test, expect, type ElectronApplication } from '@
 import { cp, mkdtemp, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { dirname, join, relative, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
-import { probeSqliteWorker } from '../../scripts/release/startup-diagnostics.mjs'
+import { captureStartupDiagnostics, probeSqliteWorker } from '../../scripts/release/startup-diagnostics.mjs'
 
 test('packaged startup survives an unavailable DuckDB native library through an installation alias', async () => {
   test.skip(!process.env.SQLCOMMANDER_TEST_EXECUTABLE, 'Requires a native packaged application.')
@@ -86,8 +86,14 @@ for (const fault of ['throw', 'stall'] as const) test(`database host startup rec
   let app: ElectronApplication | undefined
   try {
     app = await electron.launch({ ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: resolve(process.env.SQLCOMMANDER_TEST_EXECUTABLE) } : { args: [resolve('.')] }), env: env as Record<string, string> })
+    const diagnostics = captureStartupDiagnostics(app, directory)
     const original = await app.firstWindow()
-    await waitForWorkspaceReady(original)
+    try {
+      await waitForWorkspaceReady(original)
+    } catch (error) {
+      console.error('Pristine database host startup diagnostics:', await diagnostics())
+      throw error
+    }
     const sql = 'SELECT 123456789 AS never_replayed_after_startup_failure;'
     await original.locator('.monaco-editor').click()
     await original.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A')
