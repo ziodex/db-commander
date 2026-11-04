@@ -28,7 +28,6 @@ import { quoteIdentifier } from '../shared/sql/common'
 import { mysqlMaintenanceResult, planMysqlAdministration } from '../administration/mysql'
 import type { AdministrationPlan } from '../administration/reviews'
 import type { AdministrationChange, AdministrationResult } from '../shared/database-administration'
-import type { CatalogQuery } from '../catalog/common'
 
 interface Operation { id: string; cancelled: boolean; active: boolean; cancelPromise?: Promise<boolean>; done?: Promise<void> }
 interface Session { editor?: TableEditor; client: MysqlTransport; config: ConnectionConfig; info: SessionInfo; mode: MysqlSqlMode; lost: boolean; busy?: Operation; metadata?: Promise<SchemaTable[]> }

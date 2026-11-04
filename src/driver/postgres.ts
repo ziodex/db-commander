@@ -31,7 +31,6 @@ import { firstKeyword, splitPostgresScript } from '../shared/sql/common'
 import { planPostgresAdministration } from '../administration/postgres'
 import type { AdministrationPlan } from '../administration/reviews'
 import type { AdministrationChange, AdministrationResult } from '../shared/database-administration'
-import type { CatalogQuery } from '../catalog/common'
 
 interface Operation { id: string; cancelled: boolean; cancelPromise?: Promise<boolean>; done?: Promise<void> }
 interface Session { editor?: TableEditor; client: pg.Client; config: ConnectionConfig; info: SessionInfo; pid: number; busy?: Operation; lost: boolean; metadata?: Promise<SchemaTable[]> }
