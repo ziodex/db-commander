@@ -57,6 +57,7 @@
     "test:installers:rpm": "node scripts/test-rpm.mjs"
   },
   "dependencies": {
+    "@azure/msal-node": "6.0.1",
     "@duckdb/node-api": "1.5.6-r.1",
     "@monaco-editor/react": "4.7.0",
     "@napi-rs/keyring": "2.1.1",

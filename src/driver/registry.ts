@@ -1,3 +1,4 @@
+import { withEntraToken } from '../connections/entra-transport'
 import { SessionQueryIndex } from './result-cache'
 import { BackupJobs } from '../backup/jobs'
 import { TransferJobs } from '../transfer/jobs'
@@ -123,8 +124,12 @@ export class DriverRegistry {
   cancelTransfer(id: string) { return this.transfers.cancel(id) }
   discardTransferCapture(id: string) { return this.transfers.discardCapture(id) }
   waitTransfer(id: string) { return this.transfers.wait(id) }
-  async connect(config: ConnectionConfig) {
+  async connect(config: ConnectionConfig, entraToken?: () => Promise<string>) {
     config = connectionSchema.parse(config)
+    if (config.authentication === 'entra-interactive') {
+      if (!entraToken) throw new Error('Sign in to Microsoft Entra before opening this connection.')
+      config = withEntraToken(config, entraToken)
+    }
     if (this.sessions.size + this.connecting >= MAX_TABS) throw new Error(`Up to ${MAX_TABS} database sessions can be open at once.`)
     this.connecting++
     try {

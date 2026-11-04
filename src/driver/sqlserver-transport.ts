@@ -1,5 +1,7 @@
 import { Readable } from 'node:stream'
 import { connect } from 'node:net'
+import { resolveEntraToken } from '../connections/entra-transport'
+import { azureSqlPublicHost } from '../shared/entra'
 import { endpoint, isRouted } from '../connections/transport'
 import { Connection, Request, TYPES, type ConnectionConfiguration } from 'tedious'
 import type { ColumnMetadata } from 'tedious/lib/token/colmetadata-token-parser'
@@ -13,17 +15,21 @@ export function buildSqlServerConfig(config: ConnectionConfig): ConnectionConfig
   if (!['sqlserver', 'azure-sql'].includes(config.engine)) throw new Error('Expected a SQL Server or Azure SQL connection.')
   if (config.authentication === 'windows') throw new Error('Windows Authentication must use the Windows SQL Server provider.')
   if (config.engine === 'azure-sql' && config.tls !== 'verify-full') throw new Error('Azure SQL requires verified TLS.')
-  const token = config.authentication === 'entra-token'
+  const interactive = config.authentication === 'entra-interactive'
+  const token = interactive || config.authentication === 'entra-token'
+  if (interactive && (!azureSqlPublicHost(config.host) || config.ca?.trim())) throw new Error('Interactive Entra requires a verified public Azure SQL hostname.')
   if (token && (config.engine !== 'azure-sql' || !config.accessToken?.trim())) throw new Error('An Entra access token is required and is supported only for Azure SQL.')
   return {
     server: config.host,
     authentication: token ? { type: 'azure-active-directory-access-token', options: { token: config.accessToken! } } : { type: 'default', options: { userName: config.user, password: config.password } },
     options: { port: config.port, database: config.database || (config.engine === 'azure-sql' ? 'master' : undefined), appName: 'Db Commander',
-      ...(isRouted(config) ? { connector: async (options?: { host: string; port: number }, _lookup?: unknown, signal?: AbortSignal) => {
+      ...(isRouted(config) || interactive ? { connector: async (options?: { host: string; port: number }, _lookup?: unknown, signal?: AbortSignal) => {
         // The pinned driver passes these arguments at runtime; its declaration
         // omits them. Fail closed if that contract changes or a redirect occurs.
-        if (options?.host !== config.host || options?.port !== config.port) throw new Error('SSH connections do not follow server redirects. Use a fixed endpoint (Azure SQL Proxy policy).')
-        return new Promise<import('node:net').Socket>((resolve, reject) => { const socket = connect({ ...endpoint(config), signal }); socket.once('connect', () => resolve(socket)); socket.once('error', reject) })
+        const routed = isRouted(config)
+        if (routed && (options?.host !== config.host || options?.port !== config.port)) throw new Error('SSH connections do not follow server redirects. Use a fixed endpoint (Azure SQL Proxy policy).')
+        if (!routed && (!options || !azureSqlPublicHost(options.host) || !Number.isInteger(options.port) || options.port < 1 || options.port > 65535)) throw new Error('Azure SQL returned an unsupported routing endpoint.')
+        return new Promise<import('node:net').Socket>((resolve, reject) => { const socket = connect({ ...(routed ? endpoint(config) : options!), signal }); socket.once('connect', () => resolve(socket)); socket.once('error', reject) })
       } } : {}),
       encrypt: config.tls === 'verify-full', trustServerCertificate: false, serverName: config.host,
       cryptoCredentialsDetails: config.ca?.trim() ? { ca: config.ca } : undefined,
@@ -46,12 +52,19 @@ export async function openSqlServer(config: ConnectionConfig): Promise<SqlServer
     try { await connection.connect(); return connection }
     catch (error) { connection.close(); throw error }
   }
-  const connection = new Connection(buildSqlServerConfig(config))
+  const resolved = await resolveEntraToken(config)
+  const connection = new Connection(buildSqlServerConfig(resolved))
   enableExactTdsValues(connection)
   // Tedious can emit an error before connect completes; the callback carries it.
   connection.on('error', () => {})
   try { await new Promise<void>((resolve, reject) => connection.connect(error => error ? reject(error) : resolve())) }
-  catch (error) { connection.close(); throw error }
+  catch (error) {
+    connection.close()
+    if (config.authentication === 'entra-interactive' && error instanceof Error && resolved.accessToken && error.message.includes(resolved.accessToken)) {
+      throw Object.assign(new Error(error.message.split(resolved.accessToken).join('[redacted]')), { code: (error as NodeJS.ErrnoException).code })
+    }
+    throw error
+  }
   return connection
 }
 /** Bounded token queue. Pausing the request propagates to the TDS parser. */

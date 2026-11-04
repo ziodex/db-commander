@@ -1,6 +1,6 @@
 import { useRef, useState, type RefObject } from 'react'
 import { connectionProfile, sameConnectionProfile } from '../shared/connection-profiles'
-import { MAX_PROFILES, type ConnectionConfig, type ConnectionProfile, type DatabaseEvent, type DesktopApi, type WorkspaceTab } from '../shared/contracts'
+import { MAX_PROFILES, type ConnectionConfig, type ConnectionProfile, type DatabaseEvent, type DesktopApi, type SessionInfo, type WorkspaceTab } from '../shared/contracts'
 import { passwordEligible, type PasswordChoice } from '../shared/credentials'
 import type { CatalogPage } from '../shared/catalog'
 import type { EditorSettings } from '../shared/editor-settings'
@@ -144,11 +144,20 @@ export function useWorkspaceSessions({ api, runtime, tab, readyRef, sqlFiles, ed
     const epoch = generation.current
     patchState(id, { connecting: true, error: '' }); setDialogError('')
     if (target.savedConnection) setConnectionWarning(null)
-    try {
+    const detachPrevious = async () => {
       if (previous.session) { if (sessionOwners(statesRef.current, previous.session.id).length === 1) await api.disconnect(previous.session.id); else await api.editGrid({ action: 'release', sessionId: previous.session.id, viewId: id }); patchState(id, { session: null, tables: [], schema: null, schemaLoading: false, catalogLoading: false, schemaError: '', databases: null, databasesError: '', databasesLoading: false, results: [], queryId: '', status: 'Disconnected' }) }
+    }
+    let candidate: SessionInfo | undefined
+    try {
+      // Browser sign-in can be cancelled or take time. Keep the current
+      // connection until the replacement has authenticated successfully.
+      if (config.authentication !== 'entra-interactive') await detachPrevious()
       const useSaved = target.savedConnection && target.profileId && passwordEligible(config) ? (await api.passwordStatus(target.profileId)).saved : choice?.useSaved
       const connected = useSaved && target.profileId ? await api.connectSavedPassword(target.profileId, connectionProfile(config), config.sshSecrets) : await api.connect(config)
+      candidate = connected
       if (generation.current !== epoch || !workspaceRef.current.tabs.some(tab => tab.id === id)) { await api.disconnect(connected.id).catch(() => {}); return }
+      if (config.authentication === 'entra-interactive') await detachPrevious()
+      candidate = undefined
       const savedId = saveProfile ? reuseId ? workspaceRef.current.profiles.some(profile => profile.id === reuseId) ? reuseId : undefined : target.preserveProfile ? undefined : crypto.randomUUID() : undefined
       changeWorkspace(previous => ({ ...previous,
         profiles: !savedId || target.preserveProfile ? previous.profiles : reuseId ? previous.profiles.map(profile => profile.id === savedId ? { ...profile, config: clean } : profile) : [...previous.profiles, { id: savedId, config: clean }],
@@ -164,6 +173,7 @@ export function useWorkspaceSessions({ api, runtime, tab, readyRef, sqlFiles, ed
       await refreshTables(id, connected.id)
       return connected
     } catch (error) {
+      if (candidate) await api.disconnect(candidate.id).catch(() => {})
       report(error, id)
       if (target.savedConnection && target.profileId) setConnectionWarning({ tabId: id, profileId: target.profileId, name: config.name, error: message(error) })
       else setDialogError(message(error))

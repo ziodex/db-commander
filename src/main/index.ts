@@ -1,3 +1,4 @@
+import { EntraGrants } from './entra'
 import { applyPrincipalChangeSchema, preparePrincipalChangeSchema } from '../shared/principal-changes'
 import { DatabaseHostClient, DatabaseHostExitedError } from './database-host-client'
 import { SqlFiles } from '../files/sql-files'
@@ -140,16 +141,31 @@ function credentialOperation<T>(action: () => Promise<T>): Promise<T> {
   return pending
 }
 const sessionCredentials = new Map<string, ConnectionConfig>()
+const entra = new EntraGrants(url => shell.openExternal(url), undefined,
+  waiting => { if (window && !window.isDestroyed()) window.webContents.send('sql:entra-sign-in', waiting) })
+const entraSessions = new Map<string, string>()
+function forgetSessionCredentials(id: string) {
+  sessionCredentials.delete(id)
+  entra.release(entraSessions.get(id))
+  entraSessions.delete(id)
+}
 async function savedProfile(id: string): Promise<{ workspace: Workspace; profile: SavedConnectionProfile }> {
   const workspace: Workspace | null = await rpc('loadWorkspace')
   const profile = workspace?.profiles.find(profile => profile.id === id)
   if (!workspace || !profile) throw new Error('Saved profile no longer exists.')
   return { workspace, profile }
 }
-async function openSession(config: ConnectionConfig): Promise<SessionInfo> {
+async function openSession(config: ConnectionConfig, sourceGrant?: string): Promise<SessionInfo> {
   let session: SessionInfo
-  try { session = await rpc('connect', config) }
-  catch (error) {
+  let grantId: string | undefined
+  try {
+    if (config.authentication === 'entra-interactive') {
+      if (sourceGrant) { entra.retain(sourceGrant); grantId = sourceGrant }
+      else grantId = await entra.open(config.entra!, config.user)
+    }
+    session = grantId ? await rpc('connectEntra', { config, grantId }) : await rpc('connect', config)
+  } catch (error) {
+    entra.release(grantId)
     let message = error instanceof Error ? error.message : 'Connection failed.'
     for (const secret of [config.password, config.accessToken, config.sshSecrets?.password, config.sshSecrets?.passphrase]) if (secret) message = message.split(secret).join('[redacted]')
     throw new Error(message)
@@ -160,6 +176,7 @@ async function openSession(config: ConnectionConfig): Promise<SessionInfo> {
   // Follow actual context for cloning, including SQL-driven USE changes.
   retained.database = ['sqlite', 'duckdb'].includes(config.engine) ? config.database : session.database
   sessionCredentials.set(session.id, retained)
+  if (grantId) entraSessions.set(session.id, grantId)
   sessions.set(session.id, session); recoveryNotice = undefined
   return session
 }
@@ -207,6 +224,7 @@ const host = new DatabaseHostClient(
     return utilityProcess.fork(join(__dirname, 'database-host.cjs'), [directory, String(process.pid), String(created === null ? 0 : Math.floor(created))], { serviceName: 'Db Commander database host' })
   },
   {
+    entraToken: id => entra.token(id),
     event(event, token) {
       if (event.type === 'complete' && running.get(event.sessionId) === event.queryId) {
         running.delete(event.sessionId)
@@ -220,7 +238,7 @@ const host = new DatabaseHostClient(
           }
         }
       }
-      if (event.type === 'session-lost') { running.delete(event.sessionId); sessions.delete(event.sessionId); sessionCredentials.delete(event.sessionId) }
+      if (event.type === 'session-lost') { running.delete(event.sessionId); sessions.delete(event.sessionId); forgetSessionCredentials(event.sessionId) }
       window?.webContents.send('sql:event', event, token)
     },
     operation: entry => operations.update(entry),
@@ -230,6 +248,7 @@ const host = new DatabaseHostClient(
       for (const job of transferJobs.values()) if (job.status === 'running') publishTransfer({ ...job, status: 'unknown', phase: 'Database host stopped. Reconnect and inspect transaction state and the destination before retrying. Nothing was replayed.' })
       for (const job of backupJobs.values()) if (job.status === 'running') publishBackup({ ...job, status: 'unknown', finishedAt: new Date().toISOString(), phase: 'Database host stopped. The backup or restore outcome is unknown. Inspect the artifact and target before retrying.' })
       operations.interrupt()
+      entra.clear(); entraSessions.clear()
       sessions.clear(); sessionCredentials.clear(); running.clear()
       if (!closing) window?.webContents.send('sql:event', { type: 'host-lost', message: startupFailure ?? 'Database host stopped. The editor is preserved; reconnect explicitly. In-flight outcomes may be unknown.' })
     }
@@ -443,13 +462,19 @@ function registerIpc(): void {
     const source = sessionCredentials.get(job.sessionId)
     if (!source || !sessions.has(job.sessionId) || source.engine !== job.engine) throw new Error('The original connection is no longer open. Connect to the restored database explicitly.')
     const embedded = ['sqlite', 'duckdb'].includes(job.engine)
-    return openSession({ ...source, name: `${source.name} · restored`.slice(0, 100), database: embedded ? source.database : job.target, ...(embedded ? { filePath: job.target, sqliteMode: 'read-write', duckdbMode: 'read-write' } : {}) })
+    return openSession({ ...source, name: `${source.name} · restored`.slice(0, 100), database: embedded ? source.database : job.target, ...(embedded ? { filePath: job.target, sqliteMode: 'read-write', duckdbMode: 'read-write' } : {}) }, entraSessions.get(job.sessionId))
+  })
+  handle('cancelEntraSignIn', async value => { z.undefined().parse(value); entra.cancel() })
+  handle('renewEntraSession', async value => {
+    const id = idSchema.parse(value), grant = entraSessions.get(id), config = sessionCredentials.get(id)
+    if (!grant || !config?.entra || !sessions.has(id)) throw new Error('Connect using interactive Microsoft Entra first.')
+    await entra.renew(grant, config.entra)
   })
   handle('connect', async value => openSession(connectionSchema.parse(value)))
   handle('cloneSession', async value => {
     const id = idSchema.parse(value), config = sessionCredentials.get(id)
     if (!config || !sessions.has(id)) throw new Error('Source session is no longer connected.')
-    return openSession({ ...config })
+    return openSession({ ...config }, entraSessions.get(id))
   })
   handle('exportConnectionProfiles', value => fileOperation(async () => {
     const ids = z.array(idSchema).min(1).max(100).optional().parse(value)
@@ -497,7 +522,7 @@ function registerIpc(): void {
     })
   })
   handle('removeProfilePassword', async value => credentialOperation(() => credentialWorkspace.removePassword(idSchema.parse(value))))
-  handle('disconnect', async value => { const id = idSchema.parse(value); await rpc('disconnect', id); sessions.delete(id); sessionCredentials.delete(id) })
+  handle('disconnect', async value => { const id = idSchema.parse(value); await rpc('disconnect', id); sessions.delete(id); forgetSessionCredentials(id) })
   handle('switchDatabase', async value => {
     const request = switchDatabaseSchema.parse(value)
     if (running.has(request.sessionId)) throw new Error('This tab already has a running operation.')
@@ -506,7 +531,9 @@ function registerIpc(): void {
       const session: SessionInfo = await rpc('switchDatabase', request)
       const config = sessionCredentials.get(request.sessionId)
       if (config) sessionCredentials.set(session.id, { ...config, database: session.database })
-      if (!request.retainSource && session.id !== request.sessionId) { sessionCredentials.delete(request.sessionId); sessions.delete(request.sessionId) }
+      const grant = entraSessions.get(request.sessionId)
+      if (grant && session.id !== request.sessionId) { entra.retain(grant); entraSessions.set(session.id, grant) }
+      if (!request.retainSource && session.id !== request.sessionId) { forgetSessionCredentials(request.sessionId); sessions.delete(request.sessionId) }
       sessions.set(session.id, session)
       return session
     } finally { running.delete(request.sessionId) }
@@ -674,6 +701,7 @@ async function createWindow(): Promise<void> {
     recoveryNotice = 'Your editor was recovered after a renderer crash. Database connections were ended; any in-flight operation may have an unknown outcome. Reconnect explicitly. No SQL was replayed.'
     // The lost renderer owned these sessions. End them and recover only saved
     // editor state; never reconnect or replay SQL after a crash.
+    entra.clear()
     const stopped = host.stop()
     // Detach before destruction: native close notifications can arrive later
     // than the host exit, or even after the replacement has been created.
@@ -739,7 +767,7 @@ async function createWindow(): Promise<void> {
     if (window !== createdWindow) return
     window = null
     if (!recovering) {
-      closing = true; host.kill(); windows.delete(record.id)
+      closing = true; entra.clear(); host.kill(); windows.delete(record.id)
       ipcMain.removeListener('sql:ack', acknowledge); ipcMain.removeListener('sql:workspace-flushed', flushed)
     }
   })
@@ -748,7 +776,7 @@ async function createWindow(): Promise<void> {
   await backupJobs.load()
   await sqlFiles.load()
   registerIpc()
-  const controller = { focus: () => { if (window?.isMinimized()) window.restore(); window?.show(); window?.focus() }, stop: () => { closing = true; host.kill() }, recovering: () => recovering }
+  const controller = { focus: () => { if (window?.isMinimized()) window.restore(); window?.show(); window?.focus() }, stop: () => { closing = true; entra.clear(); host.kill() }, recovering: () => recovering }
   windows.set(record.id, controller)
   try { await createWindow() } catch (error) { closing = true; const failed = window as BrowserWindow | null; failed?.destroy(); windows.delete(record.id); throw error }
 }

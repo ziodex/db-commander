@@ -6,6 +6,7 @@ import type { HostArgs, HostMethod, HostResult, HostMessage } from '../shared/ho
 
 interface HostCallbacks {
   operation(entry: import('../shared/operation-history').OperationEntry): void
+  entraToken?(id: string): Promise<string>
   event(event: DatabaseEvent, token?: string): void
   backup(job: BackupJob): void
   transfer(job: TransferJob): void
@@ -20,7 +21,7 @@ interface HostProcess {
   once(event: 'exit', listener: () => void): void
 }
 
-const unbounded = new Set<HostMethod>(['applyActivityAction', 'applyPrincipalChange', 'applyAdministration', 'applyScheduleChange', 'editGrid', 'inspectImport', 'startTransfer', 'switchDatabase', 'databases', 'applySchemaChange', 'connect', 'explain', 'compareData'])
+const unbounded = new Set<HostMethod>(['applyActivityAction', 'applyPrincipalChange', 'applyAdministration', 'applyScheduleChange', 'connectEntra', 'editGrid', 'inspectImport', 'startTransfer', 'switchDatabase', 'databases', 'applySchemaChange', 'connect', 'explain', 'compareData'])
 const inspection = new Set<HostMethod>(['catalogPage', 'inspectRollback', 'inspectActivity', 'inspectPerformance', 'inspectScheduler', 'inspectPrincipals', 'preparePrincipalChange', 'inspectObject', 'prepareSchemaChange', 'diagram', 'compareSchemas'])
 
 export class DatabaseHostExitedError extends Error {
@@ -55,6 +56,14 @@ export class DatabaseHostClient {
         if ('backupJob' in message) { this.callbacks.backup(message.backupJob); return }
         if ('transferJob' in message) { this.callbacks.transfer(message.transferJob); return }
         if ('operation' in message) { this.callbacks.operation(message.operation); return }
+        if ('entraToken' in message) {
+          const { requestId, grantId } = message.entraToken
+          const respond = (accessToken?: string) => {
+            if (this.child === child) child.postMessage({ entraToken: { requestId, accessToken } })
+          }
+          void Promise.resolve().then(() => this.callbacks.entraToken?.(grantId)).then(respond, () => respond()).catch(() => {})
+          return
+        }
         if ('event' in message) {
           if (message.token) this.acknowledgements.add(message.token)
           this.callbacks.event(message.event, message.token)
