@@ -2,7 +2,7 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { PublicClientApplication, type AccountInfo, type AuthenticationResult, type Configuration } from '@azure/msal-node'
-import type { EntraProfile } from '../shared/entra'
+import type { EntraAttempt, EntraProfile, EntraProgress } from '../shared/entra'
 
 const issuer = 'https://login.microsoftonline.com'
 const scopes = ['https://database.windows.net/user_impersonation', 'offline_access', 'openid', 'profile']
@@ -39,7 +39,7 @@ function checkToken(result: AuthenticationResult, tenant: string): Credential['t
   return result.accessToken
 }
 
-async function authorize(identity: Identity, authority: string, openBrowser: Browser, signal: AbortSignal, hint?: string) {
+async function authorize(identity: Identity, authority: string, openBrowser: Browser, signal: AbortSignal, progress: (phase: 'browser' | 'finishing') => void, hint?: string) {
   const state = randomBytes(32).toString('base64url'), verifier = randomBytes(32).toString('base64url')
   let resolveCode!: (code: string) => void, rejectCode!: (error: Error) => void
   let redirect = ''
@@ -88,7 +88,9 @@ async function authorize(identity: Identity, authority: string, openBrowser: Bro
     }
     signal.throwIfAborted()
     await openBrowser(address)
+    progress('browser')
     const code = await callback
+    progress('finishing')
     signal.throwIfAborted()
     const result = await identity.acquireTokenByCode({ authority, scopes, redirectUri: redirect, code, codeVerifier: verifier })
     signal.throwIfAborted()
@@ -102,31 +104,34 @@ async function authorize(identity: Identity, authority: string, openBrowser: Bro
 
 export class EntraGrants {
   private grants = new Map<string, Grant>()
-  private interactive?: AbortController
-  constructor(private openBrowser: Browser, private identity: IdentityFactory = makeIdentity, private notify: (waiting: boolean) => void = () => {}) {}
+  private interactive?: { id: string; controller: AbortController }
+  constructor(private openBrowser: Browser, private identity: IdentityFactory = makeIdentity, private notify: (progress: EntraProgress) => void = () => {}) {}
 
-  private async signIn(profile: EntraProfile, hint?: string): Promise<Credential> {
+  private async signIn(profile: EntraProfile, request: EntraAttempt, hint?: string): Promise<Credential> {
     if (this.interactive) throw new Error('Finish or cancel the current Microsoft Entra sign-in first.')
-    const attempt = new AbortController()
+    const controller = new AbortController()
+    const attempt = { id: request.id, controller }
+    const progress = (phase: EntraProgress['phase']) => this.notify({ ...request, phase })
     this.interactive = attempt
-    this.notify(true)
-    const signal = AbortSignal.any([attempt.signal, AbortSignal.timeout(120_000)])
+    progress('opening')
+    const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(120_000)])
     const authority = `${issuer}/${profile.tenantId.toLowerCase()}`
     try {
       const identity = this.identity(authority, profile.clientId)
-      const result = await authorize(identity, authority, this.openBrowser, signal, hint)
+      const result = await authorize(identity, authority, this.openBrowser, signal, progress, hint)
       const token = checkToken(result, profile.tenantId)
       return { identity, account: result.account!, token, expires: result.expiresOn!.getTime() }
     } catch {
-      throw new Error(signal.aborted ? 'Microsoft Entra sign-in was cancelled or expired.' :
+      throw new Error(controller.signal.aborted ? 'Microsoft Entra sign-in was cancelled.' :
+        signal.aborted ? 'Microsoft Entra sign-in expired. Try again.' :
         'Microsoft Entra sign-in failed. Verify the tenant, application registration and account access, then try again.')
     } finally {
-      if (this.interactive === attempt) { this.interactive = undefined; this.notify(false) }
+      if (this.interactive === attempt) { this.interactive = undefined; progress('finished') }
     }
   }
 
-  async open(profile: EntraProfile, hint?: string) {
-    const credentials = await this.signIn(profile, hint)
+  async open(profile: EntraProfile, hint?: string, request: EntraAttempt = { id: randomUUID(), surface: 'workspace' }) {
+    const credentials = await this.signIn(profile, request, hint)
     const id = randomUUID()
     this.grants.set(id, { credentials, users: 1 })
     return id
@@ -144,11 +149,11 @@ export class EntraGrants {
     if (grant && --grant.users === 0) this.grants.delete(id)
   }
 
-  async renew(id: string, profile: EntraProfile) {
+  async renew(id: string, profile: EntraProfile, request: EntraAttempt = { id: randomUUID(), surface: 'workspace' }) {
     const grant = this.grants.get(id)
     if (!grant) throw new Error(signedOut)
     const before = grant.credentials
-    const replacement = await this.signIn(profile, before.account.username)
+    const replacement = await this.signIn(profile, request, before.account.username)
     if (this.grants.get(id) !== grant) throw new Error('The database connection closed during sign-in.')
     if (replacement.account.homeAccountId !== before.account.homeAccountId || replacement.account.tenantId !== before.account.tenantId) {
       throw new Error('Choose the same Microsoft Entra account to renew this connection.')
@@ -176,6 +181,6 @@ export class EntraGrants {
     return grant.pending
   }
 
-  cancel() { this.interactive?.abort() }
-  clear() { this.cancel(); this.grants.clear() }
+  cancel(id: string) { if (this.interactive?.id === id) this.interactive.controller.abort() }
+  clear() { this.interactive?.controller.abort(); this.grants.clear() }
 }

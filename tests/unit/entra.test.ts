@@ -78,10 +78,13 @@ it('cancels a pending loopback sign-in without exchanging a code or accepting a 
   let opened!: (url: string) => void
   const browser = new Promise<string>(resolve => { opened = resolve })
   const broker = new EntraGrants(async value => { opened(value) }, () => sdk)
-  const active = broker.open(profile)
+  const attempt = { id: '64475b55-0969-4d8b-8a39-472ce1c71de7', surface: 'dialog' } as const
+  const active = broker.open(profile, undefined, attempt)
   const url = new URL(await browser)
   await expect(broker.open(profile)).rejects.toThrow(/current Microsoft Entra sign-in/)
-  broker.cancel()
+  broker.cancel('33c4eddc-12b1-4a98-9160-82485e067c7e')
+  expect(await callback(url, { state: 'forged' })).toBe(400)
+  broker.cancel(attempt.id)
   await expect(active).rejects.toThrow(/cancelled/)
   await expect(callback(url, {})).rejects.toThrow()
   expect(sdk.acquireTokenByCode).not.toHaveBeenCalled()
@@ -115,4 +118,55 @@ it('keeps only public registration fields in profiles and uses the current token
   expect(second.authentication).toMatchObject({ options: { token: 'second-access' } })
   expect(second.options).toMatchObject({ database: 'other', encrypt: true, trustServerCertificate: false })
   await expect(resolveEntraToken(config)).rejects.toThrow(/sign in/i)
+})
+
+it('exchanges a PKCE code and renews with the packaged MSAL client against a mock issuer', async () => {
+  const authority = `https://login.microsoftonline.com/${profile.tenantId}`
+  const authorizeEndpoint = `${authority}/oauth2/v2.0/authorize`
+  const tokenEndpoint = `${authority}/oauth2/v2.0/token`
+  const claims = { oid: 'fixture-user', sub: 'fixture-user', tid: profile.tenantId,
+    aud: profile.clientId, iss: `${authority}/v2.0`, preferred_username: account.username,
+    exp: Math.floor(Date.now() / 1000) + 3600 }
+  const base64 = (value: object) => Buffer.from(JSON.stringify(value)).toString('base64url')
+  const requests: URLSearchParams[] = []
+  const network = vi.fn(async (url: string, init: RequestInit) => {
+    expect(init.redirect).toBe('error')
+    if (url === `${authority}/v2.0/.well-known/openid-configuration`) return Response.json({
+      issuer: claims.iss, authorization_endpoint: authorizeEndpoint, token_endpoint: tokenEndpoint,
+      end_session_endpoint: `${authority}/oauth2/v2.0/logout`
+    })
+    const endpoint = new URL(url)
+    expect(endpoint.origin + endpoint.pathname).toBe(tokenEndpoint)
+    const params = new URLSearchParams(String(init.body))
+    requests.push(params)
+    return Response.json({
+      token_type: 'Bearer', scope: 'https://database.windows.net/user_impersonation', expires_in: 1800,
+      access_token: requests.length === 1 ? 'fixture-access' : 'fixture-renewed',
+      refresh_token: 'fixture-refresh',
+      id_token: `${base64({ alg: 'RS256', typ: 'JWT' })}.${base64(claims)}.fixture-signature`,
+      client_info: base64({ uid: claims.oid, utid: claims.tid })
+    })
+  })
+  vi.stubGlobal('fetch', network)
+  let challenge = ''
+  try {
+    const broker = new EntraGrants(async address => {
+      const url = new URL(address)
+      expect(url.origin + url.pathname).toBe(authorizeEndpoint)
+      expect(url.searchParams.get('scope')).toContain('https://database.windows.net/user_impersonation')
+      expect(url.searchParams.get('code_challenge_method')).toBe('S256')
+      challenge = url.searchParams.get('code_challenge')!
+      expect(await callback(url, {})).toBe(200)
+    })
+    const id = await broker.open(profile)
+    expect(await broker.token(id)).toBe('fixture-access')
+    expect(requests[0].get('grant_type')).toBe('authorization_code')
+    expect(requests[0].get('client_secret')).toBeNull()
+    expect(createHash('sha256').update(requests[0].get('code_verifier')!).digest('base64url')).toBe(challenge)
+    const before = Date.now()
+    vi.spyOn(Date, 'now').mockImplementation(() => before + 1750_000)
+    expect(await broker.token(id)).toBe('fixture-renewed')
+    expect(requests[1].get('grant_type')).toBe('refresh_token')
+    expect(requests[1].get('refresh_token')).toBe('fixture-refresh')
+  } finally { vi.unstubAllGlobals() }
 })

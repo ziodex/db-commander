@@ -489,6 +489,7 @@ body[data-resizing=horizontal], body[data-resizing=horizontal] * { cursor: row-r
 .profile-row button[aria-pressed="true"] { color: var(--warning); }
 .profile-options, .ssh-options { display: grid; gap: 10px; padding: 10px 0; border-top: 1px solid var(--border); }
 .session-safety { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; min-height: 32px; padding: 5px 14px; background: var(--success-background); border-bottom: 1px solid var(--success-border); font-size: 14px; }
+.session-safety[data-entra] { flex-shrink: 0; }
 .session-safety strong { text-transform: capitalize; }
 .session-safety button { margin-left: auto; border: 1px solid currentColor; padding: 3px 9px; border-radius: 4px; }
 .session-safety.environment-production { background: var(--danger-background); border-color: var(--danger-border); color: var(--danger); }

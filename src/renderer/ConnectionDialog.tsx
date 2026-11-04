@@ -2,7 +2,7 @@ import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState, type Mous
 import { Check, ChevronRight, Database, FolderOpen, X } from './WorkbenchIcons'
 import { ModalDialog } from './ModalDialog'
 import { ConnectionOptions } from './ConnectionOptions'
-import { azureSqlPublicHost, entraProfileSchema } from '../shared/entra'
+import { azureSqlPublicHost, entraProfileSchema, entraProgressText, type EntraAttempt, type EntraProgress } from '../shared/entra'
 import { defaultPorts } from '../shared/database-engines'
 import { engineNames, type ConnectionConfig, type ConnectionProfile, type DatabaseEngine } from '../shared/contracts'
 import { credentialBinding, passwordEligible, type PasswordChoice, type PasswordStatus } from '../shared/credentials'
@@ -10,7 +10,7 @@ import { connectionProfile, sameConnectionProfile } from '../shared/connection-p
 
 const api = window.dbCommander
 
-export function ConnectionDialog({ profile, profileId, busy, error, saveOnly, onClose, onConnect, onSave }: { profile: ConnectionProfile; profileId?: string; busy: boolean; error: string; saveOnly?: boolean; onClose(): void; onConnect(config: ConnectionConfig, saveProfile: boolean, choice: PasswordChoice): Promise<void>; onSave(config: ConnectionConfig, choice: PasswordChoice): Promise<void> }) {
+export function ConnectionDialog({ profile, profileId, busy, error, saveOnly, onClose, onConnect, onSave }: { profile: ConnectionProfile; profileId?: string; busy: boolean; error: string; saveOnly?: boolean; onClose(): void; onConnect(config: ConnectionConfig, saveProfile: boolean, choice: PasswordChoice, attempt?: EntraAttempt): Promise<void>; onSave(config: ConnectionConfig, choice: PasswordChoice): Promise<void> }) {
   const [form, setForm] = useState<ConnectionConfig>({ ...profile, password: '' })
   const [fileError, setFileError] = useState('')
   const [saveConnection, setSaveConnection] = useState(true)
@@ -23,10 +23,34 @@ export function ConnectionDialog({ profile, profileId, busy, error, saveOnly, on
   const testFocus = useRef<HTMLButtonElement | null>(null)
   const blocked = busy || removing || testing
   const interactive = form.authentication === 'entra-interactive'
-  const [waitingForEntra, setWaitingForEntra] = useState(false)
-  useEffect(() => { if (interactive) return api.onEntraSignIn(setWaitingForEntra) }, [interactive])
-  const signingIn = interactive && blocked && waitingForEntra
-  const cancelSignIn = () => void api.cancelEntraSignIn().catch(() => setFileError('The sign-in could not be cancelled. Return to the browser or wait for the request to expire.'))
+  const [progress, setProgress] = useState<EntraProgress>()
+  const attemptId = useRef<string | null>(null)
+  const cancelButton = useRef<HTMLButtonElement>(null)
+  const connectButton = useRef<HTMLButtonElement>(null)
+  const authTrigger = useRef<HTMLButtonElement | null>(null)
+  useEffect(() => {
+    if (interactive) return api.onEntraSignIn(event => { if (event.id === attemptId.current) setProgress(event) })
+  }, [interactive])
+  const signingIn = interactive && blocked && progress && progress.phase !== 'finished' ? progress : undefined
+  const showCancellation = Boolean(signingIn)
+  useLayoutEffect(() => {
+    const cancel = cancelButton.current, trigger = authTrigger.current, active = document.activeElement
+    if (showCancellation) {
+      if (trigger && (active === trigger || active === document.body || active === trigger.closest('dialog'))) cancel?.focus()
+    } else if (!blocked && trigger) {
+      authTrigger.current = null
+      if (active === cancel || active === document.body || active === trigger.closest('dialog')) trigger.focus()
+    }
+  }, [showCancellation, blocked])
+  function beginEntra(trigger: HTMLButtonElement | null): EntraAttempt {
+    const id = crypto.randomUUID()
+    attemptId.current = id
+    setProgress(undefined)
+    authTrigger.current = trigger
+    return { id, surface: 'dialog' }
+  }
+  const cancelSignIn = () => signingIn && void api.cancelEntraSignIn(signingIn.id)
+    .catch(() => setFileError('The sign-in could not be cancelled. Return to the browser or wait for the request to expire.'))
   const receiveVaultStatus = useEffectEvent((status: PasswordStatus) => {
       setVaultStatus(status)
       if (!form.password) { setRemember(status.saved); setUseSaved(status.saved && status.available) }
@@ -107,6 +131,7 @@ export function ConnectionDialog({ profile, profileId, busy, error, saveOnly, on
       if (testSession.current) { await api.disconnect(testSession.current); testSession.current = null }
       const session = useSavedPassword && profileId
         ? await api.connectSavedPassword(profileId, connectionProfile(config), config.sshSecrets)
+        : config.authentication === 'entra-interactive' ? await api.connectInteractive(config, beginEntra(restoreFocus ? button : null))
         : await api.connect(config)
       testSession.current = session.id
       await api.disconnect(session.id); testSession.current = null
@@ -126,7 +151,7 @@ export function ConnectionDialog({ profile, profileId, busy, error, saveOnly, on
     const choice = { remember: Boolean((saveOnly || saveConnection) && remember && passwordEligible(config)), useSaved: Boolean(!saveOnly && canUseSaved && useSaved && !config.password) }
     if (choice.remember && !config.password && !(vaultStatus?.saved && sameBinding && !addsProfile)) { setFileError(addsProfile ? 'Enter a password to remember it for the new profile, or uncheck Remember password. The existing saved password is kept.' : 'Enter a password to remember it for these connection settings.'); return }
     setFileError('')
-    void (saveOnly ? onSave(config, choice) : onConnect(config, saveConnection, choice))
+    void (saveOnly ? onSave(config, choice) : onConnect(config, saveConnection, choice, interactive ? beginEntra(connectButton.current) : undefined))
   }
   return <ModalDialog className="connection-dialog connection-form" aria-labelledby="connection-title" onDismiss={() => { if (signingIn) cancelSignIn(); else if (!blocked && !testInFlight.current) onClose() }}><form onSubmit={event => { event.preventDefault(); submit() }}>
     <div className="dialog-heading"><div><h2 id="connection-title">{saveOnly ? `Save ${engineNames[form.engine]} profile` : `Connect to ${engineNames[form.engine]}`}</h2></div><button type="button" aria-label="Close connection dialog" disabled={blocked} onClick={onClose}><X size={18} /></button></div>
@@ -149,7 +174,7 @@ export function ConnectionDialog({ profile, profileId, busy, error, saveOnly, on
         <div className="form-row">{input(form.engine === 'oracle' ? 'Service name' : 'Database', 'database')}{!windowsAuthentication && input(interactive ? 'Account hint (optional)' : form.authentication === 'entra-token' ? 'Account label' : 'User', 'user')}</div>
         <small>{form.engine === 'postgres' ? 'Database is optional. Leave blank to use postgres; specify a database if postgres is unavailable.' : form.engine === 'mysql' || form.engine === 'mariadb' ? 'Database is optional. Leave blank to connect without a default database.' : form.engine === 'sqlserver' ? 'Database is optional. Leave blank to use the login’s default database.' : interactive ? 'Use the database name and its Azure SQL hostname with verified TLS.' : form.engine === 'azure-sql' ? 'Database is optional with access to master. Contained users must specify a database.' : 'Service or PDB name is required.'}</small>
         {interactive ? <>
-          <div className="form-row">{(['tenantId', 'clientId'] as const).map(key => <label key={key}>{key === 'tenantId' ? 'Directory (tenant) ID' : 'Application (client) ID'}
+          <div>{(['tenantId', 'clientId'] as const).map(key => <label key={key}>{key === 'tenantId' ? 'Directory (tenant) ID' : 'Application (client) ID'}
             <input required autoComplete="off" spellCheck={false} maxLength={36} value={form.entra?.[key] ?? ''} onChange={event => {
               const value = event.target.value
               setForm(previous => ({ ...previous, entra: { tenantId: previous.entra?.tenantId ?? '', clientId: previous.entra?.clientId ?? '', [key]: value } }))
@@ -182,10 +207,10 @@ export function ConnectionDialog({ profile, profileId, busy, error, saveOnly, on
       {!embedded && <details className="connection-options" open={Boolean(profile.ssh)}><summary>SSH tunnel{form.ssh ? ` · ${form.ssh.host || 'Enabled'}` : ''}</summary><ConnectionOptions config={form} onChange={setForm} sshOnly/></details>}
     </fieldset></div>
     {(fileError || (!testing && !visibleTestResult && error)) && <p className="dialog-error" role="alert">{fileError || error}</p>}
-    {signingIn ? <p className="connection-test-feedback" role="status">Finish Microsoft Entra sign-in in your browser.</p>
+    {signingIn ? <p className="connection-test-feedback" role="status">{signingIn.phase !== 'finished' && entraProgressText[signingIn.phase]}</p>
       : testing && <p className="connection-test-feedback" role="status">Testing connection…</p>}
     {visibleTestResult && <p className={`connection-test-feedback ${visibleTestResult.success ? 'success' : 'failure'}`} role={visibleTestResult.success ? 'status' : 'alert'}>{visibleTestResult.success ? <Check size={16}/> : <X size={16}/>}<span>{visibleTestResult.message}</span></p>}
     {embedded && mode === 'create' && <p className="connection-test-note">To test a connection, choose an existing database or temporary in-memory mode. Testing never creates a database file.</p>}
-    <div className="dialog-actions"><button className="test-connection-button" type="button" disabled={blocked || (embedded && mode === 'create') || (!vaultStatus && passwordEligible(form))} onClick={event => void testConnection(event)}>{testing ? 'Testing…' : 'Test connection'}</button><button type="button" disabled={blocked && !signingIn} onClick={signingIn ? cancelSignIn : onClose}>{signingIn ? 'Cancel sign-in' : 'Cancel'}</button><button className="primary-button" disabled={blocked || (!vaultStatus && passwordEligible(form))} type="submit">{busy ? (saveOnly ? 'Saving…' : 'Connecting…') : saveOnly ? 'Save profile' : 'Connect'}<ChevronRight size={15} /></button></div>
+    <div className="dialog-actions"><button className="test-connection-button" type="button" disabled={blocked || (embedded && mode === 'create') || (!vaultStatus && passwordEligible(form))} onClick={event => void testConnection(event)}>{testing ? 'Testing…' : 'Test connection'}</button><button ref={cancelButton} type="button" disabled={blocked && !signingIn} onClick={signingIn ? cancelSignIn : onClose}>{signingIn ? 'Cancel sign-in' : 'Cancel'}</button><button ref={connectButton} className="primary-button" disabled={blocked || (!vaultStatus && passwordEligible(form))} type="submit">{busy ? (saveOnly ? 'Saving…' : 'Connecting…') : saveOnly ? 'Save profile' : 'Connect'}<ChevronRight size={15} /></button></div>
   </form></ModalDialog>
 }

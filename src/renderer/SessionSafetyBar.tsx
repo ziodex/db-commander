@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react'
-import { EntraSession } from './EntraSession'
 import type { SessionInfo } from '../shared/contracts'
 import type { ConnectionSafety } from '../shared/connection-options'
 
@@ -8,8 +7,7 @@ export function SessionSafetyBar({ session, onChange }: { session: SessionInfo; 
   const dialog = useRef<HTMLDialogElement>(null), safety = session.safety
   useEffect(() => { if (!safety?.protected) return; const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer) }, [safety?.protected])
   useEffect(() => { if (show) dialog.current?.showModal() }, [show])
-  const entra = session.entraInteractive ? <EntraSession sessionId={session.id}/> : null
-  if (!safety?.environment && !safety?.protected && !safety?.ssh) return entra ? <div className="session-safety" aria-label="Connection authentication">{entra}</div> : null
+  if (!safety?.environment && !safety?.protected && !safety?.ssh) return null
   const unlocked = safety.unlockedUntil > now
   async function change(lock = false) {
     setBusy(true); setError('')
@@ -19,7 +17,6 @@ export function SessionSafetyBar({ session, onChange }: { session: SessionInfo; 
   return <><div className={`session-safety environment-${safety.environment ?? 'unlabeled'}`} aria-label="Connection safeguards"><strong>{safety.environment ?? 'Unlabeled'}</strong><span>{session.name} · {session.database || 'Server'}</span>
     {safety.ssh && <span title={`${safety.ssh.host}:${safety.ssh.port} · ${safety.ssh.fingerprint}`}>SSH verified</span>}
     {safety.protected && <><span>{unlocked ? `Unlocked · ${Math.ceil((safety.unlockedUntil - now) / 60000)} min remaining` : 'Protected · Locked'}</span><button disabled={busy} onClick={() => unlocked ? void change(true) : (setShow(true), setError(''), setConfirmation(''))}>{unlocked ? 'Lock connection' : 'Unlock connection'}</button></>}
-    {entra}
     {error && !show && <span role="alert">{error}</span>}
   </div>{show && <dialog ref={dialog} className="connection-dialog protection-dialog" aria-label="Unlock protected connection" onKeyDown={e => e.stopPropagation()} onCancel={e => { e.preventDefault(); if (!busy) setShow(false) }}>
     <h2>Unlock protected connection</h2><p>This enables SQL execution, schema changes, data edits, imports and restores for 10 minutes in all tabs sharing this connection, including tabs opened during that time. Locking any shared tab locks the connection for all of them. Separate connections stay locked. It does not grant database permissions. Browsing is available while locked.</p><p><strong>{session.name} · {session.database || 'Server'} · {session.host}</strong></p>

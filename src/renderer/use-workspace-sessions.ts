@@ -1,3 +1,4 @@
+import type { EntraAttempt } from '../shared/entra'
 import { useRef, useState, type RefObject } from 'react'
 import { connectionProfile, sameConnectionProfile } from '../shared/connection-profiles'
 import { MAX_PROFILES, type ConnectionConfig, type ConnectionProfile, type DatabaseEvent, type DesktopApi, type SessionInfo, type WorkspaceTab } from '../shared/contracts'
@@ -131,7 +132,7 @@ export function useWorkspaceSessions({ api, runtime, tab, readyRef, sqlFiles, ed
     finally { patchState(target.tabId, { switching: false }); clearConfirmation(); cleanupLostSession(target.sessionId) }
   }
 
-  async function connect(config: ConnectionConfig, saveProfile = true, target: { tabId: string; profile: ConnectionProfile; profileId?: string; saveOnly?: boolean; preserveProfile?: boolean; savedConnection?: boolean } = dialogInfo ?? { tabId, profile }, choice?: PasswordChoice) {
+  async function connect(config: ConnectionConfig, saveProfile = true, target: { tabId: string; profile: ConnectionProfile; profileId?: string; saveOnly?: boolean; preserveProfile?: boolean; savedConnection?: boolean } = dialogInfo ?? { tabId, profile }, choice?: PasswordChoice, attempt?: EntraAttempt) {
     const id = target.tabId, previous = statesRef.current[id] ?? emptyTabState()
     const reason = canCloseTab(previous)
     if (reason) { setDialogError(reason); return }
@@ -153,7 +154,9 @@ export function useWorkspaceSessions({ api, runtime, tab, readyRef, sqlFiles, ed
       // connection until the replacement has authenticated successfully.
       if (config.authentication !== 'entra-interactive') await detachPrevious()
       const useSaved = target.savedConnection && target.profileId && passwordEligible(config) ? (await api.passwordStatus(target.profileId)).saved : choice?.useSaved
-      const connected = useSaved && target.profileId ? await api.connectSavedPassword(target.profileId, connectionProfile(config), config.sshSecrets) : await api.connect(config)
+      const connected = config.authentication === 'entra-interactive'
+        ? await api.connectInteractive(config, attempt ?? { id: crypto.randomUUID(), surface: 'workspace' })
+        : useSaved && target.profileId ? await api.connectSavedPassword(target.profileId, connectionProfile(config), config.sshSecrets) : await api.connect(config)
       candidate = connected
       if (generation.current !== epoch || !workspaceRef.current.tabs.some(tab => tab.id === id)) { await api.disconnect(connected.id).catch(() => {}); return }
       if (config.authentication === 'entra-interactive') await detachPrevious()
@@ -174,7 +177,7 @@ export function useWorkspaceSessions({ api, runtime, tab, readyRef, sqlFiles, ed
       return connected
     } catch (error) {
       if (candidate) await api.disconnect(candidate.id).catch(() => {})
-      report(error, id)
+      if (config.authentication !== 'entra-interactive' || (!attempt && !target.savedConnection)) report(error, id)
       if (target.savedConnection && target.profileId) setConnectionWarning({ tabId: id, profileId: target.profileId, name: config.name, error: message(error) })
       else setDialogError(message(error))
     }

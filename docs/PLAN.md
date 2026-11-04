@@ -56,7 +56,7 @@ Complete the confirmed correctness fixes first, then improve daily navigation an
 | A1 | Manage security principals | Inspect and manage users/logins/roles/grants using each engine's privilege model. Preview changes and surface inherited/effective permissions and visibility limits. | Planned |
 | A2 | Manage database lifecycle and maintenance | Add reviewed database create/rename/drop operations, supported maintenance/statistics/index tools, and richer backup/restore workflows. Use engine-specific capabilities and accurate transaction/permission reporting. | Partial · guided backup/restore merged; lifecycle and maintenance remain |
 | A3 | Add operational diagnostics | Extend existing sessions/locks tooling with performance diagnostics, engine-specific job/schedule management where supported, and a unified operation/progress history. | Planned |
-| A4 | Complete authentication workflows | Add interactive Entra sign-in and renewal, Windows integrated authentication where supported, and separately qualified cloud/network paths. Document each supported authentication/platform combination. | Partial · Windows SQL Server authentication exists; Entra and cloud qualification remain |
+| A4 | Complete authentication workflows | Add interactive Entra sign-in and renewal, Windows integrated authentication where supported, and separately qualified cloud/network paths. Document each supported authentication/platform combination. | Implemented locally · live Azure and native Windows qualification pending |
 
 
 ## Engineering and open-source delivery — continuous

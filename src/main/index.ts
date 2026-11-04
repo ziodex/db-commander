@@ -1,3 +1,4 @@
+import { entraAttemptSchema, type EntraAttempt } from '../shared/entra'
 import { EntraGrants } from './entra'
 import { DatabaseHostClient } from './database-host-client'
 import { SqlFiles } from '../files/sql-files'
@@ -137,7 +138,7 @@ function credentialOperation<T>(action: () => Promise<T>): Promise<T> {
 }
 const sessionCredentials = new Map<string, ConnectionConfig>()
 const entra = new EntraGrants(url => shell.openExternal(url), undefined,
-  waiting => { if (window && !window.isDestroyed()) window.webContents.send('sql:entra-sign-in', waiting) })
+  progress => { if (window && !window.isDestroyed()) window.webContents.send('sql:entra-sign-in', progress) })
 const entraSessions = new Map<string, string>()
 function forgetSessionCredentials(id: string) {
   sessionCredentials.delete(id)
@@ -150,13 +151,13 @@ async function savedProfile(id: string): Promise<{ workspace: Workspace; profile
   if (!workspace || !profile) throw new Error('Saved profile no longer exists.')
   return { workspace, profile }
 }
-async function openSession(config: ConnectionConfig, sourceGrant?: string): Promise<SessionInfo> {
+async function openSession(config: ConnectionConfig, sourceGrant?: string, attempt?: EntraAttempt): Promise<SessionInfo> {
   let session: SessionInfo
   let grantId: string | undefined
   try {
     if (config.authentication === 'entra-interactive') {
       if (sourceGrant) { entra.retain(sourceGrant); grantId = sourceGrant }
-      else grantId = await entra.open(config.entra!, config.user)
+      else grantId = await entra.open(config.entra!, config.user, attempt)
     }
     session = grantId ? await rpc('connectEntra', { config, grantId }) : await rpc('connect', config)
   } catch (error) {
@@ -426,11 +427,17 @@ function registerIpc(): void {
     const embedded = ['sqlite', 'duckdb'].includes(job.engine)
     return openSession({ ...source, name: `${source.name} · restored`.slice(0, 100), database: embedded ? source.database : job.target, ...(embedded ? { filePath: job.target, sqliteMode: 'read-write', duckdbMode: 'read-write' } : {}) }, entraSessions.get(job.sessionId))
   })
-  handle('cancelEntraSignIn', async value => { z.undefined().parse(value); entra.cancel() })
+  handle('cancelEntraSignIn', async value => { entra.cancel(z.uuid().parse(value)) })
   handle('renewEntraSession', async value => {
-    const id = idSchema.parse(value), grant = entraSessions.get(id), config = sessionCredentials.get(id)
+    const { sessionId: id, attempt } = z.object({ sessionId: idSchema, attempt: entraAttemptSchema }).strict().parse(value)
+    const grant = entraSessions.get(id), config = sessionCredentials.get(id)
     if (!grant || !config?.entra || !sessions.has(id)) throw new Error('Connect using interactive Microsoft Entra first.')
-    await entra.renew(grant, config.entra)
+    await entra.renew(grant, config.entra, attempt)
+  })
+  handle('connectInteractive', async value => {
+    const { config, attempt } = z.object({ config: connectionSchema, attempt: entraAttemptSchema }).strict().parse(value)
+    if (config.authentication !== 'entra-interactive') throw new Error('Expected an interactive Microsoft Entra connection.')
+    return openSession(config, undefined, attempt)
   })
   handle('connect', async value => openSession(connectionSchema.parse(value)))
   handle('cloneSession', async value => {
