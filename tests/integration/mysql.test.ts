@@ -78,6 +78,21 @@ for (const engine of engines) describe(`Docker ${engine} driver contracts`, () =
   it('protects production sessions and verifies SSH transport where supported', async () => { await verifyConnectionSafeguards(config) }, 180000)
   it('inspects rollback progress without changing or retargeting transactions', async () => { await verifyRollbackInspection(config) }, 180000)
   it('reviews cancellation and termination with identity revalidation', async () => { await verifyActivityControls(config) }, 180000)
+  it('inspects native scheduler events without exposing their bodies or changing their definers', async () => {
+    const native = await openMysqlTransport(config)
+    const name = 'dbc_a3_contract_event'
+    try {
+      await native.query(`CREATE EVENT ${name} ON SCHEDULE AT CURRENT_TIMESTAMP + INTERVAL 7 DAY
+        ON COMPLETION PRESERVE DISABLE DO SET @private_scheduler_body=12`)
+      const snapshot = await driver.inspectScheduler(session.id)
+      expect(snapshot.status, JSON.stringify(snapshot)).toBe('available')
+      const row = snapshot.entries.find(entry => entry.name === name)
+      expect(row).toMatchObject({ kind: 'event', enabled: false, changeAllowed: false })
+      expect(row?.owner).toMatch(/^dbcommander@/)
+      expect(JSON.stringify(snapshot)).not.toContain('private_scheduler_body')
+      expect(() => driver.prepareScheduleChange({ sessionId: session.id, targetId: row!.id })).toThrow(/eligible/)
+    } finally { try { await native.query(`DROP EVENT IF EXISTS ${name}`) } finally { await native.end() } }
+  }, 60000)
   it('inspects sessions and real lock waits without changing query state', async () => { await verifyActivity(config) }, 180000)
   it('builds visual SELECT queries with native joins, grouping and parameters', async () => { await verifyQueryBuilder(config) }, 180000)
   it('exports reviewed migration files with native DDL semantics', async () => { await verifyMigrations(config) }, 180000)

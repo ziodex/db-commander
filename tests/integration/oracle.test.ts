@@ -79,6 +79,36 @@ describe('Docker Oracle driver contracts', () => {
   it('protects production sessions and verifies SSH transport where supported', async () => { await verifyConnectionSafeguards(config) }, 180000)
   it('inspects rollback progress without changing or retargeting transactions', async () => { await verifyRollbackInspection(config) }, 180000)
   it('reviews cancellation and termination with identity revalidation', async () => { await verifyActivityControls(config) }, 180000)
+  it('reviews native scheduler job changes without exposing the job action', async () => {
+    const native = await oracledb.getConnection(oracleConnectionOptions(config))
+    const admin = await oracledb.getConnection(oracleConnectionOptions({ ...config, user: 'system', password: 'Local-Admin-Only2026' }))
+    const job = 'DBC_A3_CONTRACT'
+    try {
+      await admin.execute('GRANT CREATE JOB TO DBCOMMANDER')
+      await native.execute(`BEGIN DBMS_SCHEDULER.CREATE_JOB(job_name => '${job}',job_type => 'PLSQL_BLOCK',
+        job_action => 'BEGIN /* scheduler-action-private */ NULL; END;',
+        start_date => SYSTIMESTAMP + INTERVAL '200' DAY,enabled => FALSE,auto_drop => FALSE); END;`)
+      const read = async () => {
+        const snapshot = await driver.inspectScheduler(session.id)
+        expect(snapshot.status, JSON.stringify(snapshot)).toBe('available')
+        expect(JSON.stringify(snapshot)).not.toContain('scheduler-action-private')
+        const row = snapshot.entries.find(entry => entry.name === job)
+        expect(row, JSON.stringify(snapshot)).toMatchObject({ changeAllowed: true, owner: 'DBCOMMANDER' })
+        return row!
+      }
+      for (const enabled of [false, true]) {
+        const row = await read()
+        expect(row.enabled).toBe(enabled)
+        const review = driver.prepareScheduleChange({ sessionId: session.id, targetId: row.id })
+        expect(await driver.applyScheduleChange({ sessionId: session.id, reviewId: review.id, confirmation: review.confirmation, acknowledge: true }))
+          .toMatchObject({ status: 'completed' })
+      }
+      expect((await read()).enabled).toBe(false)
+    } finally {
+      try { await native.execute(`BEGIN DBMS_SCHEDULER.DROP_JOB(job_name => '${job}'); END;`) }
+      finally { await native.close(); await admin.close() }
+    }
+  }, 180000)
   it('inspects sessions and real lock waits without changing query state', async () => { await verifyActivity(config) }, 180000)
   it('builds visual SELECT queries with native joins, grouping and parameters', async () => { await verifyQueryBuilder(config) }, 180000)
   it('exports reviewed migration files with native DDL semantics', async () => { await verifyMigrations(config) }, 180000)

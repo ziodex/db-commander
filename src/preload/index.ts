@@ -61,6 +61,16 @@ const api: DesktopApi = {
   applyPrincipalChange: request => ipcRenderer.invoke('sql:applyPrincipalChange', request),
   inspectPrincipals: request => ipcRenderer.invoke('sql:inspectPrincipals', request),
   inspectActivity: request => ipcRenderer.invoke('sql:inspectActivity',request),
+  operationHistory: () => ipcRenderer.invoke('sql:operationHistory'),
+  onOperationHistoryChanged: listener => {
+    const callback = () => listener()
+    ipcRenderer.on('sql:operation-history-changed', callback)
+    return () => ipcRenderer.removeListener('sql:operation-history-changed', callback)
+  },
+  inspectScheduler: sessionId => ipcRenderer.invoke('sql:inspectScheduler', sessionId),
+  prepareScheduleChange: request => ipcRenderer.invoke('sql:prepareScheduleChange', request),
+  applyScheduleChange: request => ipcRenderer.invoke('sql:applyScheduleChange', request),
+  inspectPerformance: sessionId => ipcRenderer.invoke('sql:inspectPerformance', sessionId),
   saveActivity: snapshot => ipcRenderer.invoke('sql:saveActivity',snapshot),
   prepareQueryBuilder: request => ipcRenderer.invoke('sql:prepareQueryBuilder', request),
   prepareMigration: request => ipcRenderer.invoke('sql:prepareMigration', request),

@@ -4,6 +4,10 @@ import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import type { SessionInfo } from '../shared/contracts'
 import type { ActivitySnapshot } from '../shared/activity'
 import { activityControlLimit, type ActivityAction, type ActivityActionReview } from '../shared/activity-control'
+import { SchedulerInspection } from './SchedulerInspection'
+import type { ScheduleReview, SchedulerSnapshot } from '../shared/scheduler'
+import { PerformanceInspection } from './PerformanceInspection'
+import type { PerformanceSnapshot } from '../shared/performance'
 import { ActivityActionDialog } from './ActivityActionDialog'
 
 type View = 'sessions'|'locks'|'waits'
@@ -11,6 +15,10 @@ export function ActivityDialog({session,onClose}:{session:SessionInfo;onClose():
   const dialog=useRef<HTMLDialogElement>(null), pending=useRef(false), mounted=useRef(true)
   const [snapshot,setSnapshot]=useState<ActivitySnapshot>(),[busy,setBusy]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState('')
   const [includeSql,setIncludeSql]=useState(false),[view,setView]=useState<View>('sessions'),[filter,setFilter]=useState(''),[page,setPage]=useState(0),[selected,setSelected]=useState<string>(),[owner,setOwner]=useState<string>()
+  const [sectionName, setSectionName] = useState<'activity' | 'performance' | 'scheduler'>('activity')
+  const [scheduler, setScheduler] = useState<SchedulerSnapshot>()
+  const [scheduleReview, setScheduleReview] = useState<ScheduleReview>()
+  const [performance, setPerformance] = useState<PerformanceSnapshot>()
   const [review,setReview]=useState<ActivityActionReview>()
   const [rollback,setRollback]=useState<RollbackSnapshot>()
   async function work(action:()=>Promise<void>) {
@@ -18,6 +26,51 @@ export function ActivityDialog({session,onClose}:{session:SessionInfo;onClose():
     try{await action()}catch(e){if(mounted.current)setError((e as Error).message)}finally{pending.current=false;if(mounted.current)setBusy(false)}
   }
   function refresh() { return work(async()=>{setReview(undefined);setSnapshot(undefined);const next=await window.dbCommander.inspectActivity({sessionId:session.id,includeSql});if(mounted.current){setSnapshot(next);setSelected(undefined);setOwner(undefined);setPage(0);setMessage('Inspection complete. No session was changed.')}}) }
+  function refreshPerformance() {
+    return work(async () => {
+      setPerformance(undefined)
+      const next = await window.dbCommander.inspectPerformance(session.id)
+      if (mounted.current) setPerformance(next)
+    })
+  }
+  function refreshScheduler() {
+    return work(async () => {
+      setScheduler(undefined)
+      const next = await window.dbCommander.inspectScheduler(session.id)
+      if (mounted.current) setScheduler(next)
+    })
+  }
+  function reviewSchedule(targetId: string) {
+    return work(async () => {
+      const next = await window.dbCommander.prepareScheduleChange({ sessionId: session.id, targetId })
+      if (mounted.current) setScheduleReview(next)
+    })
+  }
+  function changeSchedule(confirmation: string) {
+    return work(async () => {
+      try {
+        const result = await window.dbCommander.applyScheduleChange({ sessionId: session.id, reviewId: scheduleReview!.id, confirmation, acknowledge: true })
+        if (mounted.current) {
+          if (result.status === 'completed') setMessage(result.message)
+          else setError(result.message)
+        }
+      } finally {
+        if (mounted.current) { setScheduler(undefined); setScheduleReview(undefined) }
+      }
+    })
+  }
+  const scheduleBlocked = session.safety?.protected && session.safety.unlockedUntil <= Date.now()
+    ? 'Unlock the issuing connection before applying a scheduler change.'
+    : session.transaction !== 'idle' || session.engine !== 'oracle' && session.autocommit === false
+      ? 'Settle the issuing connection’s transaction before applying a scheduler change.' : undefined
+  function showSection(next: typeof sectionName) {
+    if (pending.current || scheduleReview) return
+    setSectionName(next)
+    setError('')
+    setMessage('')
+    if (next === 'performance' && !performance) void refreshPerformance()
+    if (next === 'scheduler' && !scheduler) void refreshScheduler()
+  }
   function inspectRollback(targetId?:string) { return work(async()=>{const next=await window.dbCommander.inspectRollback(targetId?{sessionId:session.id,targetId}:{sessionId:session.id,inspectionId:rollback!.id});if(mounted.current)setRollback(next)}) }
   function prepare(action:ActivityAction) { return work(async()=>{const next=await window.dbCommander.prepareActivityAction({sessionId:session.id,targetId:selected!,action});if(mounted.current)setReview(next)}) }
   const initialRefresh = useEffectEvent(() => { void refresh() })
@@ -26,11 +79,20 @@ export function ActivityDialog({session,onClose}:{session:SessionInfo;onClose():
   function findSession(id:string){changeView('sessions');setOwner(id);setSelected(id)}
   const section=snapshot?.[view], rows=(section?.rows??[]).filter(row=>!owner||('id' in row?row.id===owner:'sessionId' in row?row.sessionId===owner:row.waiting===owner||row.blocking===owner)).filter(row=>JSON.stringify(row).toLowerCase().includes(filter.toLowerCase())), visible=rows.slice(page*25,(page+1)*25)
   const detail=snapshot?.sessions.rows.find(row=>row.id===selected)
-  return <dialog ref={dialog} className="connection-dialog activity-dialog" aria-label="Sessions and locks" onKeyDown={e=>e.stopPropagation()} onCancel={e=>{e.preventDefault();onClose()}}>
+  return <dialog ref={dialog} className={`connection-dialog activity-dialog${sectionName === 'activity' ? '' : ' diagnostics-expanded'}`} aria-label="Sessions and locks" onKeyDown={e=>e.stopPropagation()} onCancel={e=>{e.preventDefault();onClose()}}>
     <div className="dialog-heading"><div><h2>Sessions and locks</h2><p>{session.name} · {session.database||'server'} · {session.engine}</p></div><button aria-label="Close session inspection" onClick={onClose}>×</button></div>
+    <div className="activity-views" role="group" aria-label="Operational diagnostics">
+      <button aria-pressed={sectionName === 'activity'} aria-disabled={busy || !!scheduleReview} onClick={() => showSection('activity')}>Sessions and locks</button>
+      <button aria-pressed={sectionName === 'performance'} aria-disabled={busy || !!scheduleReview} onClick={() => showSection('performance')}>Performance</button>
+      <button aria-pressed={sectionName === 'scheduler'} aria-disabled={busy || !!scheduleReview} onClick={() => showSection('scheduler')}>Jobs and schedules</button>
+    </div>
+    {busy&&<p role="status">Reading inspection data…</p>}{!busy&&message&&<p role="status">{message}</p>}{error&&<p role="alert">{error}</p>}
+    {sectionName === 'performance' ? <PerformanceInspection snapshot={performance} busy={busy} onRefresh={() => void refreshPerformance()}/>
+    : sectionName === 'scheduler' ? <SchedulerInspection snapshot={scheduler} busy={busy} blocked={scheduleBlocked} review={scheduleReview}
+      onRefresh={() => void refreshScheduler()} onReview={id => void reviewSchedule(id)}
+      onBack={() => setScheduleReview(undefined)} onApply={confirmation => void changeSchedule(confirmation)}/> : <>
     <p>Manual snapshots are read-only. Session controls require a separate review and confirmation. Your query can keep running while you inspect it; this tab’s Stop, Commit and Rollback controls remain available after closing this window.</p>
     <div className="activity-controls"><button className="primary-button" disabled={busy} onClick={()=>void refresh()}>Refresh sessions and locks</button><label className="activity-check"><input type="checkbox" disabled={busy} checked={includeSql} onChange={e=>{setIncludeSql(e.target.checked);setSnapshot(undefined);setSelected(undefined);setMessage('Refresh to capture the selected SQL-text visibility.')}}/>Include SQL text (may contain secrets)</label><button disabled={busy||!snapshot} onClick={()=>void work(async()=>{if(await window.dbCommander.saveActivity(snapshot!))setMessage('Session and lock report saved.')})}>Save inspection report</button></div>
-    {busy&&<p role="status">Reading inspection data…</p>}{!busy&&message&&<p role="status">{message}</p>}{error&&<p role="alert">{error}</p>}
     {rollback&&<RollbackInspection snapshot={rollback} busy={busy} onRefresh={()=>void inspectRollback()} onDismiss={()=>setRollback(undefined)}/>}
     {snapshot&&<>
       <p className="activity-scope">{snapshot.scope}<br/>Captured {new Date(snapshot.fetchedAt).toLocaleString()} · This connection: {snapshot.currentSessionId}</p>
@@ -55,6 +117,7 @@ export function ActivityDialog({session,onClose}:{session:SessionInfo;onClose():
       {selected&&!detail&&<p role="alert">Owner {selected} is not present in the captured sessions. It may be hidden, outside this scope, a special engine owner or no longer active.</p>}
       {detail&&<section className="activity-detail" aria-label="Selected session details"><h3>Session {detail.id}</h3><p>User: {detail.user??'Not reported'} · Started: {detail.startedAt??'Not reported'} · Transaction: {detail.transaction??'Not reported'}</p><button onClick={()=>{changeView('locks');setOwner(detail.id)}}>Show selected session locks</button><p>{detail.query===null?'SQL text excluded, unavailable, or not retained by this engine.':detail.queryTruncated?'SQL text truncated to 4,000 characters; engine truncation can impose a smaller limit.':'Current or last SQL as reported by the engine; it may be incomplete and can contain sensitive literals.'}</p>{detail.query!==null&&<><textarea readOnly spellCheck={false} aria-label="Session SQL text" value={detail.query}/><button disabled={busy} onClick={()=>void work(async()=>{await window.dbCommander.copyDefinition(detail.query!);setMessage('Session SQL copied.')})}>Copy session SQL</button></>}</section>}
       {detail&&<section className="activity-actions" aria-label="Session controls"><h3>Session controls</h3><button disabled={busy} onClick={()=>void inspectRollback(detail.id)}>Inspect rollback progress</button>{(['cancel','terminate'] as const).map(action=>{const reason=detail.id===snapshot.currentSessionId?'Use the owning tab’s controls for this connection.':activityControlLimit(session.engine,action);return <div key={action}><button disabled={busy||Boolean(reason)} title={reason} onClick={()=>void prepare(action)}>Review {action==='cancel'?'cancellation':'termination'}</button>{reason&&<p>{reason}</p>}</div>})}</section>}
+    </>}
     </>}
     {review&&<ActivityActionDialog key={review.id} review={review} onClose={()=>setReview(undefined)} onApplied={result=>{if(result.rollback)setRollback(result.rollback);setReview(undefined);setSnapshot(undefined);setSelected(undefined);if(['unknown','rejected'].includes(result.status))setError(result.message);else setMessage(result.message)}}/>}
   </dialog>

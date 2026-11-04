@@ -105,6 +105,53 @@ describe('Docker SQL Server driver contracts', () => {
   it('reviews cancellation and termination with identity revalidation', async () => { await verifyActivityControls(config) }, 180000)
   it('inspects Azure-profile rollback progress without retargeting transactions', async () => { await verifyRollbackInspection({...config,engine:'azure-sql'}) }, 180000)
   it('reviews Azure-profile cancellation and termination with identity revalidation', async () => { await verifyActivityControls({...config,engine:'azure-sql'}) }, 180000)
+  it('reviews native scheduler job and schedule changes', async () => {
+    const admin = await openSqlServer({ ...config, user: 'sa', password: 'Local-SA-Only!2026' })
+    const owner = await driver.connect({ ...config, user: 'sa', password: 'Local-SA-Only!2026', environment: 'production' })
+    const name = 'dbc_a3_contract', schedule = 'dbc_a3_contract_schedule'
+    const command = (text: string) => sqlServerQuery(admin, text)
+    const captured = async (target: string) => {
+      const snapshot = await driver.inspectScheduler(owner.id)
+      expect(snapshot.status, JSON.stringify(snapshot)).toBe('available')
+      const entry = snapshot.entries.find(row => row.name === target)
+      expect(entry, JSON.stringify(snapshot)).toMatchObject({ changeAllowed: true })
+      return entry!
+    }
+    const request = (review: ReturnType<typeof driver.prepareScheduleChange>) => ({
+      sessionId: owner.id, reviewId: review.id, confirmation: review.confirmation, acknowledge: true as const
+    })
+    try {
+      await command(`EXEC msdb.dbo.sp_add_job @job_name=N'${name}', @enabled=0;
+        EXEC msdb.dbo.sp_add_jobstep @job_name=N'${name}',@step_name=N'private step',@subsystem=N'TSQL',@command=N'SELECT 12345678';
+        EXEC msdb.dbo.sp_add_jobserver @job_name=N'${name}';
+        EXEC msdb.dbo.sp_add_schedule @schedule_name=N'${schedule}',@enabled=0,@freq_type=1,@active_start_date=20991230,@active_start_time=200000;
+        EXEC msdb.dbo.sp_attach_schedule @job_name=N'${name}',@schedule_name=N'${schedule}';`)
+      expect((await driver.inspectScheduler(session.id)).status).toBe('unavailable')
+      let row = await captured(name)
+      const locked = driver.prepareScheduleChange({ sessionId: owner.id, targetId: row.id })
+      expect(() => driver.applyScheduleChange(request(locked))).toThrow(/unlock|protected/i)
+      expect(() => driver.applyScheduleChange(request(locked))).toThrow(/review/i)
+      driver.unlockSession(owner.id, owner.name)
+      for (const target of [name, schedule]) {
+        row = await captured(target)
+        expect(row.enabled).toBe(false)
+        const review = driver.prepareScheduleChange({ sessionId: owner.id, targetId: row.id })
+        expect(JSON.stringify(review)).not.toContain('12345678')
+        expect(await driver.applyScheduleChange(request(review))).toMatchObject({ status: 'completed' })
+        expect((await captured(target)).enabled).toBe(true)
+      }
+      row = await captured(name)
+      const stale = driver.prepareScheduleChange({ sessionId: owner.id, targetId: row.id })
+      await command(`EXEC msdb.dbo.sp_update_job @job_name=N'${name}', @description=N'changed externally';`)
+      expect(await driver.applyScheduleChange(request(stale))).toMatchObject({ status: 'not-applied' })
+      expect((await captured(name)).enabled).toBe(true)
+    } finally {
+      await command(`IF EXISTS(SELECT 1 FROM msdb.dbo.sysjobs WHERE name=N'${name}') EXEC msdb.dbo.sp_delete_job @job_name=N'${name}',@delete_unused_schedule=0;
+        IF EXISTS(SELECT 1 FROM msdb.dbo.sysschedules WHERE name=N'${schedule}') EXEC msdb.dbo.sp_delete_schedule @schedule_name=N'${schedule}';`)
+      admin.close()
+      await driver.disconnect(owner.id)
+    }
+  }, 180000)
   it('inspects sessions and real lock waits without changing query state', async () => { await verifyActivity(config) }, 180000)
   it('inspects Azure-profile sessions and lock waits through the TDS fixture', async () => { await verifyActivity({...config,engine:'azure-sql'}) }, 180000)
   it('builds visual SELECT queries with native joins, grouping and parameters', async () => { await verifyQueryBuilder(config) }, 180000)

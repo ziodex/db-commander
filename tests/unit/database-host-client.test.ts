@@ -12,7 +12,7 @@ class Host extends EventEmitter {
 afterEach(() => vi.useRealTimers())
 function fixture() {
   const process = new Host(), launch = vi.fn(() => process)
-  const callbacks = { event: vi.fn(), backup: vi.fn(), transfer: vi.fn(), exited: vi.fn() }
+  const callbacks = { operation: vi.fn(), event: vi.fn(), backup: vi.fn(), transfer: vi.fn(), exited: vi.fn() }
   return { process, launch, callbacks, client: new DatabaseHostClient(launch, callbacks) }
 }
 async function ready(process: Host) { process.emit('message', { ready: true }); await Promise.resolve(); await Promise.resolve() }

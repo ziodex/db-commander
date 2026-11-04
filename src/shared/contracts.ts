@@ -155,6 +155,12 @@ export interface DesktopApi {
   applyPrincipalChange(request: import('./principal-changes').ApplyPrincipalChange): Promise<import('./principal-changes').PrincipalChangeResult>
   inspectPrincipals(request: import('./principals').PrincipalRequest): Promise<import('./principals').PrincipalSnapshot>
   inspectActivity(request:import('./activity').ActivityRequest):Promise<import('./activity').ActivitySnapshot>
+  inspectPerformance(sessionId: string): Promise<import('./performance').PerformanceSnapshot>
+  operationHistory(): Promise<import('./operation-history').OperationEntry[]>
+  onOperationHistoryChanged(listener: () => void): () => void
+  inspectScheduler(sessionId: string): Promise<import('./scheduler').SchedulerSnapshot>
+  prepareScheduleChange(request: import('./scheduler').PrepareScheduleChange): Promise<import('./scheduler').ScheduleReview>
+  applyScheduleChange(request: import('./scheduler').ApplyScheduleChange): Promise<import('./scheduler').ScheduleResult>
   saveActivity(snapshot:import('./activity').ActivitySnapshot):Promise<string|null>
   prepareQueryBuilder(request: import('./query-builder').PrepareBuilder): Promise<import('./query-builder').BuilderPreview>
   prepareMigration(request: import('./migrations').PrepareMigration): Promise<import('./migrations').MigrationPreview>
