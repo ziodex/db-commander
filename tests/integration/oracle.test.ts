@@ -1,3 +1,4 @@
+import { verifyOracleAdministration } from './oracle-administration-contract'
 import { verifyTransferWorkflows } from './transfer-workflows-contract'
 import { verifyInsertExport } from './insert-export-contract'
 import { verifyJsonImport } from './json-import-contract'
@@ -54,6 +55,7 @@ describe('Docker Oracle driver contracts', () => {
   beforeAll(async () => { driver = new DriverRegistry(event => { events.push(event) }); session = await driver.connect(config) })
   afterAll(async () => { await driver?.close() })
 
+  it('reviews Oracle table statistics and individual native index rebuilds', () => verifyOracleAdministration(config), 120000)
   // This contract runs multiple cold Data Pump exports/imports plus refusal paths.
   it('backs up and restores native schema/data with target protection, constraints and cancellation', async () => { await verifyBackups(config) }, 360000)
   it('isolates concurrent tab sessions, transaction state and cached exports', async () => { await verifySessionIsolation(config) })

@@ -22,6 +22,10 @@ import { isIP } from 'node:net'
 import Cursor from 'pg-cursor'
 import type { Cell, ConnectionConfig, DatabaseEvent, ResultSet, SchemaTable, SessionInfo, TransactionState } from '../shared/contracts'
 import { firstKeyword, splitPostgresScript } from '../shared/sql/common'
+import { planPostgresAdministration } from '../administration/postgres'
+import type { AdministrationPlan } from '../administration/reviews'
+import type { AdministrationChange, AdministrationResult } from '../shared/database-administration'
+import type { CatalogQuery } from '../catalog/common'
 
 interface Operation { id: string; cancelled: boolean; cancelPromise?: Promise<boolean>; done?: Promise<void> }
 interface Session { editor?: TableEditor; client: pg.Client; config: ConnectionConfig; info: SessionInfo; pid: number; busy?: Operation; lost: boolean; metadata?: Promise<SchemaTable[]> }
@@ -202,6 +206,53 @@ export class PostgresDriver implements DatabaseDriver {
         WHERE datallowconn AND pg_catalog.has_database_privilege(datname, 'CONNECT') ORDER BY datname`)
       return { databases: result.rows.map(row => row.datname as string), current: session.info.database, switchable: true }
     } finally { await client.end().catch(() => {}) }
+  }
+  private async withAdministration<T>(id: string, apply: boolean, work: (client: pg.Client, query: CatalogQuery) => Promise<T>) {
+    const session = this.session(id)
+    const client = new pg.Client({ ...this.config(session.config), database: session.info.database })
+    client.on('error', () => {})
+    const timer = setTimeout(() => { void client.end().catch(() => {}) }, apply ? 80_000 : 18_000)
+    try {
+      await client.connect()
+      await client.query("SET statement_timeout = 5000; SET lock_timeout = 5000; SET search_path = pg_catalog; SET standard_conforming_strings = on")
+      const query: CatalogQuery = async (text, values = []) => (await client.query({ text, values, rowMode: 'array' })).rows
+        .map(row => row.map((cell: unknown) => cell == null ? null : String(cell)))
+      return await work(client, query)
+    } finally { clearTimeout(timer); await client.end().catch(() => {}) }
+  }
+  prepareAdministration(id: string, change: AdministrationChange): Promise<AdministrationPlan> {
+    return this.withAdministration(id, false, async (_client, query) => {
+      const { database, observer, scope, target, sql, notes, fingerprint } = await planPostgresAdministration(query, change)
+      return { database, observer, scope, target, sql, notes, fingerprint }
+    })
+  }
+  applyAdministration(id: string, change: AdministrationChange, reviewed: AdministrationPlan, beforeDispatch: () => void): Promise<AdministrationResult> {
+    return this.withAdministration(id, true, async (client, query) => {
+      const fresh = await planPostgresAdministration(query, change)
+      if (fresh.fingerprint !== reviewed.fingerprint || fresh.sql !== reviewed.sql) {
+        throw new Error('The reviewed database or table changed. Refresh the catalog and prepare a new review.')
+      }
+      await client.query('SET statement_timeout = 60000')
+      beforeDispatch()
+      const unknown: AdministrationResult = {
+        status: 'unknown', message: 'PostgreSQL did not confirm the reviewed effect. Inspect the current catalog and server activity before preparing another change.'
+      }
+      let warning = false
+      client.on('notice', () => { warning = true })
+      try { await client.query(reviewed.sql) }
+      catch (error) {
+        const code = (error as { code?: string }).code
+        if (code && ['42501', '55006', '42P04', '3D000', '42P01'].includes(code) && change.action !== 'vacuum-table') {
+          return { status: 'rejected', message: `PostgreSQL rejected the statement (${code}). Check current permissions, names and active connections.` }
+        }
+        return unknown
+      }
+      try {
+        await client.query('SET statement_timeout = 5000')
+        if (warning || !await fresh.verify()) return unknown
+      } catch { return unknown }
+      return { status: 'applied', message: 'PostgreSQL acknowledged the statement and the reviewed catalog target was verified.' }
+    })
   }
   activity(id:string, includeSql:boolean) { return this.withActivity(id,o=>readActivity(o.engine,o.database,o.currentSessionId,o.query,includeSql)) }
   activityId(id:string) { const session=this.session(id); return String(session.pid) }

@@ -13,6 +13,7 @@ import { historySearchSchema, historySettingsSchema, snippetSchema, snippetSearc
 import { explainRequestSchema } from '../shared/explain'
 import { catalogPageSchema, inspectObjectSchema } from '../shared/catalog'
 import { prepareSchemaChangeSchema, applySchemaChangeSchema } from '../shared/schema-changes'
+import { prepareAdministrationSchema, applyAdministrationSchema } from '../shared/database-administration'
 import { join } from 'node:path'
 import { statfsSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
@@ -61,6 +62,8 @@ function initialize(): void {
       return driver.unlockSession(request.sessionId, request.confirmation);
     },
     prepareSchemaChange: payload => driver.prepareSchemaChange(prepareSchemaChangeSchema.parse(payload)),
+    prepareAdministration: payload => driver.prepareAdministration(prepareAdministrationSchema.parse(payload)),
+    applyAdministration: payload => driver.applyAdministration(applyAdministrationSchema.parse(payload)),
     cancelSchemaChange: payload => driver.cancelSchemaChange(idSchema.parse(payload)),
     applySchemaChange: async payload => {
       const request = applySchemaChangeSchema.parse(payload), context = historyContext(request.sessionId), startedAt = new Date().toISOString()

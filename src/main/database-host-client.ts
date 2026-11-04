@@ -19,8 +19,12 @@ interface HostProcess {
   once(event: 'exit', listener: () => void): void
 }
 
-const unbounded = new Set<HostMethod>(['applyActivityAction', 'editGrid', 'inspectImport', 'startTransfer', 'switchDatabase', 'databases', 'applySchemaChange', 'connect', 'explain', 'compareData'])
+const unbounded = new Set<HostMethod>(['applyActivityAction', 'applyAdministration', 'editGrid', 'inspectImport', 'startTransfer', 'switchDatabase', 'databases', 'applySchemaChange', 'connect', 'explain', 'compareData'])
 const inspection = new Set<HostMethod>(['catalogPage', 'inspectRollback', 'inspectActivity', 'inspectObject', 'prepareSchemaChange', 'diagram', 'compareSchemas'])
+
+export class DatabaseHostExitedError extends Error {
+  constructor() { super('Database host exited. An in-flight operation may have an unknown outcome.') }
+}
 
 /** One workspace owns this host until exit, including after startup failure. */
 export class DatabaseHostClient {
@@ -65,7 +69,7 @@ export class DatabaseHostClient {
         reject(new Error(startupFailure ?? 'Database host exited.'))
         for (const request of this.pending.values()) {
           clearTimeout(request.timer)
-          request.reject(new Error('Database host exited. An in-flight operation may have an unknown outcome.'))
+          request.reject(new DatabaseHostExitedError())
         }
         this.pending.clear(); this.acknowledgements.clear()
         this.child = undefined; this.ready = undefined
@@ -81,7 +85,7 @@ export class DatabaseHostClient {
   async call<K extends HostMethod>(method: K, ...args: HostArgs<K>): Promise<HostResult<K>> {
     await this.ensureReady()
     const child = this.child
-    if (!child) throw new Error('Database host exited. An in-flight operation may have an unknown outcome.')
+    if (!child) throw new DatabaseHostExitedError()
     return new Promise((resolve, reject) => {
       const id = randomUUID()
       // Writes remain owned until completion or host exit. A transport timeout

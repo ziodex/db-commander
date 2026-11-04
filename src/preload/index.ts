@@ -68,6 +68,8 @@ const api: DesktopApi = {
   saveValue: value => ipcRenderer.invoke('sql:saveValue', value),
 
   prepareSchemaChange: request => ipcRenderer.invoke('sql:prepareSchemaChange', request),
+  prepareAdministration: request => ipcRenderer.invoke('sql:prepareAdministration', request),
+  applyAdministration: request => ipcRenderer.invoke('sql:applyAdministration', request),
   applySchemaChange: request => ipcRenderer.invoke('sql:applySchemaChange', request),
   cancelSchemaChange: id => ipcRenderer.invoke('sql:cancelSchemaChange', id),
   inspectImport: source => ipcRenderer.invoke('sql:inspectImport', source),

@@ -1,7 +1,8 @@
 import { useState, type Dispatch, type SetStateAction } from 'react'
 import { objectKey, type CatalogObject } from '../shared/catalog'
-import type { DesktopApi, GridTable, HistoryEntry } from '../shared/contracts'
+import type { DesktopApi, GridTable, HistoryEntry, SessionInfo } from '../shared/contracts'
 import type { ApplySchemaChange, SchemaChange } from '../shared/schema-changes'
+import type { AdministrationChange, AdministrationTarget, ApplyAdministration } from '../shared/database-administration'
 import { diagramLayoutsSchema, diagramLayoutScope, type SavedDiagramLayout } from '../shared/diagram-layouts'
 import { tableLayoutKey } from '../shared/table-layouts'
 import type { DiagramLayoutControls } from './DiagramDialog'
@@ -13,15 +14,16 @@ import { rendererError as message, type WorkspaceRuntime } from './workspace-run
 interface Options {
   api: DesktopApi; runtime: WorkspaceRuntime; tabId: string
   setHistory: Dispatch<SetStateAction<HistoryEntry[]>>
-  sessions: Pick<ReturnType<typeof useWorkspaceSessions>, 'cleanupLostSession' | 'refreshTables'>
+  sessions: Pick<ReturnType<typeof useWorkspaceSessions>, 'cleanupLostSession' | 'refreshTables' | 'refreshDatabases'>
 }
 
 export function useSchemaTools({ api, runtime, tabId, setHistory, sessions }: Options) {
   const { statesRef, workspaceRef, changeWorkspace, persist, patchState, report } = runtime
-  const { cleanupLostSession, refreshTables } = sessions
+  const { cleanupLostSession, refreshTables, refreshDatabases } = sessions
   const [objectView, setObjectView] = useState<ObjectView | null>(null)
 
   const [schemaEditor, setSchemaEditor] = useState<{ tabId: string; sessionId: string; target?: CatalogObject } | null>(null)
+  const [administration, setAdministration] = useState<{ tabId: string; session: SessionInfo; target: AdministrationTarget; fallback: HTMLElement | null } | null>(null)
 
   async function inspectObject(object: CatalogObject, owner = tabId) {
     const current = statesRef.current[owner], sessionId = current?.session?.id
@@ -108,5 +110,31 @@ export function useSchemaTools({ api, runtime, tabId, setHistory, sessions }: Op
     }
   }
 
-  return { objectView, setObjectView, schemaEditor, setSchemaEditor, inspectObject, savedDiagramLayouts, schemaChangeBlocked, prepareSchemaChange, applySchemaChange }
+  async function administrationOperation<T>(sessionId: string, work: () => Promise<T>) {
+    const reason = schemaChangeBlocked()
+    if (reason) throw new Error(reason)
+    if (statesRef.current[tabId]?.session?.id !== sessionId) throw new Error('The connection changed. Open a new review.')
+    patchState(tabId, { schemaLoading: true })
+    try { return await work() }
+    finally {
+      if (statesRef.current[tabId]?.session?.id === sessionId) patchState(tabId, { schemaLoading: false })
+      cleanupLostSession(sessionId)
+    }
+  }
+
+  function prepareAdministration(change: AdministrationChange) {
+    if (!administration) throw new Error('Open database administration to prepare a review.')
+    const { id: sessionId } = administration.session
+    return administrationOperation(sessionId, () => api.prepareAdministration({ sessionId, change }))
+  }
+
+  async function applyAdministration(request: ApplyAdministration, change: AdministrationChange) {
+    const result = await administrationOperation(request.sessionId, () => api.applyAdministration(request))
+    if ('database' in change && result.status !== 'rejected' && result.status !== 'unknown' &&
+        statesRef.current[tabId]?.session?.id === request.sessionId) await refreshDatabases(tabId, request.sessionId)
+    return result
+  }
+
+  return { objectView, setObjectView, schemaEditor, setSchemaEditor, inspectObject, savedDiagramLayouts, schemaChangeBlocked, prepareSchemaChange, applySchemaChange,
+    administration, setAdministration, prepareAdministration, applyAdministration }
 }

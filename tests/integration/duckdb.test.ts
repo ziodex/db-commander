@@ -1,3 +1,4 @@
+import { verifyEmbeddedAdministration } from './embedded-administration-contract'
 import { verifyTransferWorkflows } from './transfer-workflows-contract'
 import { verifyInsertExport } from './insert-export-contract'
 import { verifyJsonImport } from './json-import-contract'
@@ -61,6 +62,7 @@ describe('Docker DuckDB driver contracts', () => {
   })
   afterAll(async () => { await driver?.close(); rmSync(directory, { recursive: true, force: true }) })
 
+  it('reviews duckdb maintenance with the native file owner', () => verifyEmbeddedAdministration('duckdb'), 120000)
   it('backs up and restores native schema/data with target protection, constraints and cancellation', async () => { await verifyBackups(config) }, 180000)
   it('isolates concurrent tab sessions, transaction state and cached exports', async () => { await verifySessionIsolation(config) })
   it('compares keyed bounded data with exact values and preserved sessions', async () => { await verifyDataComparison(config) }, 180000)

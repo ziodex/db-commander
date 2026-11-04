@@ -2,6 +2,8 @@ import type { ConnectionConfig, DatabaseEvent, ResultSet, RunRequest, SchemaTabl
 import { open } from 'node:fs/promises'
 import { publishFile } from '../backup/files'
 import { csvCell } from '../shared/sql/common'
+import type { AdministrationChange, AdministrationResult } from '../shared/database-administration'
+import type { AdministrationPlan } from '../administration/reviews'
 
 export type Emit = (event: DatabaseEvent) => void | Promise<void>
 export type Completion = Extract<DatabaseEvent, { type: 'complete' }>
@@ -14,6 +16,8 @@ export interface DatabaseDriver {
   activity?(id:string, includeSql:boolean): Promise<import('../shared/activity').ActivitySnapshot>
   backup?(request: import('../shared/backup').BackupRequest, context: import('../backup/context').BackupContext): Promise<void>
   listDatabases?(id: string): Promise<import('../shared/contracts').DatabaseCatalog>
+  prepareAdministration?(id: string, change: AdministrationChange): Promise<AdministrationPlan>
+  applyAdministration?(id: string, change: AdministrationChange, reviewed: AdministrationPlan, beforeDispatch: () => void): Promise<AdministrationResult>
   editGrid(request: import('../shared/transfer').GridOperation, context?: import('../shared/transfer').ImportContext): Promise<GridResponse>
   connect(config: ConnectionConfig): Promise<SessionInfo>
   disconnect(id: string): Promise<void>

@@ -88,6 +88,30 @@ Choose **Inspect rollback progress** for a selected session, or use the inspecti
 
 SQL Server/Azure SQL show a native rollback-request percentage when visible. Oracle shows undo usage and, when available, a percentage for parallel transaction recovery. MySQL/MariaDB show InnoDB state and counters. PostgreSQL shows transaction/session state without a rollback percentage. SQLite/DuckDB explicitly report that progress inspection is unsupported. Counters are not a countdown, no ETA is invented, and “no longer visible” or even 100% does not prove that rollback, cleanup or lock release has finished. A target that disappeared before its transaction was captured cannot be followed. See [scope and monitoring privileges](IMPLEMENTATION.md#rollback-progress-inspection).
 
+## Database administration
+
+Right-click a database and choose **Database administration** or right-click an eligible table and choose **Table maintenance**. Shift+F10 opens either menu from the keyboard. Review the exact SQL and its effects, acknowledge the review, then type the confirmation shown beside **Apply operation**. The issuing connection must be idle and use autocommit, with an exception for idle Oracle connections in manual-commit mode. Unlock protected connections before applying. The review is single-use and expires after two minutes.
+
+| Engine | Database actions | Maintenance |
+| --- | --- | --- |
+| PostgreSQL | Create from the clean template, rename, drop | Update table statistics, vacuum a table, rebuild table indexes |
+| MySQL and MariaDB | Create and drop | Update statistics, optimize, and check ordinary InnoDB tables |
+| SQL Server | Create, rename, drop through a separate master connection | Update table statistics and rebuild supported rowstore indexes offline |
+| Azure SQL | Create through logical master using billable service defaults | Update table statistics and rebuild supported rowstore indexes offline |
+| Oracle | Service and pluggable database lifecycle require separate administration | Gather published statistics and rebuild eligible indexes for an owned ordinary table |
+| SQLite | Create a local file from the connection dialog | Update statistics, rebuild indexes, and check integrity of tables in the main database |
+| DuckDB | Create a local file from the connection dialog | Checkpoint the opened writable database file without forcing other transactions |
+
+For PostgreSQL and SQL Server rename or drop, connect to a different database and close other connections to the target. SQL Server rename and drop require sysadmin so the app can verify database use across the instance. PostgreSQL also requires prepared transactions to be resolved. Drop permanently removes the selected database. Saved connection settings retain their existing names.
+
+MySQL and MariaDB require direct global catalog and drop privileges for reviewed removal. Connect to a different database and close sessions with the target selected as their default database. Partitioned tables, unverified table identities and cross-database foreign keys can block removal. Other clients can still access it by a qualified name. Native database rename is unavailable. A failed MariaDB drop can leave some objects removed. An InnoDB integrity check can report issues, and severe corruption can stop the server. The app leaves repair to the operator.
+
+Azure SQL creation uses the logical server's defaults and may incur charges. Azure authorizes the administrator or database manager at execution. Reviewed Azure rename and drop are unavailable. Oracle excludes system and root containers. Its index rebuild commits each successful index independently, so a later failure can leave earlier work applied. Locked or unpublished Oracle statistics are outside this workflow.
+
+SQLite checks the selected table and its indexes, including on a read-only connection. Whole-file consistency and foreign keys require separate checks. Detach other SQLite files before maintenance that needs the write lock. A DuckDB checkpoint writes committed changes to the opened file. The app uses the native checkpoint without forcing it, and active transactions can block it.
+
+Server actions and DuckDB checkpoints use a separate connection. SQLite maintenance uses the idle SQLite worker and keeps the tab's results. Applied changes cannot be rolled back from the query tab. If the database host stops before confirming Apply, the dialog keeps the reviewed action and target and reports an unknown outcome. Reconnect explicitly after a host interruption. For any partial or unknown outcome, inspect the target in the native catalog and activity before preparing another review. The app never replays the operation, including after reconnecting. See [authority, scope and verification](IMPLEMENTATION.md#reviewed-database-administration).
+
 ## Visual query builder
 
 Right-click a table/view and choose **Build query from…**, or open **Visual query builder** from the current database menu or Commands. Choose sources, INNER/LEFT joins (including composite keys and self joins), output columns and aliases, aggregates, WHERE/HAVING conditions, sorting, DISTINCT and a returned-row limit. Non-aggregate outputs automatically form GROUP BY when aggregates are present.

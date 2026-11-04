@@ -1,3 +1,4 @@
+import { verifySqlServerAdministration } from './sqlserver-administration-contract'
 import { verifyTransferWorkflows } from './transfer-workflows-contract'
 import { verifyLargeServerCatalog } from './server-catalog-contract'
 import { verifyCatalogPerformance } from './catalog-performance-contract'
@@ -52,6 +53,8 @@ describe('Docker SQL Server driver contracts', () => {
   beforeAll(async () => { driver = new DriverRegistry(event => { events.push(event) }); session = await driver.connect(config) })
   afterAll(async () => { await driver?.close() })
 
+  it('reviews SQL Server database lifecycle and table maintenance', () => verifySqlServerAdministration(config), 120000)
+  it('reviews Azure-profile database creation and table maintenance on local TDS', () => verifySqlServerAdministration({ ...config, engine: 'azure-sql' }), 120000)
   it('browses accessible databases and safely replaces only the selected session', async () => { await verifyDatabaseBrowsing(config) })
   it('browses and switches Azure profiles using the local TDS fixture', async () => { await verifyDatabaseBrowsing({ ...config, engine: 'azure-sql' }) })
   it('backs up and restores native schema/data with target protection, constraints and cancellation', async () => { await verifyBackups(config) }, 180000)

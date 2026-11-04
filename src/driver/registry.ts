@@ -38,6 +38,8 @@ import { openTunnel, type Tunnel } from '../connections/ssh'
 import { routed } from '../connections/transport'
 import { SessionProtection } from '../connections/protection'
 import { prepareSchemaChangeSchema, applySchemaChangeSchema, type PrepareSchemaChange, type ApplySchemaChange } from '../shared/schema-changes'
+import { administrationActions, prepareAdministrationSchema, applyAdministrationSchema, type PrepareAdministration, type ApplyAdministration } from '../shared/database-administration'
+import { AdministrationReviews } from '../administration/reviews'
 
 /** Routes opaque session/query IDs inside the utility process. */
 export class DriverRegistry {
@@ -59,6 +61,8 @@ export class DriverRegistry {
   private connecting = 0
   private explainControllers = new Map<string, AbortController>()
   private schemaChanges = new SchemaChanges()
+  private administrationReviews = new AdministrationReviews()
+  private administrationPending = false
   private migrations = new MigrationExports()
   private tunnels = new Map<string, Tunnel>()
   private protection = new SessionProtection()
@@ -136,7 +140,7 @@ export class DriverRegistry {
   sessionSafety(id: string) { this.driver(id, true).getSession(id); return this.protection.status(id) }
   unlockSession(id: string, confirmation: string) { this.driver(id).getSession(id); return this.protection.unlock(id, confirmation) }
   lockSession(id: string) { this.driver(id, true).getSession(id); return this.protection.lock(id) }
-  private forgetConnection(id: string) { this.rollbackInspections.forget(id); this.activityTargets.delete(id);this.activityReviews.forget(id);this.tunnels.get(id)?.close(); this.tunnels.delete(id); this.protection.forget(id); this.sessions.delete(id); this.configs.delete(id); this.schemaChanges.forget(id); this.migrations.forget(id) }
+  private forgetConnection(id: string) { this.administrationReviews.forget(id); this.rollbackInspections.forget(id); this.activityTargets.delete(id);this.activityReviews.forget(id);this.tunnels.get(id)?.close(); this.tunnels.delete(id); this.protection.forget(id); this.sessions.delete(id); this.configs.delete(id); this.schemaChanges.forget(id); this.migrations.forget(id) }
   private driver(id: string, allowOperation = false) {
     if (!allowOperation && this.operations.has(id)) throw new Error('Wait for the database operation to finish.')
     if (this.editing.has(id)) throw new Error('Wait for the table edit operation to finish.')
@@ -260,6 +264,40 @@ export class DriverRegistry {
     })
   }
   prepareMigration(request: PrepareMigration) { return this.migrations.prepare(request) }
+  private administrationSession(id: string, driver: DatabaseDriver) {
+    const session = driver.getSession(id)
+    if (this.running.has(id) || session.transaction !== 'idle' || session.engine !== 'oracle' && session.autocommit === false) {
+      throw new Error('Finish the query, settle the transaction and enable autocommit before administering the database.')
+    }
+    return session
+  }
+  prepareAdministration(input: PrepareAdministration) {
+    const request = prepareAdministrationSchema.parse(input), { sessionId, change } = request
+    this.administrationReviews.forget(sessionId)
+    const driver = this.driver(sessionId)
+    const { database, engine } = this.administrationSession(sessionId, driver)
+    if (!driver.prepareAdministration || !administrationActions(engine, 'database' in change ? 'database' : 'table').includes(change.action)) {
+      throw new Error('This reviewed administration operation is unavailable for the connected engine.')
+    }
+    return this.operation(sessionId, async () => this.administrationReviews.prepare(request, await driver.prepareAdministration!(sessionId, change), database))
+  }
+  applyAdministration(input: ApplyAdministration) {
+    const request = applyAdministrationSchema.parse(input), { sessionId } = request
+    const { request: { change }, plan, sourceDatabase, expiresAt } = this.administrationReviews.consume(request)
+    const driver = this.driver(sessionId)
+    if (!driver.applyAdministration) throw new Error('Reviewed database administration is unavailable for this engine.')
+    if (this.administrationPending) throw new Error('Wait for the current administration operation to finish. Prepare a new review.')
+    const check = () => {
+      if (Date.now() >= expiresAt) throw new Error('The review expired. Prepare a new review.')
+      const session = this.administrationSession(sessionId, driver)
+      if (session.database !== sourceDatabase) throw new Error('The issuing database changed. Prepare a new review.')
+      this.protection.assert(sessionId)
+    }
+    check()
+    this.administrationPending = true
+    return this.operation(sessionId, () => driver.applyAdministration!(sessionId, change, plan, check))
+      .finally(() => { this.administrationPending = false })
+  }
   inspectActivity(input:ActivityRequest):Promise<ActivitySnapshot> {
     const {sessionId,includeSql}=activityRequestSchema.parse(input), driver=this.driver(sessionId), selected=driver.getSession(sessionId)
     if(this.activityReads.has(sessionId)||this.activityReads.size+this.rollbackReads.size>=2) throw new Error('Wait for the current session inspection to finish (at most two inspections at once).')
@@ -490,5 +528,5 @@ export class DriverRegistry {
     if (!driver) throw new Error('This result is no longer available. Execute the query again explicitly.')
     return driver.exportCsv(id, index, path)
   }
-  async close() { await Promise.allSettled(this.activityReads.values()); await Promise.allSettled(this.operations.values()); await Promise.allSettled(this.editing.values()); await Promise.allSettled([this.transfers.close()]); await Promise.allSettled(Object.values(this.drivers).map(driver => driver.close())); for (const tunnel of this.tunnels.values()) tunnel.close(); this.tunnels.clear(); this.protection.clear(); this.activityTargets.clear(); this.activityReviews.clear(); this.rollbackInspections.clear(); this.migrations.clear(); this.sessions.clear(); this.queries.clear(); this.latest.clear(); this.configs.clear(); this.running.clear() }
+  async close() { await Promise.allSettled(this.activityReads.values()); await Promise.allSettled(this.operations.values()); await Promise.allSettled(this.editing.values()); await Promise.allSettled([this.transfers.close()]); await Promise.allSettled(Object.values(this.drivers).map(driver => driver.close())); for (const tunnel of this.tunnels.values()) tunnel.close(); this.tunnels.clear(); this.protection.clear(); this.activityTargets.clear(); this.activityReviews.clear(); this.administrationReviews.clear(); this.rollbackInspections.clear(); this.migrations.clear(); this.sessions.clear(); this.queries.clear(); this.latest.clear(); this.configs.clear(); this.running.clear() }
 }

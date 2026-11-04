@@ -1,3 +1,7 @@
+import { planSqlServerAdministration, sqlServerAdministrationDatabase } from '../administration/sqlserver'
+import type { AdministrationPlan } from '../administration/reviews'
+import type { AdministrationChange, AdministrationResult } from '../shared/database-administration'
+import type { CatalogQuery } from '../catalog/common'
 import { failureSource } from '../language/execution'
 import type { ActivityObserver } from '../activity/control'
 import { readActivity } from '../activity/read'
@@ -204,6 +208,46 @@ export class SqlServerDriver implements DatabaseDriver {
       return { databases: databases.sort(), current: session.info.database, switchable: true,
         ...(this.engine === 'azure-sql' ? { notice: 'Lists databases visible in logical-server master that this account can open. Other contained databases require an explicit connection.' } : {}) }
     } finally { client.close() }
+  }
+  private async withAdministration<T>(id: string, change: AdministrationChange, apply: boolean,
+    work: (client: SqlServerConnection, query: CatalogQuery, source: string) => Promise<T>): Promise<T> {
+    const session = this.session(id), source = session.info.database
+    const client = await openSqlServer({ ...session.config, database: sqlServerAdministrationDatabase(change, source) })
+    const timer = setTimeout(() => client.close(), apply ? 80_000 : 18_000)
+    const query: CatalogQuery = async (sql, values) => (await sqlServerBound(client, sql, values)).rows
+    try {
+      await query('SET IMPLICIT_TRANSACTIONS OFF; SET LOCK_TIMEOUT 5000;')
+      return await work(client, query, source)
+    } finally { clearTimeout(timer); client.close() }
+  }
+  prepareAdministration(id: string, change: AdministrationChange): Promise<AdministrationPlan> {
+    return this.withAdministration(id, change, false, (_client, query, source) => planSqlServerAdministration(query, this.engine, source, change))
+  }
+  applyAdministration(id: string, change: AdministrationChange, reviewed: AdministrationPlan, beforeDispatch: () => void): Promise<AdministrationResult> {
+    return this.withAdministration(id, change, true, async (client, query, source) => {
+      const fresh = await planSqlServerAdministration(query, this.engine, source, change)
+      if (fresh.fingerprint !== reviewed.fingerprint || fresh.sql !== reviewed.sql) {
+        throw new Error('The reviewed database or table changed. Refresh the catalog and prepare a new review.')
+      }
+      beforeDispatch()
+      let acknowledged = false
+      const unknown: AdministrationResult = {
+        status: 'unknown', message: 'The server did not confirm the reviewed effect. Inspect the current catalog and server activity before preparing another change.'
+      }
+      try {
+        for await (const frame of streamSqlServer(client, reviewed.sql).frames) {
+          if (frame.kind === 'error') throw frame.error
+          if (frame.kind === 'done') acknowledged = true
+        }
+        if (acknowledged && await fresh.verify()) return { status: 'applied', message: 'The server confirmed the reviewed operation.' }
+      } catch (error) {
+        const failure = error as { code?: string; number?: number }
+        if (!acknowledged && failure.code === 'EREQUEST' && [229, 262, 3702, 1801, 5030, 1222].includes(failure.number ?? 0)) {
+          return { status: 'rejected', message: `The server rejected the operation (${failure.number}). Check permissions, names and active database use.` }
+        }
+      }
+      return unknown
+    })
   }
   activity(id:string, includeSql:boolean) { return this.withActivity(id,o=>readActivity(o.engine,o.database,o.currentSessionId,o.query,includeSql)) }
   activityId(id:string) { const session=this.session(id); return session.nativeId }
