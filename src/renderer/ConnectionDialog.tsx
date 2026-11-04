@@ -153,9 +153,13 @@ export function ConnectionDialog({ profile, profileId, busy, error, saveOnly, on
     setFileError(''); setTestResult(null)
     void (saveOnly ? onSave(config, choice) : onConnect(config, saveConnection, choice, interactive ? beginEntra(connectButton.current) : undefined))
   }
-  return <ModalDialog className="connection-dialog connection-form" aria-labelledby="connection-title" onDismiss={() => { if (signingIn) cancelSignIn(); else if (!blocked && !testInFlight.current) onClose() }}><form onSubmit={event => { event.preventDefault(); submit() }}>
+  return <ModalDialog className="connection-dialog connection-form" aria-labelledby="connection-title"
+    onDismiss={() => { if (signingIn) cancelSignIn(); else if (!blocked && !testInFlight.current) onClose() }}
+    onKeyDown={event => {
+      if (showCancellation && event.key === 'Tab') { event.preventDefault(); cancelButton.current?.focus() }
+    }}><form onSubmit={event => { event.preventDefault(); submit() }}>
     <div className="dialog-heading"><div><h2 id="connection-title">{saveOnly ? `Save ${engineNames[form.engine]} profile` : `Connect to ${engineNames[form.engine]}`}</h2></div><button type="button" aria-label="Close connection dialog" disabled={blocked} onClick={onClose}><X size={18} /></button></div>
-    <div className="connection-fields"><fieldset disabled={blocked}>
+    <div className="connection-fields" inert={showCancellation}><fieldset disabled={blocked}>
       <div className="form-row"><label>Database engine<select value={form.engine} onChange={event => changeEngine(event.target.value as DatabaseEngine)}>{Object.entries(engineNames).map(([engine, name]) => <option key={engine} value={engine}>{name}</option>)}</select></label>
       {input('Connection name', 'name')}</div>
       {embedded ? <>
