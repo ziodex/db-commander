@@ -36,7 +36,7 @@ export function activityMonitor(config:ConnectionConfig,control=false):{config:C
       throw new Error(`Oracle monitoring fixture SQL failed: ${[failure.stdout,failure.stderr].join('\n').trim().slice(0,4096)}`,{cause:error})
     }
   }
-  if(engine==='oracle')admin(`CREATE USER ${user} IDENTIFIED BY "${password}";\nGRANT CREATE SESSION TO ${user};\nGRANT SELECT ON SYS.V_$SESSION TO ${user};\nGRANT SELECT ON SYS.V_$LOCK TO ${user};\nGRANT SELECT ON SYS.V_$SQL TO ${user};`)
+  if(engine==='oracle')admin(`CREATE USER ${user} IDENTIFIED BY "${password}";\nGRANT CREATE SESSION TO ${user};\nGRANT SELECT ON SYS.V_$SESSION TO ${user};\nGRANT SELECT ON SYS.V_$LOCK TO ${user};\nGRANT SELECT ON SYS.V_$SQL TO ${user};\nGRANT SELECT ON SYS.V_$CON_SYSSTAT TO ${user};`)
   else if(engine==='sqlserver')admin(`USE master; CREATE LOGIN ${user} WITH PASSWORD='${password}',CHECK_POLICY=OFF; GRANT VIEW SERVER STATE TO ${user}; GRANT VIEW SERVER PERFORMANCE STATE TO ${user}; USE dbcommander; CREATE USER ${user} FOR LOGIN ${user};`)
   else admin(`CREATE USER '${user}'@'%' IDENTIFIED BY '${password}'; GRANT SELECT ON dbcommander.* TO '${user}'@'%'; GRANT PROCESS ON *.* TO '${user}'@'%';${engine==='mysql'?` GRANT SELECT ON performance_schema.* TO '${user}'@'%';`:''}`)
   const enableControl=()=>admin(engine==='oracle'?`GRANT ALTER SYSTEM TO ${user};`:engine==='sqlserver'?`USE master; GRANT ALTER ANY CONNECTION TO ${user};`:`GRANT ${engine==='mysql'?'CONNECTION_ADMIN':'CONNECTION ADMIN'} ON *.* TO '${user}'@'%';`)

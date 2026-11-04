@@ -12,7 +12,7 @@ The beta keeps the existing SQL workbench: saved connections and optional native
 
 Candidate engines are PostgreSQL, MySQL, MariaDB, SQL Server, SQLite, DuckDB and Oracle Thin mode. Local scale fixtures currently cover PostgreSQL 17, MySQL 8.4, MariaDB 11.4, SQL Server 2022, Oracle Free 26ai, DuckDB 1.5.6 and the SQLite versions bundled with tested runtimes. This is tested-version evidence, not a guarantee for every patch, deployment or authentication mode. Native platform and supported-version sign-off is still pending.
 
-Azure SQL is **experimental**. Local SQL Server fixtures exercise its profile/shared TDS paths; they do not qualify the Azure service. Live login, token expiry, firewall/redirect/private endpoints and recovery-copy workflows have not been validated. SQL login and manually supplied Entra tokens are implemented; token acquisition/renewal, interactive login, managed identity and Windows integrated authentication are excluded. Do not interpret the profile's presence as cloud qualification.
+Azure SQL is **experimental**. The frozen baseline included SQL login and pasted Entra tokens. Later work adds browser sign-in and renewal with a desktop app registration. Local SQL Server fixtures exercise the shared TDS paths. Live Azure login, token renewal, firewall, redirects, private endpoints and recovery-copy workflows remain to be qualified. See the [current authentication and network matrix](DRIVER_TESTING.md#authentication-and-network-qualification).
 
 ## Limits to expect
 

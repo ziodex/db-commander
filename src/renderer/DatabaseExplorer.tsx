@@ -1,32 +1,39 @@
 import { ContextMenu, type MenuAnchor, type MenuItem } from './ContextMenu'
 import { CatalogBrowser } from './CatalogBrowser'
 import type { ReadCatalog } from './use-catalog-page'
-import { useCallback, useEffect, useState, type MouseEvent, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type MouseEvent, type KeyboardEvent } from 'react'
 import { objectKey, type CatalogObject } from '../shared/catalog'
 import { ChevronDown, ChevronRight, RefreshCw } from './WorkbenchIcons'
 import { MaterialIcon } from './MaterialIcon'
 import type { GridTable } from '../shared/contracts'
+import { administrationActions, type AdministrationTarget } from '../shared/database-administration'
 import { canSwitchDatabase, tabOperationBusy, type QueryTabState } from './query-tabs'
 
 type MenuTarget = { kind: 'database'; name: string } | { kind: 'table'; table: GridTable; objectId?: string; object?: CatalogObject }
 type ExplorerMenu = Omit<MenuAnchor, 'items'> & { target: MenuTarget }
 
-export function DatabaseExplorer({ state, readCatalog, catalogPaused, browseDisabled, onRefreshDatabases, onRefreshSchema, onSwitch, onFilter, onAppendSelect, onEdit, onBrowse, onInspect, onSchemaChange, onDiagram, onBackup, onCompare, onCompareData, onBuilder, onActivity }: {
+export function DatabaseExplorer({ state, readCatalog, catalogPaused, browseDisabled, onRefreshDatabases, onRefreshSchema, onSwitch, onFilter, onAppendSelect, onEdit, onBrowse, onInspect, onSchemaChange, onDiagram, onBackup, onCompare, onCompareData, onBuilder, onActivity, onAdministration, onPrincipals }: {
   readCatalog: ReadCatalog
   catalogPaused: boolean
   browseDisabled: boolean
   onActivity():void
+  onPrincipals(owner: HTMLElement): void
   onBuilder(table?: GridTable): void
   onCompareData(table?: GridTable): void
   onBackup(): void; onCompare(): void
   onDiagram(): void
   onSchemaChange(target?: CatalogObject): void
+  onAdministration(target: AdministrationTarget, fallback: HTMLElement | null): void
   onInspect(object: CatalogObject): void; state: QueryTabState; onRefreshDatabases(): void; onRefreshSchema(): void; onSwitch(database: string): void
   onFilter(value: string): void; onAppendSelect(table: GridTable): void; onEdit(table: GridTable): void; onBrowse(table: GridTable): void
 }) {
   const [menu,setMenu]=useState<ExplorerMenu|null>(null)
+  const databaseRefresh = useRef<HTMLButtonElement>(null)
   const session = state.session!, catalog = state.databases, reason = canSwitchDatabase(state)
   const busy = tabOperationBusy(state)
+  const administrationDisabled = busy || session.transaction !== 'idle' || Boolean(state.gridChanges.length)
+  const administration = administrationActions(session.engine, 'database').length > 0
+  const maintenance = administrationActions(session.engine, 'table').length > 0
   useEffect(()=>setMenu(null),[session.id,session.database])
   useEffect(()=>{if(menu&&!menu.owner.isConnected)setMenu(null)},[menu,state.schema,state.databases,state.tableSearch])
   const context = useCallback((event: MouseEvent<HTMLElement> | KeyboardEvent<HTMLElement>, target: MenuTarget) => {
@@ -44,15 +51,22 @@ export function DatabaseExplorer({ state, readCatalog, catalogPaused, browseDisa
       {label:`Browse data ${table.name}`,disabled:browseDisabled||busy||session.transaction!=='idle'||Boolean(state.gridChanges.length),title:'Open the browse query and results in a new tab.',action:()=>onBrowse(table)},
       {label:`Edit data ${table.name}`,disabled:busy||session.transaction!=='idle'||Boolean(state.gridChanges.length),action:()=>onEdit(table)},
       {label:`Build query from ${table.name}`,disabled:busy,action:()=>onBuilder(table)},
+      ...(maintenance && object?.kind === 'table' && object.schema && (session.engine !== 'sqlite' || object.schema === 'main') ? [{
+        label: `Table maintenance for ${table.name}`, disabled: administrationDisabled, action: () => onAdministration({ schema: object.schema!, table: object.name }, databaseRefresh.current)
+      }] : []),
       ...(object?.kind==='table'?[{label:`Compare data ${table.name}`,disabled:busy,action:()=>onCompareData(table)}, {label:`Alter table ${table.name}`,disabled:busy||Boolean(state.gridChanges.length),action:()=>onSchemaChange(object)}]:[])
     ]
   }
   function databaseItems(name: string): MenuItem[] {
     const current=name===session.database
+    const principalsSupported = ['postgres', 'mysql', 'mariadb', 'sqlserver', 'azure-sql', 'oracle'].includes(session.engine)
     return [
       {label:`Switch to database ${name}`,disabled:current||!catalog?.switchable||Boolean(reason),action:()=>onSwitch(name)},
       {label:'Database backup and restore',disabled:!current,title:current?'Backup or restore this database':'Select this database first to back up or restore it safely.',action:onBackup},
+      ...(administration ? [{ label: 'Database administration', disabled: administrationDisabled, action: () => onAdministration({ database: name }, databaseRefresh.current) }] : []),
       {label:'Sessions and locks',disabled:!current||state.closing||state.switching,action:onActivity},
+      {label:'Security principals',disabled:!current||busy||!principalsSupported||session.transaction!=='idle',
+        title:!principalsSupported?'File connections do not have a server user or role catalog.':session.transaction!=='idle'?'Commit or roll back before inspecting security principals.':undefined,action:()=>{if(menu)onPrincipals(menu.owner)}},
       {label:'Visual query builder',disabled:!current||busy,action:()=>onBuilder()},
       {label:'Compare table data',disabled:!current||busy,action:()=>onCompareData()},
       {label:'Compare schemas',disabled:!current||busy,action:onCompare},
@@ -72,7 +86,7 @@ export function DatabaseExplorer({ state, readCatalog, catalogPaused, browseDisa
   }
   return <div className="database-explorer">
     {menu&&<ContextMenu anchor={{...menu,items:menuItems(menu.target)}} onClose={()=>setMenu(null)}/>}
-    <div className="database-heading" title="Right-click a database or table for actions (Shift+F10)."><span>Databases</span><button aria-label="Refresh databases" disabled={busy || state.connecting || state.closing} onClick={onRefreshDatabases}><RefreshCw size={12} /></button></div>
+    <div className="database-heading" title="Right-click a database or table for actions (Shift+F10)."><span>Databases</span><button ref={databaseRefresh} aria-label="Refresh databases" disabled={busy || state.connecting || state.closing} onClick={onRefreshDatabases}><RefreshCw size={12} /></button></div>
     {state.databasesLoading && <p className="sidebar-description" role="status">Loading databases…</p>}
     {state.databasesError && <p className="sidebar-description" role="alert">Databases unavailable: {state.databasesError} Use Refresh databases to retry.</p>}
     {catalog?.notice && <details className="explorer-info"><summary>Database details</summary><p>{catalog.notice}</p></details>}

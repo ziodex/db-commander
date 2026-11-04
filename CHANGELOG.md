@@ -2,6 +2,11 @@
 
 ## Unreleased — beta preparation
 
+- Added server-engine security-principal inspection, role membership and privilege views, and copyable manual SQL previews for role, membership and table privilege changes. PostgreSQL, MySQL, MariaDB, SQL Server, Azure SQL and Oracle also support reviewed role and account changes, with engine-specific grant and removal rules.
+
+- Added reviewed database lifecycle and maintenance actions with engine-specific availability, permission checks, and outcome reporting.
+- Added performance and lock diagnostics, reviewed SQL Server Agent and Oracle scheduler controls, and window-scoped operation history for query and administration work.
+
 - Added editor SQL diagnostics, scoped completion, catalog signatures, definition and reference navigation, and reviewed alias rename.
 - Extended plan trees across engines and added captured-plan comparison, saved ER diagram layouts and a SQL project-folder browser.
 
@@ -9,7 +14,7 @@
 
 - Added server-side catalog search, forward/backward object pages and lazy table children, with targeted inspection beyond the completion preview. Existing permissions, session ownership and metadata limits remain explicit.
 
-No beta release has been declared. Package version 0.2.4 remains a developer preview; signed distribution and the final beta version are pending the [release gates](docs/PLAN.md#beta-release-checklist).
+No beta release has been declared. Package version 0.2.5 remains a developer preview; signed distribution and the final beta version are pending the [release gates](docs/PLAN.md#beta-release-checklist).
 
 - Added guided backup/restore configuration and advisory checks, native file/tools-folder choices with remembered folders, clearer server-side locations, searchable job history and explicit connections to successful restored targets without SQL replay. Existing target, transaction, cancellation and recovery protections remain in force.
 
@@ -19,6 +24,7 @@ No beta release has been declared. Package version 0.2.4 remains a developer pre
 
 - Shortened the SQL opened by Browse data to `SELECT *`, retaining identifier quoting, sorting and paging. Browser display conversions still preserve exact values.
 - Added SQL Server Windows Authentication with the current Windows account, using the Windows SQL client without storing a password. This mode requires a direct connection and uses the Windows certificate store for TLS.
+- Added experimental Azure SQL browser sign-in using an existing Microsoft Entra desktop app registration, with in-memory tokens and same-account renewal for new physical connections. Live Azure qualification is pending.
 - Added **Help → About Db Commander**, showing the actual running version and a short application description.
 
 - Updated the workbench with the VS Code 2026 Dark theme, Material file/object icons, a Windows title-bar application menu, clearer typography and a compact results toolbar.

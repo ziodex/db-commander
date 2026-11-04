@@ -482,6 +482,10 @@ body[data-resizing=horizontal], body[data-resizing=horizontal] * { cursor: row-r
 .schema-review h3 { scroll-margin-top: 90px; }
 .schema-review textarea { width: 100%; height: 220px; padding: 12px; font: 14px/1.6 monospace; white-space: pre; }
 .schema-review > fieldset { margin-top: 12px; }
+.database-administration-dialog { width: min(620px, 94vw); overflow-wrap: anywhere; }
+.database-administration-dialog textarea { width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; font-family: monospace; }
+.database-administration-dialog ul { padding-inline-start: 22px; }
+.database-administration-dialog li + li { margin-block-start: 6px; }
 .profile-folder { margin: 4px 0; }
 .profile-folder > summary { cursor: pointer; padding: 6px 9px; color: var(--muted); font-size: 14px; overflow-wrap: anywhere; }
 .profile-folder > summary small { margin-left: 8px; }
@@ -489,6 +493,7 @@ body[data-resizing=horizontal], body[data-resizing=horizontal] * { cursor: row-r
 .profile-row button[aria-pressed="true"] { color: var(--warning); }
 .profile-options, .ssh-options { display: grid; gap: 10px; padding: 10px 0; border-top: 1px solid var(--border); }
 .session-safety { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; min-height: 32px; padding: 5px 14px; background: var(--success-background); border-bottom: 1px solid var(--success-border); font-size: 14px; }
+.session-safety[data-entra] { flex-shrink: 0; }
 .session-safety strong { text-transform: capitalize; }
 .session-safety button { margin-left: auto; border: 1px solid currentColor; padding: 3px 9px; border-radius: 4px; }
 .session-safety.environment-production { background: var(--danger-background); border-color: var(--danger-border); color: var(--danger); }
@@ -737,6 +742,30 @@ body[data-resizing=horizontal], body[data-resizing=horizontal] * { cursor: row-r
 .query-builder-dialog p { line-height: 1.5; overflow-wrap: anywhere; }
 
 .activity-dialog { width: min(1200px, 94vw); max-height: 92vh; }
+.principals-dialog { width: min(780px, 94vw); }
+.principals-dialog[open] { display: flex; flex-direction: column; overflow: clip; }
+.principals-header { flex-shrink: 0; border-bottom: 1px solid var(--border); }
+.principals-dialog .principals-header .dialog-heading { position: static; padding: 0; margin-bottom: 8px; }
+.principals-header .activity-views { gap: 8px; margin: 0 0 8px; }
+.principals-header span { min-width: 0; overflow-wrap: anywhere; color: var(--muted); font-size: 13px; }
+.principals-content { min-height: 0; overflow: auto; padding-inline-end: 8px; padding-block-end: 8px; }
+.principals-copy { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.principals-dialog .activity-table table { min-width: 0; }
+.principals-dialog .activity-table tbody th { position: static; }
+.principal-grant-table { table-layout: fixed; }
+.principal-grant-table thead th:first-child { width: 27%; }
+.principal-grant-table thead th:last-child { width: 20%; }
+.principal-grant-table tbody th small { display: block; margin-top: 4px; color: var(--muted); }
+.principal-change-editor { padding-block: 10px; }
+.principal-change-editor .activity-check { margin-block: 12px; }
+.principal-change-context { margin-block: 12px; overflow-wrap: anywhere; }
+.principal-change-context p { margin: 0 0 4px; }
+.principal-change-context code { white-space: pre-wrap; }
+.principals-dialog li { overflow-wrap: anywhere; margin-block: 5px; }
+.principals-dialog select { min-width: 0; width: 100%; }
+.principals-dialog .activity-detail textarea { height: 6em; white-space: pre-wrap; overflow-wrap: anywhere; }
+.principals-fields { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; margin-block: 12px; }
+.principals-fields label { flex: 1 1 180px; min-width: 0; margin-bottom: 0; }
 .activity-dialog .dialog-heading { position: sticky; top: -24px; padding: 12px 0; background: var(--surface-raised); z-index: 2; }
 .activity-controls, .activity-views, .activity-paging { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 12px 0; }
 .activity-dialog .activity-check { display: flex; flex-direction: row; align-items: center; margin: 0; }
@@ -744,6 +773,25 @@ body[data-resizing=horizontal], body[data-resizing=horizontal] * { cursor: row-r
 .activity-views button[aria-pressed=true] { background: var(--success-background); color: var(--success); }
 .activity-table { overflow: auto; max-height: 360px; border: 1px solid var(--border); border-radius: 6px; }
 .activity-table table { border-collapse: collapse; width: 100%; min-width: 760px; font-size: 14px; }
+.performance-table table { min-width: 350px; }
+.scheduler-table table { min-width: 520px; }
+.operation-table table { min-width: 0; table-layout: fixed; }
+.operation-table th:nth-child(1), .operation-table th:nth-child(2) { width: 22%; }
+.operation-table th:nth-child(3) { width: 30%; }
+.operation-table td button { max-width: 100%; white-space: normal; }
+.operation-history .dialog-heading, .diagnostics-expanded .dialog-heading { margin-bottom: 8px; }
+.diagnostic-summary { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px 16px; margin: 12px 0; }
+.diagnostic-summary .activity-scope { margin: 0; }
+.activity-dialog .diagnostic-note { color: var(--muted); }
+.scheduler-review .backup-actions { z-index: 3; }
+.scheduler-expiry { flex-basis: 100%; margin: 0; color: var(--danger); }
+.activity-dialog:has(.scheduler-review) { scroll-padding-block: 70px 66px; }
+
+.performance-table td:nth-child(2), .operation-table td:nth-child(3) { font-variant-numeric: tabular-nums; }
+.operation-filters { align-items: flex-end; }
+.operation-filters label { flex: 1 1 170px; margin: 0; }
+.scheduler-review dt { color: var(--muted); }
+.scheduler-review dd { margin: 0 0 10px; overflow-wrap: anywhere; }
 .activity-table th, .activity-table td { text-align: left; padding: 9px; border-bottom: 1px solid var(--border); vertical-align: top; overflow-wrap: anywhere; max-width: 320px; }
 .activity-table th { position: sticky; top: 0; background: var(--surface-raised); }
 .activity-table td small { display: block; margin-top: 4px; color: var(--muted); }

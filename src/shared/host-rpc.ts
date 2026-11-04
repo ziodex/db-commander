@@ -1,4 +1,4 @@
-import type { DesktopApi, Workspace, DatabaseEvent } from './contracts'
+import type { ConnectionConfig, DesktopApi, Workspace, DatabaseEvent } from './contracts'
 import type { BackupJob } from './backup'
 import type { TransferJob } from './transfer'
 import type { MigrationPreview, SaveMigration } from './migrations'
@@ -13,16 +13,19 @@ type Forwarded =
   | 'connect' | 'disconnect' | 'databases' | 'switchDatabase' | 'tables' | 'schema'
   | 'run' | 'cancel' | 'editGrid' | 'explain' | 'cancelExplain'
   | 'sessionSafety' | 'lockSession' | 'prepareSchemaChange' | 'applySchemaChange' | 'cancelSchemaChange'
+  | 'prepareAdministration' | 'applyAdministration'
   | 'inspectImport' | 'startTransfer' | 'cancelTransfer' | 'startBackup' | 'inspectBackup' | 'cancelBackup'
   | 'inspectDataFile' | 'transferMappings' | 'saveTransferMapping' | 'removeTransferMapping' | 'discardTransferCapture'
   | 'compareData' | 'compareSchemas' | 'prepareMigration' | 'prepareQueryBuilder'
-  | 'prepareActivityAction' | 'applyActivityAction' | 'inspectRollback' | 'inspectActivity'
+  | 'prepareActivityAction' | 'applyActivityAction' | 'inspectRollback' | 'inspectActivity' | 'inspectPrincipals' | 'preparePrincipalChange' | 'applyPrincipalChange' | 'inspectPerformance'
+  | 'inspectScheduler' | 'prepareScheduleChange' | 'applyScheduleChange'
   | 'catalogPage' | 'diagram' | 'inspectObject' | 'saveWorkspace' | 'history' | 'clearHistory'
   | 'searchHistory' | 'historySettings' | 'saveHistorySettings' | 'deleteHistory'
   | 'snippets' | 'saveSnippet' | 'deleteSnippet' | 'applySnippetImport' | 'discardSnippetImport'
 
 /** Internal host protocol. Native file choices and credential resolution stay in main. */
 type HostContract = { [K in Forwarded]: DesktopMethod<K> } & {
+  connectEntra: Method<{ config: ConnectionConfig; grantId: string }, Awaited<ReturnType<DesktopApi['connect']>>>
   unlockSession: Method<{ sessionId: string; confirmation: string }, Awaited<ReturnType<DesktopApi['unlockSession']>>>
   loadWorkspace: Method<undefined, Workspace | null>
   loadWorkspaceRecovery: DesktopMethod<'loadWorkspace'>
@@ -42,7 +45,10 @@ export type HostArgs<K extends HostMethod> = undefined extends HostPayload<K>
   ? [payload?: HostPayload<K>] : [payload: HostPayload<K>]
 type HostRequest = { [K in HostMethod]: { id: string; method: K; payload: HostPayload<K> } }[HostMethod]
 export type HostInput = HostRequest | { ack: string }
+  | { entraToken: { requestId: string; accessToken?: string } }
 type HostReply = { id: string; ok: true; value: HostResult<HostMethod> } | { id: string; ok: false; error: string }
 export type HostMessage = HostReply | { ready: true } | { startupError: string }
+  | { operation: import('./operation-history').OperationEntry }
+  | { entraToken: { requestId: string; grantId: string } }
   | { event: DatabaseEvent; token?: string } | { backupJob: BackupJob } | { transferJob: TransferJob }
 export type HostHandlers = { [K in HostMethod]: (payload: unknown) => HostResult<K> | Promise<HostResult<K>> }

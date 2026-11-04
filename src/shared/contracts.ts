@@ -9,6 +9,7 @@ import { diagramLayoutsSchema } from './diagram-layouts'
 import { tableLayoutsSchema } from './table-layouts'
 import type { PasswordStatus } from './credentials'
 import { profileOptions, sshSecretsSchema, type ConnectionSafety } from './connection-options'
+import { azureSqlPublicHost, entraProfileSchema, type EntraAttempt, type EntraProgress } from './entra'
 import { engineSchema, type DatabaseEngine } from './database-engines'
 export { engineSchema, engineNames, type DatabaseEngine } from './database-engines'
 
@@ -22,7 +23,8 @@ const connectionFields = z.object({
   database: z.string().max(255).default(''),
   user: z.string().max(255),
   password: z.string().max(4096),
-  authentication: z.enum(['sql-password', 'entra-token', 'windows']).optional(),
+  authentication: z.enum(['sql-password', 'entra-token', 'entra-interactive', 'windows']).optional(),
+  entra: entraProfileSchema.optional(),
   accessToken: z.string().max(65536).optional(),
   tls: z.enum(['verify-full', 'disable']),
   ca: z.string().max(65536).optional(),
@@ -31,11 +33,16 @@ const connectionFields = z.object({
   duckdbMode: z.enum(['read-write', 'read-only', 'create', 'memory']).optional()
 }).strict()
 const hasEndpoint = (config: { engine: DatabaseEngine; database: string; ssh?: unknown }) => (config.engine !== 'oracle' || Boolean(config.database.trim())) && !(config.ssh && ['sqlite', 'duckdb'].includes(config.engine))
-const hasAuthentication = (config: { engine: DatabaseEngine; authentication?: string; user: string }) => config.authentication === 'windows'
-  ? config.engine === 'sqlserver'
-  : Boolean(config.user.length) && (config.authentication !== 'entra-token' || config.engine === 'azure-sql')
+const hasAuthentication = (config: Omit<z.infer<typeof connectionFields>, 'password'> & { password?: string }) => {
+  if (config.authentication === 'entra-interactive') return config.engine === 'azure-sql' && !!config.entra &&
+    azureSqlPublicHost(config.host) && !!config.database.trim() && config.tls === 'verify-full' && !config.ca?.trim() &&
+    !config.password && !config.accessToken
+  if (config.entra) return false
+  return config.authentication === 'windows' ? config.engine === 'sqlserver'
+    : Boolean(config.user.length) && (config.authentication !== 'entra-token' || config.engine === 'azure-sql')
+}
 export const connectionSchema = connectionFields.refine(hasEndpoint, { message: 'Oracle requires a service name.', path: ['database'] })
-  .refine(hasAuthentication, { message: 'Enter a user. Windows authentication is available only for SQL Server; Entra tokens only for Azure SQL.', path: ['authentication'] })
+  .refine(hasAuthentication, { message: 'Check the authentication settings. Interactive Entra requires a tenant, application, database and verified Azure SQL endpoint.', path: ['authentication'] })
 export type ConnectionConfig = z.infer<typeof connectionSchema>
 export type ConnectionProfile = Omit<ConnectionConfig, 'password' | 'accessToken' | 'sshSecrets'>
 export const profileSchema = connectionFields.omit({ password: true, accessToken: true, sshSecrets: true }).refine(hasEndpoint, { message: 'Oracle requires a service name. Embedded databases cannot use SSH.' })
@@ -52,7 +59,7 @@ export type SavedConnectionProfile = z.infer<typeof savedProfileSchema>
 const workspaceTabSchema = z.object({ id: idSchema, title: z.string().trim().min(1).max(255), sql: z.string().max(MAX_SQL_CHARACTERS), profile: profileSchema, profileId: idSchema.optional(), pinned: z.boolean().optional() }).strict()
 export type WorkspaceTab = z.infer<typeof workspaceTabSchema>
 export type TransactionState = 'idle' | 'transaction' | 'failed' | 'unknown'
-export interface SessionInfo { id: string; engine: DatabaseEngine; name: string; database: string; user: string; host: string; port: number; tls: boolean; transaction: TransactionState; autocommit?: boolean; version: string; mysqlSqlMode?: { noBackslashEscapes: boolean; ansiQuotes: boolean }; safety?: ConnectionSafety }
+export interface SessionInfo { id: string; engine: DatabaseEngine; name: string; database: string; user: string; host: string; port: number; tls: boolean; entraInteractive?: true; transaction: TransactionState; autocommit?: boolean; version: string; mysqlSqlMode?: { noBackslashEscapes: boolean; ansiQuotes: boolean }; safety?: ConnectionSafety }
 export interface Column { name: string; typeId: number; typeName?: string; displayEncoding?: 'hex' }
 export type Cell = string | null
 export interface ResultSet { index: number; statement: string; columns: Column[]; rows: Cell[][]; rowCount: number | null; command: string; truncated: boolean }
@@ -151,7 +158,16 @@ export interface DesktopApi {
   prepareActivityAction(request:import('./activity-control').PrepareActivityAction):Promise<import('./activity-control').ActivityActionReview>
   applyActivityAction(request:import('./activity-control').ApplyActivityAction):Promise<import('./activity-control').ActivityActionResult>
   inspectRollback(request:import('./rollback').RollbackRequest):Promise<import('./rollback').RollbackSnapshot>
+  preparePrincipalChange(request: import('./principal-changes').PreparePrincipalChange): Promise<import('./principal-changes').PrincipalChangeReview>
+  applyPrincipalChange(request: import('./principal-changes').ApplyPrincipalChange): Promise<import('./principal-changes').PrincipalChangeResult>
+  inspectPrincipals(request: import('./principals').PrincipalRequest): Promise<import('./principals').PrincipalSnapshot>
   inspectActivity(request:import('./activity').ActivityRequest):Promise<import('./activity').ActivitySnapshot>
+  inspectPerformance(sessionId: string): Promise<import('./performance').PerformanceSnapshot>
+  operationHistory(): Promise<import('./operation-history').OperationEntry[]>
+  onOperationHistoryChanged(listener: () => void): () => void
+  inspectScheduler(sessionId: string): Promise<import('./scheduler').SchedulerSnapshot>
+  prepareScheduleChange(request: import('./scheduler').PrepareScheduleChange): Promise<import('./scheduler').ScheduleReview>
+  applyScheduleChange(request: import('./scheduler').ApplyScheduleChange): Promise<import('./scheduler').ScheduleResult>
   saveActivity(snapshot:import('./activity').ActivitySnapshot):Promise<string|null>
   prepareQueryBuilder(request: import('./query-builder').PrepareBuilder): Promise<import('./query-builder').BuilderPreview>
   prepareMigration(request: import('./migrations').PrepareMigration): Promise<import('./migrations').MigrationPreview>
@@ -163,6 +179,8 @@ export interface DesktopApi {
 
   prepareSchemaChange(request: import('./schema-changes').PrepareSchemaChange): Promise<import('./schema-changes').SchemaChangePlan>
   applySchemaChange(request: import('./schema-changes').ApplySchemaChange): Promise<import('./schema-changes').SchemaChangeResult>
+  prepareAdministration(request: import('./database-administration').PrepareAdministration): Promise<import('./database-administration').AdministrationReview>
+  applyAdministration(request: import('./database-administration').ApplyAdministration): Promise<import('./database-administration').AdministrationResult>
   cancelSchemaChange(sessionId: string): Promise<{ requested: boolean }>
   inspectImport(source: import('./transfer').ImportSource): Promise<import('./transfer').ImportPreview>
   inspectDataFile(source: { file: string; format: 'csv' | 'tsv' | 'json' | 'jsonl' }): Promise<import('./transfer').DataFilePreview>
@@ -186,6 +204,10 @@ export interface DesktopApi {
   connectBackupTarget(jobId: string): Promise<SessionInfo>
   onBackupJob(listener: (job: import('./backup').BackupJob) => void): () => void
   onLayoutCommand(listener: (command: LayoutCommand) => void): () => void
+  onEntraSignIn(listener: (progress: EntraProgress) => void): () => void
+  cancelEntraSignIn(attemptId: string): Promise<void>
+  renewEntraSession(sessionId: string, attempt: EntraAttempt): Promise<void>
+  connectInteractive(config: ConnectionConfig, attempt: EntraAttempt): Promise<SessionInfo>
   connect(config: ConnectionConfig): Promise<SessionInfo>
   connectSavedPassword(profileId: string, config: ConnectionProfile, sshSecrets?: ConnectionConfig['sshSecrets']): Promise<SessionInfo>
   sessionSafety(sessionId: string): Promise<ConnectionSafety>

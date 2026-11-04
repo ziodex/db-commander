@@ -1,3 +1,14 @@
+import { planSqlServerPrincipalChange, sqlServerLoginIdentity } from '../principals/sqlserver-changes'
+import type { CatalogQuery } from '../catalog/common'
+import type { PrincipalPlan } from '../principals/reviews'
+import type { PreparePrincipalChange, PrincipalChangeResult } from '../shared/principal-changes'
+import { engineNames } from '../shared/database-engines'
+import type { PrincipalScope } from '../shared/principals'
+import { readSqlServerPrincipals } from '../principals/sqlserver'
+import type { PrincipalRequest } from '../shared/principals'
+import { planSqlServerAdministration, sqlServerAdministrationDatabase } from '../administration/sqlserver'
+import type { AdministrationPlan } from '../administration/reviews'
+import type { AdministrationChange, AdministrationResult } from '../shared/database-administration'
 import { failureSource } from '../language/execution'
 import type { ActivityObserver } from '../activity/control'
 import { readActivity } from '../activity/read'
@@ -38,7 +49,13 @@ export class SqlServerDriver implements DatabaseDriver {
     client.on('error', lost); client.on('end', lost)
     client.on('databaseChange', database => { session.info.database = database })
     try {
-      const [server]=await sqlServerQuery(client,'SELECT @@VERSION,@@SPID');session.info.version=server[0]!;session.nativeId=server[1]!
+      const interactive = config.authentication === 'entra-interactive'
+      const [server] = await sqlServerQuery(client, interactive ? 'SELECT @@VERSION,@@SPID,SUSER_SNAME()' : 'SELECT @@VERSION,@@SPID')
+      session.info.version = server[0]!; session.nativeId = server[1]!
+      if (interactive) {
+        session.info.entraInteractive = true
+        if (server[2]) session.info.user = server[2]
+      }
       await this.updateStatus(session)
       this.sessions.set(session.info.id, session)
       return { ...session.info }
@@ -205,6 +222,46 @@ export class SqlServerDriver implements DatabaseDriver {
         ...(this.engine === 'azure-sql' ? { notice: 'Lists databases visible in logical-server master that this account can open. Other contained databases require an explicit connection.' } : {}) }
     } finally { client.close() }
   }
+  private async withAdministration<T>(id: string, change: AdministrationChange, apply: boolean,
+    work: (client: SqlServerConnection, query: CatalogQuery, source: string) => Promise<T>): Promise<T> {
+    const session = this.session(id), source = session.info.database
+    const client = await openSqlServer({ ...session.config, database: sqlServerAdministrationDatabase(change, source) })
+    const timer = setTimeout(() => client.close(), apply ? 80_000 : 18_000)
+    const query: CatalogQuery = async (sql, values) => (await sqlServerBound(client, sql, values)).rows
+    try {
+      await query('SET IMPLICIT_TRANSACTIONS OFF; SET LOCK_TIMEOUT 5000;')
+      return await work(client, query, source)
+    } finally { clearTimeout(timer); client.close() }
+  }
+  prepareAdministration(id: string, change: AdministrationChange): Promise<AdministrationPlan> {
+    return this.withAdministration(id, change, false, (_client, query, source) => planSqlServerAdministration(query, this.engine, source, change))
+  }
+  applyAdministration(id: string, change: AdministrationChange, reviewed: AdministrationPlan, beforeDispatch: () => void): Promise<AdministrationResult> {
+    return this.withAdministration(id, change, true, async (client, query, source) => {
+      const fresh = await planSqlServerAdministration(query, this.engine, source, change)
+      if (fresh.fingerprint !== reviewed.fingerprint || fresh.sql !== reviewed.sql) {
+        throw new Error('The reviewed database or table changed. Refresh the catalog and prepare a new review.')
+      }
+      beforeDispatch()
+      let acknowledged = false
+      const unknown: AdministrationResult = {
+        status: 'unknown', message: 'The server did not confirm the reviewed effect. Inspect the current catalog and server activity before preparing another change.'
+      }
+      try {
+        for await (const frame of streamSqlServer(client, reviewed.sql).frames) {
+          if (frame.kind === 'error') throw frame.error
+          if (frame.kind === 'done') acknowledged = true
+        }
+        if (acknowledged && await fresh.verify()) return { status: 'applied', message: 'The server confirmed the reviewed operation.' }
+      } catch (error) {
+        const failure = error as { code?: string; number?: number }
+        if (!acknowledged && failure.code === 'EREQUEST' && [229, 262, 3702, 1801, 5030, 1222].includes(failure.number ?? 0)) {
+          return { status: 'rejected', message: `The server rejected the operation (${failure.number}). Check permissions, names and active database use.` }
+        }
+      }
+      return unknown
+    })
+  }
   activity(id:string, includeSql:boolean) { return this.withActivity(id,o=>readActivity(o.engine,o.database,o.currentSessionId,o.query,includeSql)) }
   activityId(id:string) { const session=this.session(id); return session.nativeId }
   invalidateActivity(id:string) { const session=this.sessions.get(id);if(!session||session.lost)return;session.lost=true;session.info.transaction='unknown';void this.emit({type:'session-lost',sessionId:id,message:'Session termination was requested. The connection is no longer usable; verify rollback and reconnect explicitly.'}) }
@@ -213,6 +270,96 @@ export class SqlServerDriver implements DatabaseDriver {
     const timer=setTimeout(()=>client.close(),15000)
     try { return await read({engine:this.engine,database,currentSessionId:session.nativeId,query:sql=>sqlServerQuery(client,sql,501)}) }
     finally { clearTimeout(timer);client.close() }
+  }
+  async inspectPrincipals(request: PrincipalRequest) {
+    const session = this.session(request.sessionId)
+    const database = this.engine === 'azure-sql' && request.scope === 'server' ? 'master' : session.info.database
+    const client = await openSqlServer({ ...session.config, database })
+    const timeout = setTimeout(() => client.close(), 15000)
+    try { return await readSqlServerPrincipals(async (sql, values) => (await sqlServerBound(client, sql, values)).rows, request) }
+    finally { clearTimeout(timeout); client.close() }
+  }
+  private async withPrincipalConnection<T>(
+    id: string, scope: PrincipalScope,
+    action: (query: CatalogQuery) => Promise<T>
+  ): Promise<T> {
+    const session = this.session(id)
+    const client = await openSqlServer({ ...session.config, database: scope === 'server' ? 'master' : session.info.database })
+    const timeoutError = new Error('The principal catalog operation timed out.')
+    let expired = false, timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => { expired = true; client.close(); reject(timeoutError) }, 30000)
+    })
+    const query: CatalogQuery = async (sql, values) => {
+      if (expired) throw timeoutError
+      return (await sqlServerBound(client, sql, values)).rows
+    }
+    try { return await Promise.race([action(query), timeout]) }
+    finally { clearTimeout(timer); client.close() }
+  }
+  preparePrincipalChange(request: PreparePrincipalChange): Promise<PrincipalPlan> {
+    const { change, sessionId } = request
+    if (!('engine' in change) || change.engine !== this.engine) throw new Error('Select a principal change for this connection’s engine.')
+    const login = (name: string) => this.withPrincipalConnection(sessionId, 'server', query => sqlServerLoginIdentity(query, name))
+    return this.withPrincipalConnection(sessionId, change.scope, async query => {
+      const { database, observer, sql, notes, fingerprint, requiresPassword } = await planSqlServerPrincipalChange(query, change, login)
+      return { database, observer, sql, notes, fingerprint, requiresPassword }
+    })
+  }
+  async applyPrincipalChange(
+    request: PreparePrincipalChange, retained: PrincipalPlan, beforeDispatch: () => void, beforeCommit: () => void, newPassword?: string
+  ): Promise<PrincipalChangeResult> {
+    const { change, sessionId } = request
+    if (!('engine' in change) || change.engine !== this.engine) throw new Error('Select a principal change for this connection’s engine.')
+    const engineName = engineNames[change.engine]
+    const login = (name: string) => this.withPrincipalConnection(sessionId, 'server', query => sqlServerLoginIdentity(query, name))
+    const unknown: PrincipalChangeResult = { status: 'unknown',
+      message: `${engineName} did not confirm the outcome. Refresh the principal catalog and verify the change before retrying.` }
+    let dispatched = false
+    try {
+      return await this.withPrincipalConnection(sessionId, change.scope, async query => {
+        await query('SET XACT_ABORT ON; SET LOCK_TIMEOUT 5000; BEGIN TRANSACTION;')
+        const [[lock]] = await query(`DECLARE @result int; EXEC @result = sys.sp_getapplock
+          @Resource = 'dbcommander.principals.v1', @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 5000;
+          SELECT @result;`)
+        if (!['0', '1'].includes(lock ?? '')) throw new Error('Another reviewed principal change is in progress. Prepare a new review.')
+        const fresh = await planSqlServerPrincipalChange(query, change, login)
+        if (fresh.fingerprint !== retained.fingerprint || fresh.sql !== retained.sql) {
+          throw new Error('The reviewed principal or permission changed. Refresh its details and prepare a new review.')
+        }
+        beforeDispatch()
+        let committing = false
+        try {
+          dispatched = true
+          if (fresh.requiresPassword && change.action === 'create-login') {
+            if (!newPassword) throw new Error('Supply the new login password.')
+            // The new password is a TDS parameter. Quote it on the server
+            // because CREATE LOGIN does not accept a parameter for PASSWORD.
+            await query(`DECLARE @statement nvarchar(max) = N'CREATE LOGIN ' + QUOTENAME(CONVERT(sysname, @p2))
+              + N' WITH PASSWORD = N' + QUOTENAME(CONVERT(sysname, @p1), NCHAR(39));
+              EXEC (@statement);`, [newPassword, change.name])
+          } else await query(retained.sql)
+          await fresh.verify()
+          beforeCommit()
+          committing = true
+          const [[count, state]] = await query('COMMIT TRANSACTION; SELECT @@TRANCOUNT, XACT_STATE();')
+          if (count !== '0' || state !== '0') return unknown
+          return { status: 'applied', message: `${engineName} verified and committed the reviewed principal change.` }
+        } catch (error) {
+          if (committing) return unknown
+          try {
+            const [[count, state]] = await query('IF XACT_STATE() <> 0 ROLLBACK TRANSACTION; SELECT @@TRANCOUNT, XACT_STATE();')
+            if (count !== '0' || state !== '0') return unknown
+            const reason = fresh.requiresPassword ? `${engineName} rejected the login change. Check your permissions and the server password policy.`
+              : error instanceof Error ? error.message : `${engineName} rejected the principal change.`
+            return { status: 'rolled-back', message: reason }
+          } catch { return unknown }
+        }
+      })
+    } catch (error) {
+      if (!dispatched) throw error
+      return unknown
+    }
   }
   async explore(id: string, object?: CatalogObject, diagram?: DiagramScope, page?: import('../catalog/paging').CatalogRead) {
     const session = this.session(id), client = await openSqlServer({ ...session.config, database: session.info.database })

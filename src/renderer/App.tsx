@@ -18,7 +18,9 @@ import { WorkspaceWindowsDialog } from './WorkspaceWindowsDialog'
 import { EditorSettingsDialog } from './EditorSettingsDialog'
 import { useApplicationPreferences } from './use-application-preferences'
 import { DEFAULT_EDITOR_SETTINGS } from '../shared/editor-settings'
+import { OperationHistoryDialog } from './OperationHistoryDialog'
 import { ActivityDialog } from './ActivityDialog'
+import { SecurityPrincipalsDialog } from './SecurityPrincipalsDialog'
 import { QueryBuilderDialog } from './QueryBuilderDialog'
 import { DataCompareDialog } from './DataCompareDialog'
 import { SchemaCompareDialog } from './SchemaCompareDialog'
@@ -31,8 +33,10 @@ import { ObjectInspector } from './ObjectInspector'
 import { ConnectionDialog } from './ConnectionDialog'
 import { ProfileList } from './ProfileList'
 import { profileConnectionStates } from './profile-connections'
+import { EntraSession } from './EntraSession'
 import { SessionSafetyBar } from './SessionSafetyBar'
 import { SchemaChangeDialog } from './SchemaChangeDialog'
+import { DatabaseAdministrationDialog } from './DatabaseAdministrationDialog'
 import { BackupDialog } from './BackupDialog'
 import { TransferDialog } from './TransferDialog'
 import { ResultTabs } from './ResultTabs'
@@ -95,6 +99,7 @@ export function App() {
   const sidebarWidth = clampSize(layout.sidebarWidth, bounds.sidebarMin, bounds.sidebarMax)
   const resultsHeight = clampSize(layout.resultsHeight, bounds.resultsMin, bounds.resultsMax)
 
+  const [principalsOpen, setPrincipalsOpen] = useState<{ tabId: string; sessionId: string; database: string; owner: HTMLElement } | null>(null)
   const [activityOpen,setActivityOpen]=useState<{tabId:string;sessionId:string}|null>(null)
   const [builderOpen,setBuilderOpen]=useState<{tabId:string;sessionId:string;table?:GridTable}|null>(null)
   const [dataCompareOpen,setDataCompareOpen]=useState<{tabId:string;sessionId:string;table?:GridTable}|null>(null)
@@ -102,6 +107,9 @@ export function App() {
   const [diagramOpen,setDiagramOpen]=useState<{tabId:string;sessionId:string}|null>(null)
 
   const [backupOpen, setBackupOpen] = useState(false)
+  const [backupJobId, setBackupJobId] = useState<string>()
+  const [operationsOpen, setOperationsOpen] = useState(false)
+  function closeBackup() { setBackupOpen(false); setBackupJobId(undefined) }
 
   const [transfer, setTransfer] = useState<{ tabId: string; sessionId?: string; sql: string; sourceLabel?: string } | null>(null)
   const transferJobs = useJobFeed(api.onTransferJob, api.transferJobs, job => {
@@ -132,6 +140,7 @@ export function App() {
   useLayoutEffect(() => { editorRef.current = editors.current.get(workspace.activeTabId) ?? null }, [workspace.activeTabId])
   const runRef = useRef<() => void>(() => {})
   const currentRunRef = useRef<() => void>(() => {})
+  const connectButton = useRef<HTMLButtonElement>(null)
   const tab = workspace.tabs.find(tab => tab.id === workspace.activeTabId)!
   const tabId = tab.id, sql = tab.sql, profile = tab.profile
   const state = states[tabId] ?? emptyTabState()
@@ -183,7 +192,8 @@ export function App() {
     run, runCurrent, runScript, exportCsv } = useQueryExecution({ api, runtime, tab, editorRef, sessions })
   const { appendSelect, openGrid, browseTable, saveColumnView, savedTableColumns, inspectGrid, backGrid, applyGrid, previewGrid } =
     useTableData({ api, runtime, workspace, tab, ready, readyRef, editors, sqlFiles, closeId, newTab, sessions, changeLayout, focusEditor })
-  const { objectView, setObjectView, schemaEditor, setSchemaEditor, inspectObject, savedDiagramLayouts, schemaChangeBlocked, prepareSchemaChange, applySchemaChange } =
+  const { objectView, setObjectView, schemaEditor, setSchemaEditor, inspectObject, savedDiagramLayouts, schemaChangeBlocked, prepareSchemaChange, applySchemaChange,
+    administration, setAdministration, prepareAdministration, applyAdministration } =
     useSchemaTools({ api, runtime, tabId, setHistory, sessions })
   const dialog = Boolean(dialogInfo)
   const profileLibrary = useProfileLibrary({ api, workspaceRef, changeWorkspace, persist, report, notice: setStatus,
@@ -334,6 +344,7 @@ export function App() {
   ]
   const workspaceTools = [
     { label: 'SQL project files', action: () => void sqlFiles.showProject(), disabled: sqlFiles.busy || Boolean(closeId) },
+    { label: 'Operation history', action: () => setOperationsOpen(true), disabled: !ready },
     { label: 'Workspace windows', action: () => setWindowsOpen(true), disabled: !ready },
     { label: 'Preferences', action: () => setEditorSettingsOpen(true), disabled: !ready }
   ]
@@ -342,6 +353,17 @@ export function App() {
     { label: 'New shared query tab', title: 'Shares this connection, transaction and temporary objects.', disabled: !ready || !session || workspace.tabs.length >= MAX_TABS || sqlFiles.busy || Boolean(closeId), action: () => newTab() },
     { label: 'New independent connection', title: 'Starts a separate transaction and temporary-object scope. In-memory databases start empty.', disabled: !ready || !session || workspace.tabs.length >= MAX_TABS || sqlFiles.busy || Boolean(closeId), action: () => newTab(undefined, undefined, 'independent') }
   ]
+
+  async function principalOperation<T>(sessionId: string, operation: () => Promise<T>): Promise<T> {
+    const current = statesRef.current[tabId]
+    if (current?.session?.id !== sessionId || tabOperationBusy(current)) throw new Error('Wait for the connection to become idle.')
+    patchState(tabId, { schemaLoading: true })
+    try { return await operation() }
+    finally {
+      if (statesRef.current[tabId]?.session?.id === sessionId) patchState(tabId, { schemaLoading: false })
+      cleanupLostSession(sessionId)
+    }
+  }
 
   return <div className="app-shell">
     <TitleBar api={api} appearance={theme}><ActionMenu label="Workspace" items={workspaceTools}/><div className="panel-controls" role="group" aria-label="Panel layout"><button id="toggle-sidebar" aria-label="Toggle sidebar" aria-pressed={layout.sidebarVisible} title={`${layout.sidebarVisible ? 'Hide' : 'Show'} sidebar (Cmd/Ctrl+B)`} disabled={!ready} onClick={() => layoutCommand('toggle-sidebar')}><PanelLeft size={16} /></button><button id="toggle-results" aria-label="Toggle results" aria-pressed={layout.resultsVisible} title={`${layout.resultsVisible ? 'Hide' : 'Show'} results (Cmd/Ctrl+J)`} disabled={!ready} onClick={() => layoutCommand('toggle-results')}><PanelBottom size={16} /></button></div><button className="command-button" aria-label="Commands" title="Search commands (Cmd/Ctrl+K)" onClick={() => setPalette(true)}><Search size={13} />Commands<kbd>{shortcutKey} K</kbd></button></TitleBar>
@@ -359,12 +381,13 @@ export function App() {
             onEdit={savedProfile => { setDialogError(''); setDialogInfo({ tabId, profile: savedProfile.config, profileId: savedProfile.id, saveOnly: true }) }}
             onDelete={savedProfile => { setDialogError(''); setDeleteProfileId(savedProfile.id) }}
             onFavorite={(id, favorite) => changeWorkspace(previous => ({ ...previous, profiles: previous.profiles.map(profile => profile.id === id ? { ...profile, config: { ...profile.config, favorite } } : profile) }))}/>
-          {session ? <DatabaseExplorer readCatalog={readCatalog} catalogPaused={closingTabs} browseDisabled={!ready || sqlFiles.busy || Boolean(closeId) || workspace.tabs.length >= MAX_TABS} onActivity={()=>setActivityOpen({tabId,sessionId:session.id})} onBuilder={table=>setBuilderOpen({tabId,sessionId:session.id,table})} onCompareData={table=>session&&setDataCompareOpen({tabId,sessionId:session.id,table})} key={tabId} state={state} onBackup={()=>setBackupOpen(true)} onCompare={()=>setCompareOpen({tabId,sessionId:session.id})} onDiagram={() => setDiagramOpen({tabId,sessionId:session.id})} onSchemaChange={target => setSchemaEditor({ tabId, sessionId: session.id, target })} onInspect={object => void inspectObject(object)} onRefreshDatabases={() => void refreshDatabases()} onRefreshSchema={() => void refreshTables()} onSwitch={requestSwitch} onFilter={setTableSearch} onAppendSelect={appendSelect} onEdit={table => void openGrid(table)} onBrowse={table => void browseTable(table)} /> : <p className="sidebar-description">Connect to load databases.</p>}
+          {session ? <DatabaseExplorer readCatalog={readCatalog} catalogPaused={closingTabs} browseDisabled={!ready || sqlFiles.busy || Boolean(closeId) || workspace.tabs.length >= MAX_TABS} onActivity={()=>setActivityOpen({tabId,sessionId:session.id})} onPrincipals={owner => setPrincipalsOpen({ tabId, sessionId: session.id, database: session.database, owner })} onBuilder={table=>setBuilderOpen({tabId,sessionId:session.id,table})} onCompareData={table=>session&&setDataCompareOpen({tabId,sessionId:session.id,table})} key={tabId} state={state} onBackup={()=>setBackupOpen(true)} onCompare={()=>setCompareOpen({tabId,sessionId:session.id})} onDiagram={() => setDiagramOpen({tabId,sessionId:session.id})} onSchemaChange={target => setSchemaEditor({ tabId, sessionId: session.id, target })} onAdministration={(target, fallback) => setAdministration({ tabId, session, target, fallback })} onInspect={object => void inspectObject(object)} onRefreshDatabases={() => void refreshDatabases()} onRefreshSchema={() => void refreshTables()} onSwitch={requestSwitch} onFilter={setTableSearch} onAppendSelect={appendSelect} onEdit={table => void openGrid(table)} onBrowse={table => void browseTable(table)} /> : <p className="sidebar-description">Connect to load databases.</p>}
         </>}
       </aside>
       {layout.sidebarVisible && <Splitter orientation="vertical" label="Resize sidebar" controls="workspace-sidebar" value={sidebarWidth} preferredValue={layout.sidebarWidth} min={bounds.sidebarMin} max={bounds.sidebarMax} disabled={!ready}
         onChange={sidebarWidth => changeLayout(layout => ({ ...layout, sidebarWidth }))} onToggle={() => layoutCommand('toggle-sidebar')} onReset={() => changeLayout(layout => ({ ...layout, sidebarWidth: DEFAULT_LAYOUT.sidebarWidth }))} />}
       <main className="main-workspace">
+        <EntraSession sessionId={session?.entraInteractive ? session.id : undefined}/>
         {session && <SessionSafetyBar key={session.id} session={session} onChange={safety => { const current = statesRef.current[tabId]; if (current.session?.id === session.id) patchState(tabId, { session: { ...current.session, safety } }) }}/>}
         <div className="editor-tabs"><QueryTabStrip tabs={workspace.tabs} activeId={tabId} states={states} disabled={!ready || sqlFiles.busy || Boolean(closeId)} closeDisabled={sqlFiles.busy}
           dirty={sqlFiles.dirty} path={id => sqlFiles.files[id]?.path} onSelect={activateEditor} onClose={requestClose} onSplit={splitEditors} splitDisabled={(workspace.editorViews?.tabIds.length ?? 1) >= MAX_EDITOR_VIEWS}
@@ -372,7 +395,7 @@ export function App() {
           onMove={(id, index) => changeWorkspace(previous => ({ ...previous, tabs: moveTab(previous.tabs, id, index) }))}/>
         <button aria-label="New query tab" title="New query tab (Cmd/Ctrl+T) · Shares the current connection" disabled={!ready || sqlFiles.busy || Boolean(closeId) || workspace.tabs.length >= MAX_TABS} onClick={() => newTab()}><Plus size={16} /></button><ActionMenu label="Connection tabs" items={connectionTabTools}/><ActionMenu label="Editor views" items={editorViewTools}/></div>
         <ConnectionSessionBar tabs={workspace.tabs} states={states} activeId={tabId} onSwitch={activateEditor}/>
-        <div className="query-toolbar"><button className="run-button" title={`Run selected SQL, or the entire script when nothing is selected (${keyHint('run')})`} disabled={!session || operationBusy} onClick={() => void run()}><Play size={13} fill="currentColor" />Run SQL{editorKeys.run !== 'none' && <kbd>{keyHint('run')}</kbd>}</button><button className="stop-button" disabled={!running} onClick={() => { if (session) { setStatus('Cancellation requested'); void api.cancel(session.id).catch(report) } }}><Square size={12} />Stop</button><button aria-label="Format SQL" title={`Format selection or document (${keyHint('format')})`} onClick={() => void formatEditor(editorRef.current)}>Format SQL</button><ActionMenu key={tabId} label="Query tools" items={queryTools}/><span className="toolbar-separator" /><span className="target-label" title={session?.database || 'No database selected'}><Database size={13} /><span>{session ? session.database || 'Server connection' : 'No connection'}</span></span><div className="tabs-spacer" />{session ? <div className="transaction-controls"><span role="status" aria-label="Transaction status" className={`transaction-badge ${session.transaction}`}>{session.transaction === 'idle' ? (session.autocommit === false ? 'Manual commit mode' : 'Autocommit') : session.transaction === 'failed' ? 'Transaction failed' : session.transaction === 'transaction' ? 'In transaction' : 'State unknown'}</span>{inTransaction ? <><button disabled={operationBusy || session.transaction === 'failed' || session.transaction === 'unknown'} onClick={() => void run('COMMIT')}>Commit</button><button disabled={operationBusy} onClick={() => void run('ROLLBACK')}>Rollback</button></> : <button disabled={operationBusy} onClick={() => void run(session.engine === 'oracle' ? 'SAVEPOINT DBCOMMANDER_BEGIN' : ['sqlserver', 'azure-sql'].includes(session.engine) ? 'BEGIN TRANSACTION' : 'BEGIN')}>Begin</button>}<button title="Disconnect" aria-label="Disconnect" disabled={connectionBlocked} onClick={disconnect}><Unplug size={14} /></button></div> : <button className="connect-button" onClick={() => setDialog(true)}><Plus size={13} />Connect database</button>}</div>
+        <div className="query-toolbar"><button className="run-button" title={`Run selected SQL, or the entire script when nothing is selected (${keyHint('run')})`} disabled={!session || operationBusy} onClick={() => void run()}><Play size={13} fill="currentColor" />Run SQL{editorKeys.run !== 'none' && <kbd>{keyHint('run')}</kbd>}</button><button className="stop-button" disabled={!running} onClick={() => { if (session) { setStatus('Cancellation requested'); void api.cancel(session.id).catch(report) } }}><Square size={12} />Stop</button><button aria-label="Format SQL" title={`Format selection or document (${keyHint('format')})`} onClick={() => void formatEditor(editorRef.current)}>Format SQL</button><ActionMenu key={tabId} label="Query tools" items={queryTools}/><span className="toolbar-separator" /><span className="target-label" title={session?.database || 'No database selected'}><Database size={13} /><span>{session ? session.database || 'Server connection' : 'No connection'}</span></span><div className="tabs-spacer" />{session ? <div className="transaction-controls"><span role="status" aria-label="Transaction status" className={`transaction-badge ${session.transaction}`}>{session.transaction === 'idle' ? (session.autocommit === false ? 'Manual commit mode' : 'Autocommit') : session.transaction === 'failed' ? 'Transaction failed' : session.transaction === 'transaction' ? 'In transaction' : 'State unknown'}</span>{inTransaction ? <><button disabled={operationBusy || session.transaction === 'failed' || session.transaction === 'unknown'} onClick={() => void run('COMMIT')}>Commit</button><button disabled={operationBusy} onClick={() => void run('ROLLBACK')}>Rollback</button></> : <button disabled={operationBusy} onClick={() => void run(session.engine === 'oracle' ? 'SAVEPOINT DBCOMMANDER_BEGIN' : ['sqlserver', 'azure-sql'].includes(session.engine) ? 'BEGIN TRANSACTION' : 'BEGIN')}>Begin</button>}<button title="Disconnect" aria-label="Disconnect" disabled={connectionBlocked} onClick={disconnect}><Unplug size={14} /></button></div> : <button ref={connectButton} className="connect-button" onClick={() => setDialog(true)}><Plus size={13} />Connect database</button>}</div>
         {error && <div className="error-banner" role="alert" aria-label="Application error"><span>{error}</span>{state.execution && state.failure && <button className="sql-error-link" disabled={!errorSource(state.execution, state.failure, sql)} title={state.execution.document !== sql ? 'SQL changed since this execution. Run again to locate the error.' : 'Select the submitted SQL that failed; no SQL will be executed.'} onClick={showSqlError}>{state.execution.document !== sql ? 'SQL changed since execution' : state.failure.scope === 'statement' ? 'Go to failed statement' : state.failure.scope === 'batch' ? 'Go to failed batch' : 'Go to executed SQL'}</button>}<button aria-label="Dismiss error" onClick={() => setError('')}><X size={15} /></button></div>}
         {sqlFiles.notice && <div className="sql-file-notice" role="status">{sqlFiles.notice}</div>}
         {sqlFiles.files[tabId] && <div className="sql-file-bar" aria-label="SQL file status"><span title={sqlFiles.files[tabId].path}>{sqlFiles.files[tabId].path}</span><strong>{sqlFiles.dirty(tab) ? 'Unsaved changes' : 'Saved to file'}</strong></div>}
@@ -408,7 +431,20 @@ export function App() {
       baseline={planBaseline} onBaseline={pinPlan} onRun={explainQuery} onClose={() => setExplainText(null)} />}
     {transfer?.tabId === tabId && transfer.sessionId === session?.id && <TransferDialog key={`${tabId}:${transfer.sourceLabel ?? 'editor'}`} session={session} sources={connectionGroups(workspace.tabs, states).map(group => ({ session: group.session, title: group.tabs[0].title, disabled: group.tabs.some(tab => tabOperationBusy(states[tab.id]) || Boolean(states[tab.id].gridChanges.length)) || group.session.transaction !== 'idle' || group.session.engine !== 'oracle' && group.session.autocommit === false }))} onPrepareTable={prepareSchemaChange} onApplyTable={applySchemaChange} onCommitTable={() => void run('COMMIT')} tables={state.tables.filter(table => table.kind === 'table')} sql={transfer.sql} sourceLabel={transfer.sourceLabel} jobs={transferJobs} blocked={!session || tabOperationBusy(state) || Boolean(state.gridChanges.length) || inTransaction || session.engine !== 'oracle' && session.autocommit === false} onClose={() => setTransfer(null)} />}
     {schemaEditor?.tabId === tabId && schemaEditor.sessionId === session?.id && session && <SchemaChangeDialog key={`${tabId}:${session.id}`} session={session} snapshot={state.schema} initialTarget={schemaEditor.target} blocked={schemaChangeBlocked()} onClose={() => setSchemaEditor(null)} onPrepare={prepareSchemaChange} onApply={applySchemaChange} />}
+    {administration?.tabId === tabId && <DatabaseAdministrationDialog key={administration.session.id}
+      session={session?.id === administration.session.id ? session : administration.session}
+      target={administration.target} fallbackFocus={administration.fallback}
+      blocked={session?.id === administration.session.id ? schemaChangeBlocked() : 'Close the dialog and reconnect before preparing another operation.'}
+      onClose={() => {
+        setAdministration(null)
+        if (!session) requestAnimationFrame(() => connectButton.current?.focus())
+      }} onPrepare={prepareAdministration} onApply={applyAdministration} />}
     {activityOpen?.tabId===tabId && activityOpen.sessionId===session?.id && <ActivityDialog key={session.id} session={session} onClose={()=>setActivityOpen(null)}/>}
+    {principalsOpen?.tabId === tabId && principalsOpen.sessionId === session?.id && principalsOpen.database === session.database &&
+      <SecurityPrincipalsDialog key={session.id} session={session} opener={principalsOpen.owner} onClose={() => setPrincipalsOpen(null)}
+        load={request => principalOperation(request.sessionId, () => api.inspectPrincipals(request))}
+        prepare={request => principalOperation(request.sessionId, () => api.preparePrincipalChange(request))}
+        apply={request => principalOperation(request.sessionId, () => api.applyPrincipalChange(request))} />}
     {builderOpen?.tabId===tabId && builderOpen.sessionId===session?.id && <QueryBuilderDialog key={session.id} session={session} snapshot={state.schema} initialTable={builderOpen.table} blocked={schemaChangeBlocked() ?? (!session.database ? 'Select a database before reviewing builder SQL.' : undefined)} onClose={()=>setBuilderOpen(null)} onRefresh={async()=>{await refreshTables(tabId,session.id);const error=statesRef.current[tabId]?.schemaError;if(error)throw new Error(error)}} onReview={async query=>{
       const id=session.id;patchState(tabId,{schemaLoading:true})
       try{return await api.prepareQueryBuilder({sessionId:id,query})}finally{if(statesRef.current[tabId]?.session?.id===id)patchState(tabId,{schemaLoading:false});cleanupLostSession(id)}
@@ -433,8 +469,11 @@ export function App() {
     }} onOpen={sql=>{if(workspace.tabs.length>=MAX_TABS||workspace.tabs.reduce((size,tab)=>size+tab.sql.length,sql.length)>5_000_000){report(new Error('Close a tab or shorten SQL buffers before opening comparison SQL.'));return};setCompareOpen(null);newTab(undefined,{sql,title:'schema-comparison.sql'})}}/>}
     {diagramOpen?.tabId===tabId && diagramOpen.sessionId===session?.id && <DiagramDialog key={session.id} initialTables={state.schema?.catalog?.objects??[]} title={`${session.name} · ${session.database}`} savedLayouts={savedDiagramLayouts()} onClose={()=>setDiagramOpen(null)} load={async scope=>{const id=session.id;patchState(tabId,{schemaLoading:true});try{return await api.diagram({sessionId:id,...scope})}finally{if(statesRef.current[tabId]?.session?.id===id)patchState(tabId,{schemaLoading:false});cleanupLostSession(id)}}}/>}
     {objectView && objectView.tabId === tabId && objectView.sessionId === session?.id && <ObjectInspector view={objectView} session={session} blocked={schemaChangeBlocked()} onPrepare={prepareSchemaChange} onApply={applySchemaChange} onClose={() => setObjectView(null)} onRefresh={() => void inspectObject(objectView.object)} onOpen={(sql, title) => { if (workspace.tabs.length >= MAX_TABS || workspace.tabs.reduce((size, tab) => size + tab.sql.length, sql.length) > 5_000_000) { setObjectView({ ...objectView, error: 'Close a query tab or save and shorten a SQL buffer before opening this definition. The workspace supports 20 tabs and 5 MB of SQL.' }); return }; setObjectView(null); newTab(undefined, { sql, title }) }} />}
-    {backupOpen && <BackupDialog key={session?.id ?? 'disconnected'} session={session} jobs={backupJobs} blocked={!session || tabOperationBusy(state) || Boolean(state.gridChanges.length) || inTransaction || session.engine !== 'oracle' && session.autocommit === false} canConnect={job => ready && !sqlFiles.busy && !closeId && workspace.tabs.length < MAX_TABS && Object.values(states).some(value => value.session?.id === job.sessionId && !value.closing && !value.connecting && !value.switching)} onConnect={job => { const opened = newTab(undefined, { title: 'Restored database.sql', sql: '', restored: job }, 'independent'); if (opened) setBackupOpen(false) }} onClose={() => setBackupOpen(false)} />}
-    {dialogInfo && <ConnectionDialog key={`${dialogInfo.tabId}:${dialogInfo.saveOnly}`} profile={dialogInfo.profile} profileId={dialogInfo.profileId} saveOnly={dialogInfo.saveOnly} busy={Boolean(states[dialogInfo.tabId]?.connecting) || profileBusy} error={dialogError} onClose={() => setDialog(false)} onConnect={async (config, save, choice) => { await connect(config, save, undefined, choice) }} onSave={saveProfile} />}
+    {operationsOpen && <OperationHistoryDialog onClose={() => setOperationsOpen(false)} onBackup={id => {
+      setOperationsOpen(false); setBackupJobId(id); setBackupOpen(true)
+    }}/>}
+    {backupOpen && <BackupDialog initialJobId={backupJobId} key={session?.id ?? 'disconnected'} session={session} jobs={backupJobs} blocked={!session || tabOperationBusy(state) || Boolean(state.gridChanges.length) || inTransaction || session.engine !== 'oracle' && session.autocommit === false} canConnect={job => ready && !sqlFiles.busy && !closeId && workspace.tabs.length < MAX_TABS && Object.values(states).some(value => value.session?.id === job.sessionId && !value.closing && !value.connecting && !value.switching)} onConnect={job => { const opened = newTab(undefined, { title: 'Restored database.sql', sql: '', restored: job }, 'independent'); if (opened) closeBackup() }} onClose={closeBackup} />}
+    {dialogInfo && <ConnectionDialog key={`${dialogInfo.tabId}:${dialogInfo.saveOnly}`} profile={dialogInfo.profile} profileId={dialogInfo.profileId} saveOnly={dialogInfo.saveOnly} busy={Boolean(states[dialogInfo.tabId]?.connecting) || profileBusy} error={dialogError} onClose={() => setDialog(false)} onConnect={async (config, save, choice, attempt) => { await connect(config, save, undefined, choice, attempt) }} onSave={saveProfile} />}
     {profileLibrary.preview && <ProfileImportDialog preview={profileLibrary.preview} existing={workspace.profiles} busy={profileLibrary.busy} onImport={profileLibrary.apply} onClose={profileLibrary.close}/>}
     {connectionWarning && <ModalDialog className="confirmation-dialog" aria-label="Connection failed" onDismiss={() => setConnectionWarning(null)}>
       <h2>Could not connect to {connectionWarning.name}</h2><p role="alert">{connectionWarning.error}</p>

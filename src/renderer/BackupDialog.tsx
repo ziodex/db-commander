@@ -7,14 +7,14 @@ import { BackupSetup, type BackupDraft } from './BackupSetup'
 import { BackupChecks } from './BackupChecks'
 import { BackupJobDetails } from './BackupJobDetails'
 
-export function BackupDialog({ session, jobs, blocked, onClose, onConnect, canConnect }: {
-  session: SessionInfo | null; jobs: BackupJob[]; blocked: boolean; onClose(): void; onConnect?(job: BackupJob): void; canConnect?(job: BackupJob): boolean
+export function BackupDialog({ session, jobs, initialJobId, blocked, onClose, onConnect, canConnect }: {
+  session: SessionInfo | null; jobs: BackupJob[]; initialJobId?: string; blocked: boolean; onClose(): void; onConnect?(job: BackupJob): void; canConnect?(job: BackupJob): boolean
 }) {
   const [draft, setDraft] = useState<BackupDraft>({ action: 'backup', artifact: '', target: '', directory: 'DATA_PUMP_DIR', sourceSchema: session?.user.toUpperCase() ?? '', toolDirectory: '', content: 'all' })
   const [review, setReview] = useState<BackupRequest | null>(null), [inspection, setInspection] = useState<BackupInspection | null>(null)
   const [trusted, setTrusted] = useState(false), [checking, setChecking] = useState(false), [starting, setStarting] = useState(false)
   const [choosing, setChoosing] = useState(false)
-  const [selected, setSelected] = useState<string | null>(null), [error, setError] = useState(''), [filter, setFilter] = useState(''), [status, setStatus] = useState('all')
+  const [selected, setSelected] = useState<string | null>(initialJobId ?? null), [error, setError] = useState(''), [filter, setFilter] = useState(''), [status, setStatus] = useState('all')
   const epoch = useRef(0), reviewHeading = useRef<HTMLHeadingElement>(null)
   useEffect(() => () => { epoch.current++ }, [])
   useEffect(() => { if (review) reviewHeading.current?.focus() }, [review])

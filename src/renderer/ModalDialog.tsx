@@ -2,18 +2,20 @@ import { useLayoutEffect, useRef, type ComponentPropsWithoutRef } from 'react'
 
 /** Native modality makes the background inert; retain a predictable keyboard
  * loop and return to the invoking control when the dialog is removed. */
-export function ModalDialog({ onDismiss, onKeyDown, children, className = '', ...props }: ComponentPropsWithoutRef<'dialog'> & { onDismiss(): void }) {
+export function ModalDialog({ onDismiss, onKeyDown, children, className = '', fallbackFocus, ...props }: ComponentPropsWithoutRef<'dialog'> & { onDismiss(): void; fallbackFocus?: HTMLElement | null }) {
   const ref = useRef<HTMLDialogElement>(null)
   const previous = useRef(document.activeElement as HTMLElement | null)
+  const fallback = useRef(fallbackFocus)
   useLayoutEffect(() => {
-    const element = ref.current!, trigger = previous.current
+    const element = ref.current!, trigger = previous.current, alternative = fallback.current
     element.showModal()
     return () => {
       element.close()
       // A confirmation may disable its trigger until this React commit ends.
       // Restore after it is re-enabled, without stealing focus from a new dialog.
       queueMicrotask(() => {
-        if (trigger?.isConnected && (document.activeElement === document.body || element.contains(document.activeElement))) trigger.focus()
+        const target = trigger?.isConnected ? trigger : alternative
+        if (target?.isConnected && (document.activeElement === document.body || element.contains(document.activeElement))) target.focus()
       })
     }
   }, [])

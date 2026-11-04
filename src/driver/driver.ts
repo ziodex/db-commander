@@ -2,18 +2,28 @@ import type { ConnectionConfig, DatabaseEvent, ResultSet, RunRequest, SchemaTabl
 import { open } from 'node:fs/promises'
 import { publishFile } from '../backup/files'
 import { csvCell } from '../shared/sql/common'
+import type { AdministrationChange, AdministrationResult } from '../shared/database-administration'
+import type { AdministrationPlan } from '../administration/reviews'
 
 export type Emit = (event: DatabaseEvent) => void | Promise<void>
 export type Completion = Extract<DatabaseEvent, { type: 'complete' }>
 /** Host-only streaming mode. The public run schema never accepts this flag. */
 export type DriverRunRequest = RunRequest & { fullExport?: boolean; bound?: ReturnType<typeof import('../shared/parameters').compileParameters> }
 export interface DatabaseDriver {
+  preparePrincipalChange?(request: import('../shared/principal-changes').PreparePrincipalChange): Promise<import('../principals/reviews').PrincipalPlan>
+  applyPrincipalChange?(
+    request: import('../shared/principal-changes').PreparePrincipalChange, plan: import('../principals/reviews').PrincipalPlan,
+    beforeDispatch: () => void, beforeCommit: () => void, newPassword?: string
+  ): Promise<import('../shared/principal-changes').PrincipalChangeResult>
+  inspectPrincipals?(request: import('../shared/principals').PrincipalRequest): Promise<import('../shared/principals').PrincipalSnapshot>
   withActivity?<T>(id:string, read:(observer:import('../activity/control').ActivityObserver)=>Promise<T>):Promise<T>
   activityId?(id:string):string
   invalidateActivity?(id:string):void
   activity?(id:string, includeSql:boolean): Promise<import('../shared/activity').ActivitySnapshot>
   backup?(request: import('../shared/backup').BackupRequest, context: import('../backup/context').BackupContext): Promise<void>
   listDatabases?(id: string): Promise<import('../shared/contracts').DatabaseCatalog>
+  prepareAdministration?(id: string, change: AdministrationChange): Promise<AdministrationPlan>
+  applyAdministration?(id: string, change: AdministrationChange, reviewed: AdministrationPlan, beforeDispatch: () => void): Promise<AdministrationResult>
   editGrid(request: import('../shared/transfer').GridOperation, context?: import('../shared/transfer').ImportContext): Promise<GridResponse>
   connect(config: ConnectionConfig): Promise<SessionInfo>
   disconnect(id: string): Promise<void>
