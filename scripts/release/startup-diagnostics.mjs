@@ -40,13 +40,19 @@ export function captureStartupDiagnostics(app, directory) {
   return async () => ({ stderr, probe: await app.evaluate(async ({ app, utilityProcess }, directory) => {
     const path = process.getBuiltinModule('path')
     const entry = path.join(app.getAppPath(), 'out/main/database-host.cjs')
+    const created = process.getCreationTime()
+    if (process.platform === 'win32' && created === null) return { error: 'Cannot establish the diagnostic Windows owner identity.' }
+    const args = [path.join(directory, 'startup-probe'), String(process.pid), String(Math.floor(created ?? 0))]
     return new Promise(resolve => {
-      const child = utilityProcess.fork(entry, [directory], { stdio: 'pipe' })
+      const child = utilityProcess.fork(entry, args, { stdio: 'pipe' })
       let stderr = '', settled = false
       const finish = result => { if (settled) return; settled = true; clearTimeout(timer); child.kill(); resolve({ entry, stderr, ...result }) }
       const timer = setTimeout(() => finish({ timeout: true }), 10000)
       child.stdout?.resume(); child.stderr?.on('data', chunk => { stderr = (stderr + chunk.toString()).slice(-16000) })
-      child.on('message', message => { if (message.ready) finish({ ready: true }) })
+      child.on('message', message => {
+        if (message.ready) finish({ ready: true })
+        else if (message.startupError) finish({ startupError: message.startupError })
+      })
       // Let the pipe deliver output written immediately before the exit event.
       child.on('exit', code => setTimeout(() => finish({ exitCode: code }), 50))
     })

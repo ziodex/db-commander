@@ -55,10 +55,22 @@ async function killHost(app: ElectronApplication) {
   })
 }
 
-function descendants(parent: number): number[] {
-  const records: { pid: number; parent: number }[] = process.platform === 'win32'
-    ? JSON.parse(execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'Get-CimInstance Win32_Process -Property ProcessId,ParentProcessId -ErrorAction Stop | Select-Object ProcessId,ParentProcessId | ConvertTo-Json -Compress'], { encoding: 'utf8', timeout: 10_000 })).map((item: { ProcessId: number; ParentProcessId: number }) => ({ pid: item.ProcessId, parent: item.ParentProcessId }))
-    : execFileSync('ps', ['-axo', 'pid=,ppid='], { encoding: 'utf8', timeout: 10_000 }).trim().split('\n').map(line => { const [pid, parent] = line.trim().split(/\s+/).map(Number); return { pid, parent } })
+function buildWindowsProcessSnapshot(directory: string): string {
+  const executable = join(directory, 'windows-process-snapshot.exe')
+  const compiler = join(process.env.SystemRoot!, 'Microsoft.NET/Framework64/v4.0.30319/csc.exe')
+  execFileSync(compiler, ['/nologo', '/target:exe', '/platform:x64', `/out:${executable}`, resolve('tests/desktop/fixtures/windows-process-snapshot.cs')], { windowsHide: true, timeout: 30_000 })
+  return executable
+}
+
+function descendants(parent: number, windowsSnapshot?: string): number[] {
+  const command = windowsSnapshot ?? 'ps'
+  const args = windowsSnapshot ? [] : ['-axo', 'pid=,ppid=']
+  const output = execFileSync(command, args, { encoding: 'utf8', timeout: 10_000, windowsHide: true })
+  const records = output.trim().split(/\r?\n/).map(line => {
+    const [pid, parent] = line.trim().split(/\s+/).map(Number)
+    return { pid, parent }
+  })
+  expect(records.some(item => item.pid === parent)).toBe(true)
   const owned = new Set([parent])
   let previous = 0
   while (owned.size !== previous) { previous = owned.size; for (const item of records) if (owned.has(item.parent)) owned.add(item.pid) }
@@ -181,6 +193,7 @@ for (const engine of ['sqlite', 'duckdb'] as const) test(`application crash ${en
   let owned: number[] = []
   let databaseProcessesExited = false
   try {
+    const windowsSnapshot = process.platform === 'win32' ? buildWindowsProcessSnapshot(directory) : undefined
     let launched = await launch(directory); app = launched.app
     const page = launched.page
     await connect(app, page, engine, file, 'create')
@@ -192,7 +205,7 @@ for (const engine of ['sqlite', 'duckdb'] as const) test(`application crash ${en
     // with the long native query; retain the existing ten-second probe budget.
     const processes = await app.evaluate(({ app }) => ({ main: process.pid, hosts: app.getAppMetrics().filter(item => item.name === 'Db Commander database host').map(item => item.pid) }))
     expect(processes.hosts).toHaveLength(1)
-    const capturedAt = Date.now(), workers = descendants(processes.hosts[0]); owned = [...processes.hosts, ...workers]
+    const capturedAt = Date.now(), workers = descendants(processes.hosts[0], windowsSnapshot); owned = [...processes.hosts, ...workers]
     // Windows also owns one kernel-handle guard; it cannot stand in for the
     // separate SQLite execution process required by this assertion.
     if (engine === 'sqlite') expect(workers.length).toBeGreaterThan(process.platform === 'win32' ? 1 : 0)

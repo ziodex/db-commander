@@ -1,6 +1,6 @@
 # Db Commander product roadmap
 
-Updated **4 November 2026** against development and the A1 work. Qualification remains scoped to the evidence below.
+Updated **4 November 2026** for the 0.2.5 beta qualification. Qualification remains scoped to the evidence below.
 
 ## Product goal
 
@@ -53,17 +53,16 @@ Complete the confirmed correctness fixes first, then improve daily navigation an
 
 | ID | Deliverable | Acceptance criteria | Status |
 | --- | --- | --- | --- |
-| A1 | Manage security principals | Inspect and manage users/logins/roles/grants using each engine's privilege model. Preview changes and surface inherited/effective permissions and visibility limits. | Complete · locally qualified |
-| A2 | Manage database lifecycle and maintenance | Add reviewed database create/rename/drop operations, supported maintenance/statistics/index tools, and richer backup/restore workflows. Use engine-specific capabilities and accurate transaction/permission reporting. | Complete · local macOS and driver validation |
-| A3 | Add operational diagnostics | Extend existing sessions/locks tooling with performance diagnostics, engine-specific job/schedule management where supported, and a unified operation/progress history. | Complete · local validation |
-| A4 | Complete authentication workflows | Add interactive Entra sign-in and renewal, Windows integrated authentication where supported, and separately qualified cloud/network paths. Document each supported authentication/platform combination. | Implemented · Windows integrated sign-in verified · live Azure qualification pending |
+| A1 | Manage security principals | Inspect and manage users/logins/roles/grants using each engine's privilege model. Preview changes and surface inherited/effective permissions and visibility limits. | Complete · merged |
+| A2 | Manage database lifecycle and maintenance | Add reviewed database create/rename/drop operations, supported maintenance/statistics/index tools, and richer backup/restore workflows. Use engine-specific capabilities and accurate transaction/permission reporting. | Complete · merged |
+| A3 | Add operational diagnostics | Extend existing sessions/locks tooling with performance diagnostics, engine-specific job/schedule management where supported, and a unified operation/progress history. | Complete · merged |
+| A4 | Complete authentication workflows | Add interactive Entra sign-in and renewal, Windows integrated authentication where supported, and separately qualified cloud/network paths. Document each supported authentication/platform combination. | Merged · Windows integrated sign-in verified · live Azure qualification pending |
 
-The [Milestone 4 review](MILESTONE_4_REVIEW.md) records the combined qualification and remaining authentication checks.
-
+[Milestone 4 merged into development](https://github.com/ziodex/db-commander/pull/23) after all 12 development PR checks passed. The [Milestone 4 review](MILESTONE_4_REVIEW.md) records the combined qualification and remaining authentication checks.
 
 The PostgreSQL slice covers cluster roles, direct and indirect memberships, and effective database and selected-relation privileges. MySQL and MariaDB add host-qualified account identities, visible role chains and their table grants, and the roles enabled on the separate catalog connection. All three provide copyable manual SQL previews for role creation, membership changes and table privilege grants or revokes. SQL Server and Azure SQL separate database users and roles from server logins and roles, distinguish grants from denials, and report effective permissions for the catalog connection where the engine exposes them. Oracle scopes dictionary visibility, role and system privileges to the current container. These engines also provide manual SQL previews. SQLite and DuckDB file connections have no server principal catalog. PostgreSQL supports reviewed role and login changes in a separate transaction. MySQL and MariaDB support reviewed account and role creation, account rename and login locking, direct grants, and dependency-checked removal. Their reviewed statements commit on a separate connection. SQL Server and Azure SQL support reviewed database roles and users, server logins and role memberships, and direct grants and denials. SQL Server checks cross-database login mappings before removal. Logical Azure SQL login removal is outside the app’s reviewed workflow. Oracle supports reviewed local roles and users, account locks, CREATE SESSION, memberships and relation grants. Oracle removal and revocation check local dictionary dependencies and use the engine’s automatic commit semantics.
 
-Final local qualification passed **1,171 unit tests with three platform skips**, **11 focused server contracts**, **six packaged Apple Silicon workflows** and **three startup checks**. The packaged workflows cover exact scope and SQL at confirmation, keyboard focus and 200% zoom. Before the UI review corrections, **99 embedded driver contracts** and **176 packaged desktop workflows** passed, with ten platform or fixture skips in the desktop suite. The Azure SQL profile uses the local TDS fixture. Logical Azure metadata, role planning and guards have unit coverage. Independent UI and documentation reviews are complete. Live Azure and cross-platform CI qualification remain separate.
+Final local qualification passed **1,171 unit tests with three platform skips**, **11 focused server contracts**, **six packaged Apple Silicon workflows** and **three startup checks**. The packaged workflows cover exact scope and SQL at confirmation, keyboard focus and 200% zoom. Before the UI review corrections, **99 embedded driver contracts** and **176 packaged desktop workflows** passed, with ten platform or fixture skips in the desktop suite. The Azure SQL profile uses the local TDS fixture. Logical Azure metadata, role planning and guards have unit coverage. Independent UI and documentation reviews are complete. Live Azure qualification remains pending.
 
 ## Engineering and open-source delivery — continuous
 
@@ -75,7 +74,13 @@ Final local qualification passed **1,171 unit tests with three platform skips**,
 
 ## Beta release checklist
 
-This is a delivery checklist alongside the product roadmap, not a feature freeze. Dated B01–B17 records remain in the [archived beta plan](PLAN_BETA_ARCHIVE.md#beta-release-checklist).
+Dated B01–B17 delivery records remain in the [archived beta plan](PLAN_BETA_ARCHIVE.md#beta-release-checklist).
+
+### 0.2.5 qualification in progress
+
+The initial 0.2.5 candidate is development commit `c587617ea19afc1d78dda8bebdd7575adb93062d`. Its [development push CI](https://github.com/ziodex/db-commander/actions/runs/41861820994) qualifies that commit separately from Milestone 4 PR CI. The promotion head must contain the previous main promotion merge and pass its own development push CI. [Promotion requirements](GITHUB_ACTIONS.md#promoting-development-to-main)
+
+Windows integrated sign-in has native qualification. Azure SQL remains experimental with local TDS and simulated Entra coverage. Live Azure SQL and Microsoft Entra sign-in and renewal qualification remain pending. The checklist below tracks candidate selection, installer and upgrade qualification, accessibility and pilot validation, and signed release evidence.
 
 - [ ] Select a release commit/version and publish its actual capability/known-issue matrix.
 - [ ] Pass the affected engine contracts and native desktop/build/installer matrix for that candidate.
