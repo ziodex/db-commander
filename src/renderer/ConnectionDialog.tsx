@@ -2,6 +2,7 @@ import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState, type Mous
 import { Check, ChevronRight, Database, FolderOpen, X } from './WorkbenchIcons'
 import { ModalDialog } from './ModalDialog'
 import { ConnectionOptions } from './ConnectionOptions'
+import { azureSqlPublicHost, entraProfileSchema } from '../shared/entra'
 import { defaultPorts } from '../shared/database-engines'
 import { engineNames, type ConnectionConfig, type ConnectionProfile, type DatabaseEngine } from '../shared/contracts'
 import { credentialBinding, passwordEligible, type PasswordChoice, type PasswordStatus } from '../shared/credentials'
@@ -21,6 +22,11 @@ export function ConnectionDialog({ profile, profileId, busy, error, saveOnly, on
   const testSession = useRef<string | null>(null)
   const testFocus = useRef<HTMLButtonElement | null>(null)
   const blocked = busy || removing || testing
+  const interactive = form.authentication === 'entra-interactive'
+  const [waitingForEntra, setWaitingForEntra] = useState(false)
+  useEffect(() => { if (interactive) return api.onEntraSignIn(setWaitingForEntra) }, [interactive])
+  const signingIn = interactive && blocked && waitingForEntra
+  const cancelSignIn = () => void api.cancelEntraSignIn().catch(() => setFileError('The sign-in could not be cancelled. Return to the browser or wait for the request to expire.'))
   const receiveVaultStatus = useEffectEvent((status: PasswordStatus) => {
       setVaultStatus(status)
       if (!form.password) { setRemember(status.saved); setUseSaved(status.saved && status.available) }
@@ -64,13 +70,13 @@ export function ConnectionDialog({ profile, profileId, busy, error, saveOnly, on
     name: previous.name === `Local ${engineNames[previous.engine]}` ? `Local ${engineNames[engine]}` : previous.name,
     database: engine === 'oracle' && ['postgres', 'dbcommander', 'SQLite', 'DuckDB'].includes(previous.database) ? 'FREEPDB1' : ['postgres', 'FREEPDB1', 'SQLite', 'DuckDB'].includes(previous.database) ? 'dbcommander' : previous.database,
     ca: engine === 'oracle' ? '' : previous.ca, ssh: ['sqlite', 'duckdb'].includes(engine) ? undefined : previous.ssh, sshSecrets: undefined,
-    user: !previous.user || previous.user === 'postgres' ? 'dbcommander' : previous.user, password: '', accessToken: undefined, authentication: undefined,
+    user: !previous.user || previous.user === 'postgres' ? 'dbcommander' : previous.user, password: '', accessToken: undefined, authentication: undefined, entra: undefined,
     tls: engine === 'azure-sql' || ['sqlite', 'duckdb'].includes(previous.engine) ? 'verify-full' : previous.tls
   }))
   const embedded = ['sqlite', 'duckdb'].includes(form.engine), duckdb = form.engine === 'duckdb'
   const windowsAuthentication = form.engine === 'sqlserver' && form.authentication === 'windows'
   const modeKey = duckdb ? 'duckdbMode' : 'sqliteMode', mode = form[modeKey] ?? 'read-write'
-  const input = (label: string, key: 'name' | 'host' | 'database' | 'user' | 'password', type = 'text') => <label>{label}<input required={key !== 'password' && (key !== 'database' || form.engine === 'oracle')} autoFocus={key === 'name'} autoComplete={key === 'password' ? 'new-password' : 'off'} type={type} value={form[key]} onChange={event => update(key, event.target.value)} /></label>
+  const input = (label: string, key: 'name' | 'host' | 'database' | 'user' | 'password', type = 'text') => <label>{label}<input required={key !== 'password' && !(key === 'user' && interactive) && (key !== 'database' || form.engine === 'oracle' || interactive)} autoFocus={key === 'name'} autoComplete={key === 'password' ? 'new-password' : 'off'} type={type} value={form[key]} onChange={event => update(key, event.target.value)} /></label>
   async function chooseFile() {
     try { const path = await (duckdb ? api.chooseDuckdbFile : api.chooseSqliteFile)(mode === 'create'); if (path) update('filePath', path); setFileError('') }
     catch (error) { setFileError((error as Error).message) }
@@ -78,11 +84,18 @@ export function ConnectionDialog({ profile, profileId, busy, error, saveOnly, on
   function connectionConfig(): ConnectionConfig {
     return embedded ? { ...form, [modeKey]: mode, database: engineNames[form.engine], host: 'local', port: 1, user: 'local', password: '', accessToken: undefined, authentication: undefined, tls: 'disable', ca: undefined, ssh: undefined, sshSecrets: undefined } : form
   }
+  function validateEntra(config: ConnectionConfig) {
+    if (config.authentication !== 'entra-interactive') return true
+    const valid = azureSqlPublicHost(config.host.trim()) && !!config.database.trim() && entraProfileSchema.safeParse(config.entra).success
+    if (!valid) setFileError('Enter an Azure SQL hostname ending in database.windows.net, a database name, and valid tenant and application IDs.')
+    return valid
+  }
   async function testConnection(event: MouseEvent<HTMLButtonElement>) {
     if (blocked || testInFlight.current || (embedded && mode === 'create') || !event.currentTarget.form?.reportValidity()) return
     const config = connectionConfig(), useSavedPassword = testUsesSaved
     const button = event.currentTarget, restoreFocus = document.activeElement === button
     setFileError(''); setTestResult(null)
+    if (!validateEntra(config)) return
     if (config.authentication === 'entra-token' && !config.accessToken?.trim()) {
       setTestResult({ form, useSaved: useSavedPassword, success: false, message: 'Enter a current access token to test this connection. The token is never saved.' }); return
     }
@@ -109,12 +122,13 @@ export function ConnectionDialog({ profile, profileId, busy, error, saveOnly, on
   function submit() {
     if (blocked || testInFlight.current) return
     const config = connectionConfig()
+    if (!validateEntra(config)) return
     const choice = { remember: Boolean((saveOnly || saveConnection) && remember && passwordEligible(config)), useSaved: Boolean(!saveOnly && canUseSaved && useSaved && !config.password) }
     if (choice.remember && !config.password && !(vaultStatus?.saved && sameBinding && !addsProfile)) { setFileError(addsProfile ? 'Enter a password to remember it for the new profile, or uncheck Remember password. The existing saved password is kept.' : 'Enter a password to remember it for these connection settings.'); return }
     setFileError('')
     void (saveOnly ? onSave(config, choice) : onConnect(config, saveConnection, choice))
   }
-  return <ModalDialog className="connection-dialog connection-form" aria-labelledby="connection-title" onDismiss={() => { if (!blocked && !testInFlight.current) onClose() }}><form onSubmit={event => { event.preventDefault(); submit() }}>
+  return <ModalDialog className="connection-dialog connection-form" aria-labelledby="connection-title" onDismiss={() => { if (signingIn) cancelSignIn(); else if (!blocked && !testInFlight.current) onClose() }}><form onSubmit={event => { event.preventDefault(); submit() }}>
     <div className="dialog-heading"><div><h2 id="connection-title">{saveOnly ? `Save ${engineNames[form.engine]} profile` : `Connect to ${engineNames[form.engine]}`}</h2></div><button type="button" aria-label="Close connection dialog" disabled={blocked} onClick={onClose}><X size={18} /></button></div>
     <div className="connection-fields"><fieldset disabled={blocked}>
       <div className="form-row"><label>Database engine<select value={form.engine} onChange={event => changeEngine(event.target.value as DatabaseEngine)}>{Object.entries(engineNames).map(([engine, name]) => <option key={engine} value={engine}>{name}</option>)}</select></label>
@@ -125,10 +139,24 @@ export function ConnectionDialog({ profile, profileId, busy, error, saveOnly, on
         <div className="privacy-note"><Database size={15} /><p>{mode === 'memory' ? 'Temporary data lasts only for this connection. ' : mode === 'create' ? 'Creates a new file; existing files are never replaced. ' : mode === 'read-only' ? (duckdb ? 'The selected database is read-only. SQL can still read or write other local files. ' : 'Database writes and attaching other files are disabled. ') : 'Changes are saved directly to this database file. '}{duckdb ? 'Stop interrupts the query and keeps the connection open. Extension downloads require explicit SQL.' : 'Stop closes the SQLite session. Reconnect to continue; temporary data is lost.'}</p></div>
       </> : <>
         <div className="form-row host-row">{input('Host', 'host')}<label>Port<input required type="number" min="1" max="65535" value={form.port} onChange={event => update('port', Number(event.target.value))} /></label></div>
-        {(form.engine === 'sqlserver' || form.engine === 'azure-sql') && <label>Authentication<select aria-label="Authentication" value={form.authentication ?? 'sql-password'} onChange={event => setForm(previous => ({ ...previous, authentication: event.target.value as ConnectionConfig['authentication'], user: event.target.value === 'windows' ? '' : previous.user, password: '', accessToken: '' }))}><option value="sql-password">SQL login</option>{form.engine === 'sqlserver' ? <option value="windows">Windows Authentication</option> : <option value="entra-token">Microsoft Entra access token</option>}</select></label>}
-        <div className="form-row">{input(form.engine === 'oracle' ? 'Service name' : 'Database', 'database')}{!windowsAuthentication && input(form.authentication === 'entra-token' ? 'Account label' : 'User', 'user')}</div>
-        <small>{form.engine === 'postgres' ? 'Database is optional. Leave blank to use postgres; specify a database if postgres is unavailable.' : form.engine === 'mysql' || form.engine === 'mariadb' ? 'Database is optional. Leave blank to connect without a default database.' : form.engine === 'sqlserver' ? 'Database is optional. Leave blank to use the login’s default database.' : form.engine === 'azure-sql' ? 'Database is optional with access to master. Contained users must specify a database.' : 'Service or PDB name is required.'}</small>
-        {windowsAuthentication ? <small>Uses your current Windows account. No password is needed. Requires Windows and a direct SQL Server connection; TLS uses the Windows certificate store.</small> : form.authentication === 'entra-token' ? <label>Access token<input aria-label="Access token" required={!saveOnly} type="password" autoComplete="off" value={form.accessToken ?? ''} onChange={event => update('accessToken', event.target.value)} /><small>{saveOnly ? 'Optional for saving a profile; required to test the connection. Never saved.' : 'For https://database.windows.net/. Paste a current token; renewal is manual.'}</small></label> : input('Password', 'password', 'password')}
+        {(form.engine === 'sqlserver' || form.engine === 'azure-sql') && <label>Authentication<select aria-label="Authentication" value={form.authentication ?? 'sql-password'} onChange={event => {
+          const authentication = event.target.value as ConnectionConfig['authentication']
+          setForm(previous => ({ ...previous, authentication,
+            user: authentication === 'windows' || authentication === 'entra-interactive' ? '' : previous.user,
+            password: '', accessToken: undefined, entra: undefined,
+            ca: authentication === 'entra-interactive' ? undefined : previous.ca }))
+        }}><option value="sql-password">SQL login</option>{form.engine === 'sqlserver' ? <option value="windows">Windows Authentication</option> : <><option value="entra-interactive">Microsoft Entra browser sign-in</option><option value="entra-token">Microsoft Entra access token</option></>}</select></label>}
+        <div className="form-row">{input(form.engine === 'oracle' ? 'Service name' : 'Database', 'database')}{!windowsAuthentication && input(interactive ? 'Account hint (optional)' : form.authentication === 'entra-token' ? 'Account label' : 'User', 'user')}</div>
+        <small>{form.engine === 'postgres' ? 'Database is optional. Leave blank to use postgres; specify a database if postgres is unavailable.' : form.engine === 'mysql' || form.engine === 'mariadb' ? 'Database is optional. Leave blank to connect without a default database.' : form.engine === 'sqlserver' ? 'Database is optional. Leave blank to use the login’s default database.' : interactive ? 'Use the database name and its Azure SQL hostname with verified TLS.' : form.engine === 'azure-sql' ? 'Database is optional with access to master. Contained users must specify a database.' : 'Service or PDB name is required.'}</small>
+        {interactive ? <>
+          <div className="form-row">{(['tenantId', 'clientId'] as const).map(key => <label key={key}>{key === 'tenantId' ? 'Directory (tenant) ID' : 'Application (client) ID'}
+            <input required autoComplete="off" spellCheck={false} maxLength={36} value={form.entra?.[key] ?? ''} onChange={event => {
+              const value = event.target.value
+              setForm(previous => ({ ...previous, entra: { tenantId: previous.entra?.tenantId ?? '', clientId: previous.entra?.clientId ?? '', [key]: value } }))
+            }}/>
+          </label>)}</div>
+          <small>Use a desktop app registration with the Azure SQL delegated permission. Sign-in opens your browser. Tokens stay in memory for this connection.</small>
+        </> : windowsAuthentication ? <small>Uses your current Windows account. No password is needed. Requires Windows and a direct SQL Server connection; TLS uses the Windows certificate store.</small> : form.authentication === 'entra-token' ? <label>Access token<input aria-label="Access token" required={!saveOnly} type="password" autoComplete="off" value={form.accessToken ?? ''} onChange={event => update('accessToken', event.target.value)} /><small>{saveOnly ? 'Optional for saving a profile; required to test the connection. Never saved.' : 'For https://database.windows.net/. Paste a current token; renewal is manual.'}</small></label> : input('Password', 'password', 'password')}
         {passwordEligible(form) && <div className="password-options">
           {vaultStatus?.saved && <>
             <small>{addsProfile ? `“${profile.name}” has a saved password. Enter a password again to remember it for this new connection.` : 'Password saved. Leave blank to keep it, or enter a replacement.'}</small>
@@ -141,7 +169,7 @@ export function ConnectionDialog({ profile, profileId, busy, error, saveOnly, on
         </div>}
         <label>Transport security<select disabled={form.engine === 'azure-sql'} value={form.tls} onChange={event => update('tls', event.target.value)}><option value="verify-full">TLS · verify certificate and hostname</option><option value="disable">Disable TLS · local development only</option></select></label>
         {form.engine === 'oracle' && <small>Use the listener’s TCPS port for TLS (often 2484). Private CAs: set NODE_EXTRA_CA_CERTS to a PEM file before launching the app. DML needs Commit or Rollback; DDL commits implicitly.</small>}
-        {form.tls === 'verify-full' && form.engine !== 'oracle' && <details><summary>Custom CA certificate</summary><label><span className="sr-only">CA certificate PEM</span><textarea aria-label="CA certificate PEM" placeholder="Paste a trusted PEM certificate. Leave empty for system trust." value={form.ca} onChange={event => update('ca', event.target.value)} /></label></details>}
+        {form.tls === 'verify-full' && form.engine !== 'oracle' && !interactive && <details><summary>Custom CA certificate</summary><label><span className="sr-only">CA certificate PEM</span><textarea aria-label="CA certificate PEM" placeholder="Paste a trusted PEM certificate. Leave empty for system trust." value={form.ca} onChange={event => update('ca', event.target.value)} /></label></details>}
 
       </>}
       {!saveOnly && <label className="save-profile-option"><input type="checkbox" checked={saveConnection} onChange={event => setSaveConnection(event.target.checked)} />Save connection profile</label>}
@@ -154,9 +182,10 @@ export function ConnectionDialog({ profile, profileId, busy, error, saveOnly, on
       {!embedded && <details className="connection-options" open={Boolean(profile.ssh)}><summary>SSH tunnel{form.ssh ? ` · ${form.ssh.host || 'Enabled'}` : ''}</summary><ConnectionOptions config={form} onChange={setForm} sshOnly/></details>}
     </fieldset></div>
     {(fileError || (!testing && !visibleTestResult && error)) && <p className="dialog-error" role="alert">{fileError || error}</p>}
-    {testing && <p className="connection-test-feedback" role="status">Testing connection…</p>}
+    {signingIn ? <p className="connection-test-feedback" role="status">Finish Microsoft Entra sign-in in your browser.</p>
+      : testing && <p className="connection-test-feedback" role="status">Testing connection…</p>}
     {visibleTestResult && <p className={`connection-test-feedback ${visibleTestResult.success ? 'success' : 'failure'}`} role={visibleTestResult.success ? 'status' : 'alert'}>{visibleTestResult.success ? <Check size={16}/> : <X size={16}/>}<span>{visibleTestResult.message}</span></p>}
     {embedded && mode === 'create' && <p className="connection-test-note">To test a connection, choose an existing database or temporary in-memory mode. Testing never creates a database file.</p>}
-    <div className="dialog-actions"><button className="test-connection-button" type="button" disabled={blocked || (embedded && mode === 'create') || (!vaultStatus && passwordEligible(form))} onClick={event => void testConnection(event)}>{testing ? 'Testing…' : 'Test connection'}</button><button type="button" disabled={blocked} onClick={onClose}>Cancel</button><button className="primary-button" disabled={blocked || (!vaultStatus && passwordEligible(form))} type="submit">{busy ? (saveOnly ? 'Saving…' : 'Connecting…') : saveOnly ? 'Save profile' : 'Connect'}<ChevronRight size={15} /></button></div>
+    <div className="dialog-actions"><button className="test-connection-button" type="button" disabled={blocked || (embedded && mode === 'create') || (!vaultStatus && passwordEligible(form))} onClick={event => void testConnection(event)}>{testing ? 'Testing…' : 'Test connection'}</button><button type="button" disabled={blocked && !signingIn} onClick={signingIn ? cancelSignIn : onClose}>{signingIn ? 'Cancel sign-in' : 'Cancel'}</button><button className="primary-button" disabled={blocked || (!vaultStatus && passwordEligible(form))} type="submit">{busy ? (saveOnly ? 'Saving…' : 'Connecting…') : saveOnly ? 'Save profile' : 'Connect'}<ChevronRight size={15} /></button></div>
   </form></ModalDialog>
 }

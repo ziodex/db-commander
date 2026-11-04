@@ -9,6 +9,7 @@ import { diagramLayoutsSchema } from './diagram-layouts'
 import { tableLayoutsSchema } from './table-layouts'
 import type { PasswordStatus } from './credentials'
 import { profileOptions, sshSecretsSchema, type ConnectionSafety } from './connection-options'
+import { azureSqlPublicHost, entraProfileSchema } from './entra'
 import { engineSchema, type DatabaseEngine } from './database-engines'
 export { engineSchema, engineNames, type DatabaseEngine } from './database-engines'
 
@@ -22,7 +23,8 @@ const connectionFields = z.object({
   database: z.string().max(255).default(''),
   user: z.string().max(255),
   password: z.string().max(4096),
-  authentication: z.enum(['sql-password', 'entra-token', 'windows']).optional(),
+  authentication: z.enum(['sql-password', 'entra-token', 'entra-interactive', 'windows']).optional(),
+  entra: entraProfileSchema.optional(),
   accessToken: z.string().max(65536).optional(),
   tls: z.enum(['verify-full', 'disable']),
   ca: z.string().max(65536).optional(),
@@ -31,11 +33,16 @@ const connectionFields = z.object({
   duckdbMode: z.enum(['read-write', 'read-only', 'create', 'memory']).optional()
 }).strict()
 const hasEndpoint = (config: { engine: DatabaseEngine; database: string; ssh?: unknown }) => (config.engine !== 'oracle' || Boolean(config.database.trim())) && !(config.ssh && ['sqlite', 'duckdb'].includes(config.engine))
-const hasAuthentication = (config: { engine: DatabaseEngine; authentication?: string; user: string }) => config.authentication === 'windows'
-  ? config.engine === 'sqlserver'
-  : Boolean(config.user.length) && (config.authentication !== 'entra-token' || config.engine === 'azure-sql')
+const hasAuthentication = (config: Omit<z.infer<typeof connectionFields>, 'password'> & { password?: string }) => {
+  if (config.authentication === 'entra-interactive') return config.engine === 'azure-sql' && !!config.entra &&
+    azureSqlPublicHost(config.host) && !!config.database.trim() && config.tls === 'verify-full' && !config.ca?.trim() &&
+    !config.password && !config.accessToken
+  if (config.entra) return false
+  return config.authentication === 'windows' ? config.engine === 'sqlserver'
+    : Boolean(config.user.length) && (config.authentication !== 'entra-token' || config.engine === 'azure-sql')
+}
 export const connectionSchema = connectionFields.refine(hasEndpoint, { message: 'Oracle requires a service name.', path: ['database'] })
-  .refine(hasAuthentication, { message: 'Enter a user. Windows authentication is available only for SQL Server; Entra tokens only for Azure SQL.', path: ['authentication'] })
+  .refine(hasAuthentication, { message: 'Check the authentication settings. Interactive Entra requires a tenant, application, database and verified Azure SQL endpoint.', path: ['authentication'] })
 export type ConnectionConfig = z.infer<typeof connectionSchema>
 export type ConnectionProfile = Omit<ConnectionConfig, 'password' | 'accessToken' | 'sshSecrets'>
 export const profileSchema = connectionFields.omit({ password: true, accessToken: true, sshSecrets: true }).refine(hasEndpoint, { message: 'Oracle requires a service name. Embedded databases cannot use SSH.' })
@@ -52,7 +59,7 @@ export type SavedConnectionProfile = z.infer<typeof savedProfileSchema>
 const workspaceTabSchema = z.object({ id: idSchema, title: z.string().trim().min(1).max(255), sql: z.string().max(MAX_SQL_CHARACTERS), profile: profileSchema, profileId: idSchema.optional(), pinned: z.boolean().optional() }).strict()
 export type WorkspaceTab = z.infer<typeof workspaceTabSchema>
 export type TransactionState = 'idle' | 'transaction' | 'failed' | 'unknown'
-export interface SessionInfo { id: string; engine: DatabaseEngine; name: string; database: string; user: string; host: string; port: number; tls: boolean; transaction: TransactionState; autocommit?: boolean; version: string; mysqlSqlMode?: { noBackslashEscapes: boolean; ansiQuotes: boolean }; safety?: ConnectionSafety }
+export interface SessionInfo { id: string; engine: DatabaseEngine; name: string; database: string; user: string; host: string; port: number; tls: boolean; entraInteractive?: true; transaction: TransactionState; autocommit?: boolean; version: string; mysqlSqlMode?: { noBackslashEscapes: boolean; ansiQuotes: boolean }; safety?: ConnectionSafety }
 export interface Column { name: string; typeId: number; typeName?: string; displayEncoding?: 'hex' }
 export type Cell = string | null
 export interface ResultSet { index: number; statement: string; columns: Column[]; rows: Cell[][]; rowCount: number | null; command: string; truncated: boolean }
@@ -186,6 +193,9 @@ export interface DesktopApi {
   connectBackupTarget(jobId: string): Promise<SessionInfo>
   onBackupJob(listener: (job: import('./backup').BackupJob) => void): () => void
   onLayoutCommand(listener: (command: LayoutCommand) => void): () => void
+  onEntraSignIn(listener: (waiting: boolean) => void): () => void
+  cancelEntraSignIn(): Promise<void>
+  renewEntraSession(sessionId: string): Promise<void>
   connect(config: ConnectionConfig): Promise<SessionInfo>
   connectSavedPassword(profileId: string, config: ConnectionProfile, sshSecrets?: ConnectionConfig['sshSecrets']): Promise<SessionInfo>
   sessionSafety(sessionId: string): Promise<ConnectionSafety>

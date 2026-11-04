@@ -38,7 +38,13 @@ export class SqlServerDriver implements DatabaseDriver {
     client.on('error', lost); client.on('end', lost)
     client.on('databaseChange', database => { session.info.database = database })
     try {
-      const [server]=await sqlServerQuery(client,'SELECT @@VERSION,@@SPID');session.info.version=server[0]!;session.nativeId=server[1]!
+      const interactive = config.authentication === 'entra-interactive'
+      const [server] = await sqlServerQuery(client, interactive ? 'SELECT @@VERSION,@@SPID,SUSER_SNAME()' : 'SELECT @@VERSION,@@SPID')
+      session.info.version = server[0]!; session.nativeId = server[1]!
+      if (interactive) {
+        session.info.entraInteractive = true
+        if (server[2]) session.info.user = server[2]
+      }
       await this.updateStatus(session)
       this.sessions.set(session.info.id, session)
       return { ...session.info }

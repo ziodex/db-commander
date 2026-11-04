@@ -5,6 +5,7 @@ import type { TransferJob } from '../shared/transfer'
 import type { HostArgs, HostMethod, HostResult, HostMessage } from '../shared/host-rpc'
 
 interface HostCallbacks {
+  entraToken?(id: string): Promise<string>
   event(event: DatabaseEvent, token?: string): void
   backup(job: BackupJob): void
   transfer(job: TransferJob): void
@@ -19,7 +20,7 @@ interface HostProcess {
   once(event: 'exit', listener: () => void): void
 }
 
-const unbounded = new Set<HostMethod>(['applyActivityAction', 'editGrid', 'inspectImport', 'startTransfer', 'switchDatabase', 'databases', 'applySchemaChange', 'connect', 'explain', 'compareData'])
+const unbounded = new Set<HostMethod>(['applyActivityAction', 'connectEntra', 'editGrid', 'inspectImport', 'startTransfer', 'switchDatabase', 'databases', 'applySchemaChange', 'connect', 'explain', 'compareData'])
 const inspection = new Set<HostMethod>(['catalogPage', 'inspectRollback', 'inspectActivity', 'inspectObject', 'prepareSchemaChange', 'diagram', 'compareSchemas'])
 
 /** One workspace owns this host until exit, including after startup failure. */
@@ -49,6 +50,14 @@ export class DatabaseHostClient {
         if ('ready' in message) { clearTimeout(startup); resolve(); return }
         if ('backupJob' in message) { this.callbacks.backup(message.backupJob); return }
         if ('transferJob' in message) { this.callbacks.transfer(message.transferJob); return }
+        if ('entraToken' in message) {
+          const { requestId, grantId } = message.entraToken
+          const respond = (accessToken?: string) => {
+            if (this.child === child) child.postMessage({ entraToken: { requestId, accessToken } })
+          }
+          void Promise.resolve().then(() => this.callbacks.entraToken?.(grantId)).then(respond, () => respond()).catch(() => {})
+          return
+        }
         if ('event' in message) {
           if (message.token) this.acknowledgements.add(message.token)
           this.callbacks.event(message.event, message.token)

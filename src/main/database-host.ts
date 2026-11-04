@@ -31,6 +31,22 @@ const port = (process as unknown as { parentPort: { postMessage(value: HostMessa
 function initialize(): void {
   const store = new WorkspaceStore(join(process.argv[2], 'workspace.sqlite'))
   const snippetExchange = new SnippetExchange(store)
+  const tokens = new Map<string, (value?: string) => void>()
+  const entraToken = (grantId: string) => new Promise<string>((resolve, reject) => {
+    if (tokens.size >= 40) { reject(new Error('Wait for the current Microsoft Entra token requests to finish.')); return }
+    const requestId = randomUUID()
+    const timer = setTimeout(() => {
+      tokens.delete(requestId)
+      reject(new Error('Microsoft Entra renewal timed out. Sign in again before opening a new database connection.'))
+    }, 30_000)
+    tokens.set(requestId, value => {
+      clearTimeout(timer)
+      tokens.delete(requestId)
+      if (value) resolve(value)
+      else reject(new Error('Microsoft Entra sign-in is required. Sign in again to open a new database connection.'))
+    })
+    port.postMessage({ entraToken: { requestId, grantId } })
+  })
   const acknowledgements = new Map<string, () => void>()
   const driver = new DriverRegistry(async (event: DatabaseEvent) => {
     if (event.type !== 'rows') { port.postMessage({ event }); return }
@@ -83,6 +99,11 @@ function initialize(): void {
     inspectBackup: payload => driver.inspectBackup(backupRequestSchema.parse(payload)),
     cancelBackup: payload => driver.cancelBackup(idSchema.parse(payload)),
     connect: payload => driver.connect(connectionSchema.parse(payload)),
+    connectEntra: payload => {
+      const { config, grantId } = z.object({ config: connectionSchema, grantId: idSchema }).strict().parse(payload)
+      if (config.authentication !== 'entra-interactive') throw new Error('Expected an interactive Microsoft Entra connection.')
+      return driver.connect(config, () => entraToken(grantId))
+    },
     disconnect: payload => driver.disconnect(idSchema.parse(payload)),
     databases: payload => driver.databases(idSchema.parse(payload)),
     switchDatabase: payload => driver.switchDatabase(switchDatabaseSchema.parse(payload)),
@@ -149,6 +170,7 @@ function initialize(): void {
     }
   } satisfies HostHandlers
   port.on('message', async ({ data }) => {
+    if ('entraToken' in data) { tokens.get(data.entraToken.requestId)?.(data.entraToken.accessToken); return }
     if ('ack' in data) { acknowledgements.get(data.ack)?.(); return }
     const { id, method, payload } = data
     try {
