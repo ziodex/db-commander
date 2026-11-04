@@ -4,7 +4,7 @@ For installation from source, tests and contributing, start with the [developer 
 
 ## Current app and documentation
 
-The app is **Db Commander**, developer-preview version 0.2.4. **Help → About Db Commander** shows the version of the running application. The supported profile types are PostgreSQL, MySQL, MariaDB, SQL Server, experimental Azure SQL, SQLite, Oracle Thin and DuckDB. [Screenshots of the current workbench](../README.md#screenshots) use an isolated demo database. Development, build/test commands and fork setup are in the [README](../README.md); CI is managed by [GitHub Actions](GITHUB_ACTIONS.md).
+The app is **Db Commander**, developer-preview version 0.2.5. **Help → About Db Commander** shows the version of the running application. The supported profile types are PostgreSQL, MySQL, MariaDB, SQL Server, experimental Azure SQL, SQLite, Oracle Thin and DuckDB. [Screenshots of the current workbench](../README.md#screenshots) use an isolated demo database. Development, build/test commands and fork setup are in the [README](../README.md); CI is managed by [GitHub Actions](GITHUB_ACTIONS.md).
 
 ## Executing SQL
 
