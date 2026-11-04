@@ -11,11 +11,12 @@ import { canSwitchDatabase, tabOperationBusy, type QueryTabState } from './query
 type MenuTarget = { kind: 'database'; name: string } | { kind: 'table'; table: GridTable; objectId?: string; object?: CatalogObject }
 type ExplorerMenu = Omit<MenuAnchor, 'items'> & { target: MenuTarget }
 
-export function DatabaseExplorer({ state, readCatalog, catalogPaused, browseDisabled, onRefreshDatabases, onRefreshSchema, onSwitch, onFilter, onAppendSelect, onEdit, onBrowse, onInspect, onSchemaChange, onDiagram, onBackup, onCompare, onCompareData, onBuilder, onActivity }: {
+export function DatabaseExplorer({ state, readCatalog, catalogPaused, browseDisabled, onRefreshDatabases, onRefreshSchema, onSwitch, onFilter, onAppendSelect, onEdit, onBrowse, onInspect, onSchemaChange, onDiagram, onBackup, onCompare, onCompareData, onBuilder, onActivity, onPrincipals }: {
   readCatalog: ReadCatalog
   catalogPaused: boolean
   browseDisabled: boolean
   onActivity():void
+  onPrincipals(owner: HTMLElement): void
   onBuilder(table?: GridTable): void
   onCompareData(table?: GridTable): void
   onBackup(): void; onCompare(): void
@@ -49,10 +50,13 @@ export function DatabaseExplorer({ state, readCatalog, catalogPaused, browseDisa
   }
   function databaseItems(name: string): MenuItem[] {
     const current=name===session.database
+    const principalsSupported = ['postgres', 'mysql', 'mariadb', 'sqlserver', 'azure-sql', 'oracle'].includes(session.engine)
     return [
       {label:`Switch to database ${name}`,disabled:current||!catalog?.switchable||Boolean(reason),action:()=>onSwitch(name)},
       {label:'Database backup and restore',disabled:!current,title:current?'Backup or restore this database':'Select this database first to back up or restore it safely.',action:onBackup},
       {label:'Sessions and locks',disabled:!current||state.closing||state.switching,action:onActivity},
+      {label:'Security principals',disabled:!current||busy||!principalsSupported||session.transaction!=='idle',
+        title:!principalsSupported?'File connections do not have a server user or role catalog.':session.transaction!=='idle'?'Commit or roll back before inspecting security principals.':undefined,action:()=>{if(menu)onPrincipals(menu.owner)}},
       {label:'Visual query builder',disabled:!current||busy,action:()=>onBuilder()},
       {label:'Compare table data',disabled:!current||busy,action:()=>onCompareData()},
       {label:'Compare schemas',disabled:!current||busy,action:onCompare},

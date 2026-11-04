@@ -1,3 +1,9 @@
+import { planMysqlPrincipalChange } from '../principals/mysql-changes'
+import type { CatalogQuery } from '../catalog/common'
+import type { PrincipalPlan } from '../principals/reviews'
+import type { PreparePrincipalChange, PrincipalChangeResult } from '../shared/principal-changes'
+import { readMysqlPrincipals } from '../principals/mysql'
+import type { PrincipalRequest } from '../shared/principals'
 import { failureSource } from '../language/execution'
 import type { ActivityObserver } from '../activity/control'
 import { readActivity } from '../activity/read'
@@ -227,6 +233,88 @@ export class MysqlDriver implements DatabaseDriver {
     const timer=setTimeout(()=>client.destroy(),15000)
     try { return await read({engine:this.engine,database,currentSessionId:String(session.client.id),query:sql=>client.query(sql)}) }
     finally { clearTimeout(timer);await client.end().catch(()=>client.destroy()) }
+  }
+  async inspectPrincipals(request: PrincipalRequest) {
+    const session = this.session(request.sessionId)
+    const client = await openMysqlTransport({ ...session.config, database: session.info.database })
+    const timer = setTimeout(() => client.destroy(), 15000)
+    try {
+      await client.query('START TRANSACTION READ ONLY')
+      return await readMysqlPrincipals(this.engine, async (sql, values) => (await client.bound(sql, values)).rows, request)
+    } finally { clearTimeout(timer); await client.end().catch(() => client.destroy()) }
+  }
+  private async withPrincipalTransport<T>(
+    id: string, action: (client: MysqlTransport, query: CatalogQuery, checkDeadline: () => void) => Promise<T>
+  ): Promise<T> {
+    const session = this.session(id)
+    const client = await openMysqlTransport({ ...session.config, database: session.info.database })
+    const timeoutError = new Error('The principal catalog operation timed out.')
+    let expired = false, timer: ReturnType<typeof setTimeout> | undefined
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => { expired = true; client.destroy(); reject(timeoutError) }, 15000)
+    })
+    const checkDeadline = () => { if (expired) throw timeoutError }
+    const query: CatalogQuery = async (sql, parameters) => {
+      checkDeadline()
+      return (await client.bound(sql, parameters)).rows
+    }
+    try { return await Promise.race([action(client, query, checkDeadline), deadline]) }
+    finally {
+      clearTimeout(timer)
+      // Closing the disposable connection also releases its named lock.
+      client.destroy()
+    }
+  }
+  preparePrincipalChange(request: PreparePrincipalChange): Promise<PrincipalPlan> {
+    const { change } = request
+    if (!('engine' in change) || change.engine !== this.engine) throw new Error('Select a principal change for this connection’s engine.')
+    return this.withPrincipalTransport(request.sessionId, async (client, query) => {
+      await client.query('START TRANSACTION READ ONLY')
+      const { database, observer, sql, notes, fingerprint, implicitCommit } = await planMysqlPrincipalChange(query, change)
+      return { database, observer, sql, notes, fingerprint, implicitCommit }
+    })
+  }
+  async applyPrincipalChange(request: PreparePrincipalChange, retained: PrincipalPlan, beforeDispatch: () => void): Promise<PrincipalChangeResult> {
+    const { change } = request
+    if (!('engine' in change) || change.engine !== this.engine) throw new Error('Select a principal change for this connection’s engine.')
+    const { version } = this.session(request.sessionId).info
+    let dispatched = false
+    const unknown: PrincipalChangeResult = {
+      status: 'unknown', message: 'The server did not confirm the reviewed catalog effect. Refresh and verify the account state before preparing another change.'
+    }
+    try {
+      return await this.withPrincipalTransport(request.sessionId, async (client, query, checkDeadline) => {
+        const [[lock]] = await query("SELECT GET_LOCK('dbcommander.principals.v1', 5)")
+        if (lock !== '1') throw new Error('Another reviewed account change is in progress. Prepare a new review.')
+        if (this.engine === 'mariadb') {
+          // MariaDB can provision an account through GRANT in other SQL modes.
+          await client.query("SET SESSION sql_mode = IF(FIND_IN_SET('NO_AUTO_CREATE_USER', @@SESSION.sql_mode), @@SESSION.sql_mode, CONCAT_WS(',', NULLIF(@@SESSION.sql_mode, ''), 'NO_AUTO_CREATE_USER'))")
+        }
+        const fresh = await planMysqlPrincipalChange(query, change)
+        if (fresh.fingerprint !== retained.fingerprint || fresh.sql !== retained.sql) {
+          throw new Error('The reviewed account, relation or grant changed. Refresh its details and prepare a new review.')
+        }
+        checkDeadline()
+        beforeDispatch()
+        dispatched = true
+        try { await client.query(retained.sql) }
+        catch (error) {
+          const failure = error as { errno?: number; sqlState?: string; message?: string; fatal?: boolean }
+          // MySQL 8+ account-management statements are atomic. A transport
+          // failure or MariaDB failure is kept separate from a proven rejection.
+          if (this.engine === 'mysql' && Number(version.split('.')[0]) >= 8 && failure.sqlState && failure.errno && !failure.fatal) {
+            return { status: 'rejected', message: failure.message ?? 'MySQL rejected the account change.' }
+          }
+          return unknown
+        }
+        return await fresh.verify()
+          ? { status: 'applied', message: 'The server acknowledged the change and its catalog effect was verified.' }
+          : unknown
+      })
+    } catch (error) {
+      if (!dispatched) throw error
+      return unknown
+    }
   }
   async explore(id: string, object?: CatalogObject, diagram?: DiagramScope, page?: import('../catalog/paging').CatalogRead) {
     const session = this.session(id), client = await openMysqlTransport({ ...session.config, database: session.info.database })

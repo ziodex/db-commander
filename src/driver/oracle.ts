@@ -1,3 +1,9 @@
+import { planOraclePrincipalChange } from '../principals/oracle-changes'
+import type { CatalogQuery } from '../catalog/common'
+import type { PrincipalPlan } from '../principals/reviews'
+import type { PreparePrincipalChange, PrincipalChangeResult } from '../shared/principal-changes'
+import { readOraclePrincipals } from '../principals/oracle'
+import type { PrincipalRequest } from '../shared/principals'
 import { failureSource } from '../language/execution'
 import type { ActivityObserver } from '../activity/control'
 import { readActivity } from '../activity/read'
@@ -291,6 +297,90 @@ export class OracleDriver implements DatabaseDriver {
         return (result.rows??[]).map(row=>row.map(cell=>cell==null?null:String(cell)))
       }})
     } finally { await client.close().catch(()=>{}) }
+  }
+  private applyingPrincipalChange = false
+
+  private async withPrincipalCatalog<T>(id: string, action: (query: CatalogQuery) => Promise<T>): Promise<T> {
+    const session = this.session(id), client = await openOracle(session.config)
+    const deadline = Date.now() + 15000
+    try {
+      const query: CatalogQuery = async (sql, values = []) => {
+        const remaining = deadline - Date.now()
+        if (remaining <= 0) throw new Error('The Oracle principal catalog operation timed out.')
+        client.callTimeout = Math.min(5000, remaining)
+        const result = await client.execute<unknown[]>(sql, values, { outFormat: oracledb.OUT_FORMAT_ARRAY, maxRows: 101 })
+        return (result.rows ?? []).map(row => row.map(cell => cell == null ? null : String(cell)))
+      }
+      return await action(query)
+    } finally { await client.close().catch(() => {}) }
+  }
+  inspectPrincipals(request: PrincipalRequest) {
+    return this.withPrincipalCatalog(request.sessionId, async query => {
+      await query('SET TRANSACTION READ ONLY')
+      return readOraclePrincipals(query, request)
+    })
+  }
+  private async principalPlan(query: CatalogQuery, change: import('../shared/principal-changes').OraclePrincipalChange) {
+    try { return await planOraclePrincipalChange(query, change) }
+    catch (error) {
+      if ([942, 1031].includes(Number((error as { errorNum?: number })?.errorNum))) {
+        throw new Error('Reviewing this Oracle change requires visibility of the relevant dictionary views in the current container.')
+      }
+      throw error
+    }
+  }
+  preparePrincipalChange(request: PreparePrincipalChange): Promise<PrincipalPlan> {
+    const { change, sessionId } = request
+    if (!('engine' in change) || change.engine !== 'oracle') throw new Error('Select an Oracle principal change.')
+    return this.withPrincipalCatalog(sessionId, async query => {
+      await query('ALTER SESSION SET NLS_COMP = BINARY')
+      await query('SET TRANSACTION READ ONLY')
+      const { database, observer, sql, notes, fingerprint, implicitCommit, requiresPassword } = await this.principalPlan(query, change)
+      return { database, observer, sql, notes, fingerprint, implicitCommit, requiresPassword }
+    })
+  }
+  async applyPrincipalChange(
+    request: PreparePrincipalChange, retained: PrincipalPlan, beforeDispatch: () => void, _beforeCommit: () => void, newPassword?: string
+  ): Promise<PrincipalChangeResult> {
+    const { change, sessionId } = request
+    if (!('engine' in change) || change.engine !== 'oracle') throw new Error('Select an Oracle principal change.')
+    if (change.action === 'create-login' && (!newPassword || /["\r\n]/.test(newPassword))) {
+      throw new Error('Oracle requires a password without double quotes or line breaks. Prepare a new review.')
+    }
+    if (this.applyingPrincipalChange) throw new Error('Another reviewed Oracle principal change is in progress. Prepare a new review.')
+    this.applyingPrincipalChange = true
+    const unknown: PrincipalChangeResult = { status: 'unknown',
+      message: 'Oracle did not confirm the reviewed catalog effect. Refresh and verify the actual state before preparing another change.' }
+    try {
+      return await this.withPrincipalCatalog(sessionId, async query => {
+        await query('ALTER SESSION SET NLS_COMP = BINARY')
+        const fresh = await this.principalPlan(query, change)
+        if (fresh.sql !== retained.sql || fresh.fingerprint !== retained.fingerprint) {
+          throw new Error('The reviewed Oracle principal, relation or grant changed. Refresh and prepare a new review.')
+        }
+        beforeDispatch()
+        try {
+          if (change.action === 'create-login') {
+            // Oracle DDL requires a quoted literal for IDENTIFIED BY. Keep the
+            // password bound to a fixed PL/SQL block and out of SQL text.
+            const marker = ':newPassword', index = retained.sql.lastIndexOf(marker)
+            await query('BEGIN EXECUTE IMMEDIATE :prefix || CHR(34) || :secret || CHR(34) || :suffix; END;',
+              [retained.sql.slice(0, index), newPassword!, retained.sql.slice(index + marker.length, -1)])
+          } else await query(retained.sql.slice(0, -1))
+        } catch (error) {
+          if ([988, 1031, 1917, 1918, 1919, 1920, 1921, 1940, 1951, 1952, 28003].includes(Number((error as { errorNum?: number })?.errorNum))) {
+            return { status: 'rejected', message: change.action === 'create-login'
+              ? 'Oracle rejected user creation. Check your authorization and the server password policy.'
+              : 'Oracle rejected the reviewed change. Check the current privileges and dependencies.' }
+          }
+          return unknown
+        }
+        try {
+          if (await fresh.verify()) return { status: 'applied', message: 'Oracle acknowledged the automatic commit and the catalog effect was verified.' }
+        } catch { /* A successful statement can outlive the verification connection. */ }
+        return unknown
+      })
+    } finally { this.applyingPrincipalChange = false }
   }
   async explore(id: string, object?: CatalogObject, diagram?: DiagramScope, page?: import('../catalog/paging').CatalogRead) {
     const session = this.session(id), client = await openOracle(session.config)

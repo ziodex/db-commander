@@ -1,8 +1,10 @@
+import { applyPrincipalChangeSchema, preparePrincipalChangeSchema } from '../shared/principal-changes'
 import { snippetExportSchema, snippetImportSchema } from '../shared/snippet-files'
 import { watchWindowsOwner } from './owner-watchdog'
 import type { HostInput, HostMessage, HostHandlers } from '../shared/host-rpc'
 import { rollbackRequestSchema } from '../shared/rollback'
 import { prepareActivityActionSchema, applyActivityActionSchema } from '../shared/activity-control'
+import { principalRequestSchema } from '../shared/principals'
 import { activityRequestSchema } from '../shared/activity'
 import { dataCompareSchema } from '../shared/data-compare'
 import { prepareBuilderSchema } from '../shared/query-builder'
@@ -94,6 +96,9 @@ function initialize(): void {
     prepareActivityAction: payload => driver.prepareActivityAction(prepareActivityActionSchema.parse(payload)),
     applyActivityAction: payload => driver.applyActivityAction(applyActivityActionSchema.parse(payload)),
     inspectRollback: payload => driver.inspectRollback(rollbackRequestSchema.parse(payload)),
+    preparePrincipalChange: payload => driver.preparePrincipalChange(preparePrincipalChangeSchema.parse(payload)),
+    applyPrincipalChange: payload => driver.applyPrincipalChange(applyPrincipalChangeSchema.parse(payload)),
+    inspectPrincipals: payload => driver.inspectPrincipals(principalRequestSchema.parse(payload)),
     inspectActivity: payload => driver.inspectActivity(activityRequestSchema.parse(payload)),
     prepareQueryBuilder: payload => driver.prepareQueryBuilder(prepareBuilderSchema.parse(payload)),
     reviewedMigration: payload => driver.reviewedMigration(saveMigrationSchema.parse(payload)),

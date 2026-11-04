@@ -151,6 +151,9 @@ export interface DesktopApi {
   prepareActivityAction(request:import('./activity-control').PrepareActivityAction):Promise<import('./activity-control').ActivityActionReview>
   applyActivityAction(request:import('./activity-control').ApplyActivityAction):Promise<import('./activity-control').ActivityActionResult>
   inspectRollback(request:import('./rollback').RollbackRequest):Promise<import('./rollback').RollbackSnapshot>
+  preparePrincipalChange(request: import('./principal-changes').PreparePrincipalChange): Promise<import('./principal-changes').PrincipalChangeReview>
+  applyPrincipalChange(request: import('./principal-changes').ApplyPrincipalChange): Promise<import('./principal-changes').PrincipalChangeResult>
+  inspectPrincipals(request: import('./principals').PrincipalRequest): Promise<import('./principals').PrincipalSnapshot>
   inspectActivity(request:import('./activity').ActivityRequest):Promise<import('./activity').ActivitySnapshot>
   saveActivity(snapshot:import('./activity').ActivitySnapshot):Promise<string|null>
   prepareQueryBuilder(request: import('./query-builder').PrepareBuilder): Promise<import('./query-builder').BuilderPreview>

@@ -2,6 +2,8 @@
 
 ## Unreleased — beta preparation
 
+- Added server-engine security-principal inspection, role membership and privilege views, and copyable manual SQL previews for role, membership and table privilege changes. PostgreSQL, MySQL, MariaDB, SQL Server, Azure SQL and Oracle also support reviewed role and account changes, with engine-specific grant and removal rules.
+
 - Added editor SQL diagnostics, scoped completion, catalog signatures, definition and reference navigation, and reviewed alias rename.
 - Extended plan trees across engines and added captured-plan comparison, saved ER diagram layouts and a SQL project-folder browser.
 

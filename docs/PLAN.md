@@ -1,6 +1,6 @@
 # Db Commander product roadmap
 
-Updated **3 November 2026** against development and the Milestone 3 work. Qualification remains scoped to the evidence below.
+Updated **4 November 2026** against development and the A1 work. Qualification remains scoped to the evidence below.
 
 ## Product goal
 
@@ -44,20 +44,24 @@ Complete the confirmed correctness fixes first, then improve daily navigation an
 
 | ID | Deliverable | Acceptance criteria | Status |
 | --- | --- | --- | --- |
-| Q1 | Develop SQL intelligence | Add dialect-aware diagnostics, richer derived/correlated-query completion, routine signatures, definition/reference navigation and previewed rename refactoring. Analyze without executing the SQL being edited. | Complete · focused local validation |
-| C1 | Navigate large catalogs | Replace preview-only discovery with lazy loading, paging and server-side object search. Find objects beyond the current 2,000-object preview while retaining bounded memory and responsive navigation. | Complete · local validation |
-| C2 | Deepen comparison and migrations | Scale schema and data comparison beyond small captured sets. Generate dependency-aware migration scripts and reviewed synchronization plans. Show scope, consistency and destructive operations. Refuse partial captures. | Complete · local validation |
-| Q2 | Improve analysis workspaces | Extend graphical execution plans beyond PostgreSQL, add useful plan comparison and performance context, persist diagram layouts, and support projects/SQL directories suited to source control. | Complete · focused local validation |
+| Q1 | Develop SQL intelligence | Add dialect-aware diagnostics, richer derived/correlated-query completion, routine signatures, definition/reference navigation and previewed rename refactoring. Analyze without executing the SQL being edited. | Complete · merged |
+| C1 | Navigate large catalogs | Replace preview-only discovery with lazy loading, paging and server-side object search. Find objects beyond the current 2,000-object preview while retaining bounded memory and responsive navigation. | Complete · merged |
+| C2 | Deepen comparison and migrations | Scale schema and data comparison beyond small captured sets. Generate dependency-aware migration scripts and reviewed synchronization plans. Show scope, consistency and destructive operations. Refuse partial captures. | Complete · merged |
+| Q2 | Improve analysis workspaces | Extend graphical execution plans beyond PostgreSQL, add useful plan comparison and performance context, persist diagram layouts, and support projects/SQL directories suited to source control. | Complete · merged |
 
 ## Milestone 4 — Administration depth
 
 | ID | Deliverable | Acceptance criteria | Status |
 | --- | --- | --- | --- |
-| A1 | Manage security principals | Inspect and manage users/logins/roles/grants using each engine's privilege model. Preview changes and surface inherited/effective permissions and visibility limits. | Planned |
+| A1 | Manage security principals | Inspect and manage users/logins/roles/grants using each engine's privilege model. Preview changes and surface inherited/effective permissions and visibility limits. | Complete · locally qualified |
 | A2 | Manage database lifecycle and maintenance | Add reviewed database create/rename/drop operations, supported maintenance/statistics/index tools, and richer backup/restore workflows. Use engine-specific capabilities and accurate transaction/permission reporting. | Partial · guided backup/restore merged; lifecycle and maintenance remain |
 | A3 | Add operational diagnostics | Extend existing sessions/locks tooling with performance diagnostics, engine-specific job/schedule management where supported, and a unified operation/progress history. | Planned |
 | A4 | Complete authentication workflows | Add interactive Entra sign-in and renewal, Windows integrated authentication where supported, and separately qualified cloud/network paths. Document each supported authentication/platform combination. | Partial · Windows SQL Server authentication exists; Entra and cloud qualification remain |
 
+
+The PostgreSQL slice covers cluster roles, direct and indirect memberships, and effective database and selected-relation privileges. MySQL and MariaDB add host-qualified account identities, visible role chains and their table grants, and the roles enabled on the separate catalog connection. All three provide copyable manual SQL previews for role creation, membership changes and table privilege grants or revokes. SQL Server and Azure SQL separate database users and roles from server logins and roles, distinguish grants from denials, and report effective permissions for the catalog connection where the engine exposes them. Oracle scopes dictionary visibility, role and system privileges to the current container. These engines also provide manual SQL previews. SQLite and DuckDB file connections have no server principal catalog. PostgreSQL supports reviewed role and login changes in a separate transaction. MySQL and MariaDB support reviewed account and role creation, account rename and login locking, direct grants, and dependency-checked removal. Their reviewed statements commit on a separate connection. SQL Server and Azure SQL support reviewed database roles and users, server logins and role memberships, and direct grants and denials. SQL Server checks cross-database login mappings before removal. Logical Azure SQL login removal is outside the app’s reviewed workflow. Oracle supports reviewed local roles and users, account locks, CREATE SESSION, memberships and relation grants. Oracle removal and revocation check local dictionary dependencies and use the engine’s automatic commit semantics.
+
+Final local qualification passed **1,171 unit tests with three platform skips**, **11 focused server contracts**, **six packaged Apple Silicon workflows** and **three startup checks**. The packaged workflows cover exact scope and SQL at confirmation, keyboard focus and 200% zoom. Before the UI review corrections, **99 embedded driver contracts** and **176 packaged desktop workflows** passed, with ten platform or fixture skips in the desktop suite. The Azure SQL profile uses the local TDS fixture. Logical Azure metadata, role planning and guards have unit coverage. Independent UI and documentation reviews are complete. Live Azure and cross-platform CI qualification remain separate.
 
 ## Engineering and open-source delivery — continuous
 
@@ -81,7 +85,7 @@ Release qualification stays tied to its exact candidate and tested scope. Update
 
 ## Review and completion
 
-Q1 and Q2 add offline editor assistance, reviewed alias changes, native plan trees and baseline comparisons, durable diagram layouts and a local SQL folder browser. Local validation includes **1,154 unit tests with three platform skips**, focused contracts across all seven engines, and **30 focused packaged workflows** on Apple Silicon. The Milestone 3 integration PR qualifies the combined C1, C2, Q1 and Q2 changes through development CI. See [Milestone 3 validation](DRIVER_TESTING.md#milestone-3-sql-intelligence-and-analysis-workspaces--3-november-2026).
+Q1 and Q2 add offline editor assistance, reviewed alias changes, native plan trees and baseline comparisons, durable diagram layouts and a local SQL folder browser. Local validation includes **1,154 unit tests with three platform skips**, focused contracts across all seven engines, and **30 focused packaged workflows** on Apple Silicon. The combined C1, C2, Q1 and Q2 changes passed all 12 development CI checks and merged as developer preview 0.2.4. See [Milestone 3 validation](DRIVER_TESTING.md#milestone-3-sql-intelligence-and-analysis-workspaces--3-november-2026).
 
 C2 compares scoped inventories of up to 1,000 objects per side, with detailed review for up to 40 per side. It compares up to 2,000 rows per side within the existing 4 MiB limit, orders supported table drops by visible foreign-key dependencies and exports reviewed synchronization plans for manual use. Local macOS Apple Silicon validation passed **1,140 unit tests with three platform skips**, **23 focused contracts across seven engines**, **two embedded 2,105-table contracts**, and **174 packaged workflows and three startup checks with ten platform or fixture skips**. Independent UI and documentation reviews are complete. Cross-platform CI and release qualification remain separate. See [C2 qualification](DRIVER_TESTING.md#c2-comparison-and-migrations--3-november-2026).
 

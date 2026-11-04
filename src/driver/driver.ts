@@ -8,6 +8,12 @@ export type Completion = Extract<DatabaseEvent, { type: 'complete' }>
 /** Host-only streaming mode. The public run schema never accepts this flag. */
 export type DriverRunRequest = RunRequest & { fullExport?: boolean; bound?: ReturnType<typeof import('../shared/parameters').compileParameters> }
 export interface DatabaseDriver {
+  preparePrincipalChange?(request: import('../shared/principal-changes').PreparePrincipalChange): Promise<import('../principals/reviews').PrincipalPlan>
+  applyPrincipalChange?(
+    request: import('../shared/principal-changes').PreparePrincipalChange, plan: import('../principals/reviews').PrincipalPlan,
+    beforeDispatch: () => void, beforeCommit: () => void, newPassword?: string
+  ): Promise<import('../shared/principal-changes').PrincipalChangeResult>
+  inspectPrincipals?(request: import('../shared/principals').PrincipalRequest): Promise<import('../shared/principals').PrincipalSnapshot>
   withActivity?<T>(id:string, read:(observer:import('../activity/control').ActivityObserver)=>Promise<T>):Promise<T>
   activityId?(id:string):string
   invalidateActivity?(id:string):void

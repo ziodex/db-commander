@@ -16,7 +16,7 @@ type Forwarded =
   | 'inspectImport' | 'startTransfer' | 'cancelTransfer' | 'startBackup' | 'inspectBackup' | 'cancelBackup'
   | 'inspectDataFile' | 'transferMappings' | 'saveTransferMapping' | 'removeTransferMapping' | 'discardTransferCapture'
   | 'compareData' | 'compareSchemas' | 'prepareMigration' | 'prepareQueryBuilder'
-  | 'prepareActivityAction' | 'applyActivityAction' | 'inspectRollback' | 'inspectActivity'
+  | 'prepareActivityAction' | 'applyActivityAction' | 'inspectRollback' | 'inspectActivity' | 'inspectPrincipals' | 'preparePrincipalChange' | 'applyPrincipalChange'
   | 'catalogPage' | 'diagram' | 'inspectObject' | 'saveWorkspace' | 'history' | 'clearHistory'
   | 'searchHistory' | 'historySettings' | 'saveHistorySettings' | 'deleteHistory'
   | 'snippets' | 'saveSnippet' | 'deleteSnippet' | 'applySnippetImport' | 'discardSnippetImport'

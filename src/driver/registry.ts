@@ -5,6 +5,9 @@ import type { SessionAccess } from './session-access'
 import { rollbackRequestSchema, type RollbackRequest } from '../shared/rollback'
 import { RollbackInspections } from '../activity/rollback'
 import { activityRequestSchema, type ActivityRequest, type ActivitySnapshot } from '../shared/activity'
+import { principalRequestSchema, type PrincipalRequest } from '../shared/principals'
+import { applyPrincipalChangeSchema, preparePrincipalChangeSchema, type ApplyPrincipalChange, type PreparePrincipalChange } from '../shared/principal-changes'
+import { PrincipalReviews } from '../principals/reviews'
 import { localActivity } from '../activity/read'
 import { ActivityReviews, readTarget, dispatchAction } from '../activity/control'
 import { prepareActivityActionSchema, applyActivityActionSchema, activityControlLimit, type PrepareActivityAction, type ApplyActivityAction } from '../shared/activity-control'
@@ -58,6 +61,7 @@ export class DriverRegistry {
   private configs = new Map<string, ConnectionConfig>()
   private connecting = 0
   private explainControllers = new Map<string, AbortController>()
+  private principalReviews = new PrincipalReviews()
   private schemaChanges = new SchemaChanges()
   private migrations = new MigrationExports()
   private tunnels = new Map<string, Tunnel>()
@@ -136,7 +140,7 @@ export class DriverRegistry {
   sessionSafety(id: string) { this.driver(id, true).getSession(id); return this.protection.status(id) }
   unlockSession(id: string, confirmation: string) { this.driver(id).getSession(id); return this.protection.unlock(id, confirmation) }
   lockSession(id: string) { this.driver(id, true).getSession(id); return this.protection.lock(id) }
-  private forgetConnection(id: string) { this.rollbackInspections.forget(id); this.activityTargets.delete(id);this.activityReviews.forget(id);this.tunnels.get(id)?.close(); this.tunnels.delete(id); this.protection.forget(id); this.sessions.delete(id); this.configs.delete(id); this.schemaChanges.forget(id); this.migrations.forget(id) }
+  private forgetConnection(id: string) { this.principalReviews.forget(id); this.rollbackInspections.forget(id); this.activityTargets.delete(id);this.activityReviews.forget(id);this.tunnels.get(id)?.close(); this.tunnels.delete(id); this.protection.forget(id); this.sessions.delete(id); this.configs.delete(id); this.schemaChanges.forget(id); this.migrations.forget(id) }
   private driver(id: string, allowOperation = false) {
     if (!allowOperation && this.operations.has(id)) throw new Error('Wait for the database operation to finish.')
     if (this.editing.has(id)) throw new Error('Wait for the table edit operation to finish.')
@@ -260,6 +264,50 @@ export class DriverRegistry {
     })
   }
   prepareMigration(request: PrepareMigration) { return this.migrations.prepare(request) }
+  inspectPrincipals(input: PrincipalRequest) {
+    const request = principalRequestSchema.parse(input), id = request.sessionId
+    const driver = this.driver(id), session = driver.getSession(id)
+    if (request.scope && session.engine !== 'sqlserver' && session.engine !== 'azure-sql') throw new Error('This engine does not use separate principal scopes.')
+    if (!driver.inspectPrincipals) throw new Error('Security principal inspection is unavailable for this database engine.')
+    if (this.running.has(id) || session.transaction !== 'idle') {
+      throw new Error('Finish the query or settle the transaction before inspecting security principals.')
+    }
+    return this.operation(id, () => driver.inspectPrincipals!(request))
+  }
+  private principalChangeSession(id: string, driver: DatabaseDriver) {
+    const session = driver.getSession(id)
+    if (this.running.has(id) || session.transaction !== 'idle' || session.engine !== 'oracle' && session.autocommit === false) {
+      throw new Error(session.engine === 'oracle'
+        ? 'Finish the query and settle the transaction before changing security principals.'
+        : 'Finish the query, settle the transaction and enable autocommit before changing security principals.')
+    }
+    return session
+  }
+  preparePrincipalChange(input: PreparePrincipalChange) {
+    const request = preparePrincipalChangeSchema.parse(input), id = request.sessionId
+    this.principalReviews.forget(id)
+    const driver = this.driver(id)
+    const session = this.principalChangeSession(id, driver)
+    if (!driver.preparePrincipalChange) throw new Error('Reviewed principal changes are unavailable for this database engine.')
+    return this.operation(id, async () => this.principalReviews.retain(request, await driver.preparePrincipalChange!(request), session.database))
+  }
+  applyPrincipalChange(input: ApplyPrincipalChange) {
+    const request = applyPrincipalChangeSchema.parse(input), id = request.sessionId
+    const { change, plan, review, sourceDatabase } = this.principalReviews.consume(request)
+    const driver = this.driver(id)
+    if (!driver.applyPrincipalChange) throw new Error('Reviewed principal changes are unavailable for this database engine.')
+    const checkSession = () => {
+      const session = this.principalChangeSession(id, driver)
+      if (session.database !== sourceDatabase) throw new Error('The issuing database changed. Prepare a new review.')
+      this.protection.assert(id)
+    }
+    const beforeDispatch = () => {
+      if (Date.now() >= Date.parse(review.expiresAt)) throw new Error('This review expired during revalidation. Prepare a new review.')
+      checkSession()
+    }
+    beforeDispatch()
+    return this.operation(id, () => driver.applyPrincipalChange!({ sessionId: id, change }, plan, beforeDispatch, checkSession, request.newPassword))
+  }
   inspectActivity(input:ActivityRequest):Promise<ActivitySnapshot> {
     const {sessionId,includeSql}=activityRequestSchema.parse(input), driver=this.driver(sessionId), selected=driver.getSession(sessionId)
     if(this.activityReads.has(sessionId)||this.activityReads.size+this.rollbackReads.size>=2) throw new Error('Wait for the current session inspection to finish (at most two inspections at once).')
@@ -490,5 +538,5 @@ export class DriverRegistry {
     if (!driver) throw new Error('This result is no longer available. Execute the query again explicitly.')
     return driver.exportCsv(id, index, path)
   }
-  async close() { await Promise.allSettled(this.activityReads.values()); await Promise.allSettled(this.operations.values()); await Promise.allSettled(this.editing.values()); await Promise.allSettled([this.transfers.close()]); await Promise.allSettled(Object.values(this.drivers).map(driver => driver.close())); for (const tunnel of this.tunnels.values()) tunnel.close(); this.tunnels.clear(); this.protection.clear(); this.activityTargets.clear(); this.activityReviews.clear(); this.rollbackInspections.clear(); this.migrations.clear(); this.sessions.clear(); this.queries.clear(); this.latest.clear(); this.configs.clear(); this.running.clear() }
+  async close() { await Promise.allSettled(this.activityReads.values()); await Promise.allSettled(this.operations.values()); await Promise.allSettled(this.editing.values()); await Promise.allSettled([this.transfers.close()]); await Promise.allSettled(Object.values(this.drivers).map(driver => driver.close())); for (const tunnel of this.tunnels.values()) tunnel.close(); this.tunnels.clear(); this.protection.clear(); this.activityTargets.clear(); this.activityReviews.clear(); this.principalReviews.clear(); this.rollbackInspections.clear(); this.migrations.clear(); this.sessions.clear(); this.queries.clear(); this.latest.clear(); this.configs.clear(); this.running.clear() }
 }

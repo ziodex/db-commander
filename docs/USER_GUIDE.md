@@ -88,6 +88,52 @@ Choose **Inspect rollback progress** for a selected session, or use the inspecti
 
 SQL Server/Azure SQL show a native rollback-request percentage when visible. Oracle shows undo usage and, when available, a percentage for parallel transaction recovery. MySQL/MariaDB show InnoDB state and counters. PostgreSQL shows transaction/session state without a rollback percentage. SQLite/DuckDB explicitly report that progress inspection is unsupported. Counters are not a countdown, no ETA is invented, and “no longer visible” or even 100% does not prove that rollback, cleanup or lock release has finished. A target that disappeared before its transaction was captured cannot be followed. See [scope and monitoring privileges](IMPLEMENTATION.md#rollback-progress-inspection).
 
+## PostgreSQL security principals
+
+Right-click the current PostgreSQL database and choose **Security principals**. Finish the active query or settle the transaction first. Search by role name, select a role and choose **Inspect selected role**. The inspector shows role attributes, direct role-membership grants, direct and indirect memberships, and effective database privileges. Enter the exact schema and name of a visible non-system table or view to check effective table privileges, schema usage, and explicit grants to that role or PUBLIC.
+
+The catalog connection uses the same PostgreSQL login and database. Its scope excludes the query tab’s temporary objects and role changes. Each list shows up to 100 entries and indicates when more exist. Table-level privilege results do not account for column grants, row policies or other conditions that can affect individual statements.
+
+Use **SQL preview** to review and copy a `CREATE ROLE … NOLOGIN` statement, grant or revoke role membership, or grant or revoke one privilege on an inspected relation. For membership previews, enter the exact name of the existing member role. Run the statement separately on the intended connection after verifying current permissions and dependencies. Inspection and SQL preview only read metadata and keep the captures in memory.
+
+Choose **Apply changes** for a PostgreSQL change you want Db Commander to run. You can create a role with or without LOGIN, rename a role, enable or disable LOGIN, drop a role, and add or remove direct membership or relation grants. Inspect an existing role first when the change needs one. Review the generated SQL, check its effects and type the confirmation shown. The connection must be idle, in autocommit and unlocked if protected. The review expires after two minutes and can be used once. For every server engine, the reviewed statement and its scope are shown beside **Apply change** and again in the outcome.
+
+Roles are cluster-wide. A new login role has no password. Server authentication rules can still allow it to connect, and disabling login leaves existing sessions connected. The connected role, superusers and predefined roles are outside reviewed changes. Dropping requires a superuser connection for the catalog dependency check and is blocked by shared dependencies or membership grants. Reviewed revocation uses RESTRICT and requires a single direct grant. Other grant paths can still confer access. If the outcome is unknown, refresh the roles and verify the actual state before preparing another change.
+
+## MySQL and MariaDB security principals
+
+Right-click the current database and choose **Security principals**. Search for an account or role and inspect it. Accounts use their exact name and host. MySQL uses host-qualified role names, and MariaDB uses role names without a host.
+
+The inspector shows visible role memberships and grant sources. For the connected account, it shows roles enabled on the separate catalog connection. Enter an exact database and table or view name to inspect visible table grants. If access to the grant catalogs is restricted, inspection is limited to the connected account and server-visible metadata. Role activation and grant restrictions can change access in the query tab.
+
+Use **SQL preview** to review and copy role creation, membership changes and table privilege grants or revokes. Run the SQL separately on the intended connection. For MySQL memberships, provide the member’s exact name and host. For MariaDB, provide the host for a member account and leave it blank for a member role.
+
+Choose **Apply changes** to run a reviewed role or account change. You can create roles and locked user accounts, rename user accounts, lock or unlock login, drop a role or account, and add or remove direct membership or table grants. MariaDB rename applies to user accounts. Roles can be created and removed. MySQL represents accounts and roles in the same catalog, so an account’s lock state alone cannot identify its purpose. Check the exact name and host in the reviewed SQL.
+
+The change commits automatically on a separate connection. Review the SQL and effects, acknowledge the commit, and type the confirmation. The connection must be idle, in autocommit and unlocked if protected. New user accounts are locked with no password. Configure authentication before unlocking. Existing connections may retain their access.
+
+Creation and rename check whether a stored object already names the proposed account as its definer. Rename checks role, default-role and proxy dependencies. Drop also checks outstanding grants. MariaDB grants the creator administrative membership in a new role. If dropping that role will remove the connected account’s administrative membership, the review calls it out. Other memberships and default-role references still block removal. Names and catalog state are rechecked just before execution. Changes made by another client can race that check. Verify the actual account state after an unknown outcome.
+
+## SQL Server and Azure SQL security principals
+
+Open **Security principals** from the current database menu. On SQL Server and Azure SQL, choose **Current database** for users, database roles and relation privileges or **Server** for logins and server roles. The inspector distinguishes grants from denials and identifies visible role sources. Effective permissions are evaluated for the separate catalog connection. Azure SQL logical-server roles are inspected through `master` when the login can connect there.
+
+Choose **Apply changes** in the SQL Server or Azure SQL inspector to review and run a change in the selected scope. In **Current database**, create a role, a user without a login, or a user mapped to an existing server login. Rename or remove eligible principals, change direct memberships, or grant, deny, or revoke one table-level permission. Removing a denial can restore access through another grant.
+
+In **Server**, review changes in `master`. You can create a SQL login, rename it, enable or disable login, and change supported role memberships. Enter a new login password in the masked field at apply time. The review shows a placeholder and withholds **Copy SQL**. SQL Server also supports custom server roles and removal of eligible unmapped logins. Login removal checks ownership, grants, active sessions and mappings, and requires all databases to be online, with a limit of 50. Logical Azure SQL uses predefined server roles. Its login removal is outside this reviewed workflow. A login change does not disconnect existing sessions. The issuing query tab stays separate from the transaction that applies the review.
+
+Use **SQL preview** for role creation, membership changes and applicable relation privilege changes. SQL is copied for manual execution. On SQL Server and Azure SQL, revoking a denial can restore access through a separate grant.
+
+## Oracle security principals
+
+On Oracle, inspection uses the connected container. Search for a user or role to view visible memberships, system privileges and grants on a named relation. The separate catalog connection can show its enabled roles and active system privileges. Dictionary visibility determines the available details. **SQL preview** can copy role, membership and relation privilege statements.
+
+Use **Apply changes** to create a role, a schema-only user, or a password-authenticated user that starts locked. Enter the password in the masked field at apply time. The review shows a placeholder and withholds **Copy SQL**. Grant or revoke `CREATE SESSION` separately from locking or unlocking the account. You can also change direct role memberships and supported table-level grants. The review applies only to eligible local principals and needs enough dictionary visibility to verify dependencies. Common principals and Oracle-maintained principals are outside this scope.
+
+Oracle commits the change on a separate connection. Confirm the SQL and the automatic commit. The query tab may use Oracle’s normal manual-commit mode and must have no active transaction. Removal checks grants, ownership, recycle-bin entries, quotas, proxy access and active sessions. It discloses Oracle’s default PUBLIC inheritance grant or the connected user’s administrative membership if dropping the principal would remove it. Revocation blocks grant and hierarchy options, column grants and dependent schema objects. Verify actual catalog state after an unknown outcome.
+
+SQLite and DuckDB file connections have no server principal catalog.
+
 ## Visual query builder
 
 Right-click a table/view and choose **Build query from…**, or open **Visual query builder** from the current database menu or Commands. Choose sources, INNER/LEFT joins (including composite keys and self joins), output columns and aliases, aggregates, WHERE/HAVING conditions, sorting, DISTINCT and a returned-row limit. Non-aggregate outputs automatically form GROUP BY when aggregates are present.

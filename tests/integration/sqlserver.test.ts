@@ -1,3 +1,5 @@
+import { verifySqlServerPrincipalChanges } from './sqlserver-principal-changes-contract'
+import { verifySqlServerPrincipals } from './sqlserver-principals-contract'
 import { verifyTransferWorkflows } from './transfer-workflows-contract'
 import { verifyLargeServerCatalog } from './server-catalog-contract'
 import { verifyCatalogPerformance } from './catalog-performance-contract'
@@ -52,6 +54,11 @@ describe('Docker SQL Server driver contracts', () => {
   beforeAll(async () => { driver = new DriverRegistry(event => { events.push(event) }); session = await driver.connect(config) })
   afterAll(async () => { await driver?.close() })
 
+  for (const engine of ['sqlserver', 'azure-sql'] as const) {
+    it(`applies reviewed ${engine} principals with scope, denial and dependency guards`, () =>
+      verifySqlServerPrincipalChanges(config, engine), 120000)
+  }
+  it('inspects security principals and effective permissions in SQL Server and Azure profiles', async () => { await verifySqlServerPrincipals(config) }, 120000)
   it('browses accessible databases and safely replaces only the selected session', async () => { await verifyDatabaseBrowsing(config) })
   it('browses and switches Azure profiles using the local TDS fixture', async () => { await verifyDatabaseBrowsing({ ...config, engine: 'azure-sql' }) })
   it('backs up and restores native schema/data with target protection, constraints and cancellation', async () => { await verifyBackups(config) }, 180000)

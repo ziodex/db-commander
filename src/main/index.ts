@@ -1,8 +1,10 @@
+import { applyPrincipalChangeSchema, preparePrincipalChangeSchema } from '../shared/principal-changes'
 import { DatabaseHostClient } from './database-host-client'
 import { SqlFiles } from '../files/sql-files'
 import { openSqlFileSchema, saveSqlFileSchema, reloadSqlFileSchema, finishSqlFileReloadSchema, type SaveSqlFileRequest } from '../shared/sql-files'
 import { rollbackRequestSchema } from '../shared/rollback'
 import { prepareActivityActionSchema, applyActivityActionSchema } from '../shared/activity-control'
+import { principalRequestSchema } from '../shared/principals'
 import { activityRequestSchema, activitySnapshotSchema } from '../shared/activity'
 import { dataCompareSchema } from '../shared/data-compare'
 import { prepareBuilderSchema } from '../shared/query-builder'
@@ -290,6 +292,9 @@ function registerIpc(): void {
   handle('prepareActivityAction', async value => rpc('prepareActivityAction',prepareActivityActionSchema.parse(value)))
   handle('applyActivityAction', async value => rpc('applyActivityAction',applyActivityActionSchema.parse(value)))
   handle('inspectRollback', async value => rpc('inspectRollback',rollbackRequestSchema.parse(value)))
+  handle('preparePrincipalChange', async value => rpc('preparePrincipalChange', preparePrincipalChangeSchema.parse(value)))
+  handle('applyPrincipalChange', async value => rpc('applyPrincipalChange', applyPrincipalChangeSchema.parse(value)))
+  handle('inspectPrincipals', async value => rpc('inspectPrincipals', principalRequestSchema.parse(value)))
   handle('inspectActivity', async value => rpc('inspectActivity',activityRequestSchema.parse(value)))
   handle('saveActivity', async value => {
     const snapshot=activitySnapshotSchema.parse(value)

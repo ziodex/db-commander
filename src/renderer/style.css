@@ -737,6 +737,30 @@ body[data-resizing=horizontal], body[data-resizing=horizontal] * { cursor: row-r
 .query-builder-dialog p { line-height: 1.5; overflow-wrap: anywhere; }
 
 .activity-dialog { width: min(1200px, 94vw); max-height: 92vh; }
+.principals-dialog { width: min(780px, 94vw); }
+.principals-dialog[open] { display: flex; flex-direction: column; overflow: clip; }
+.principals-header { flex-shrink: 0; border-bottom: 1px solid var(--border); }
+.principals-dialog .principals-header .dialog-heading { position: static; padding: 0; margin-bottom: 8px; }
+.principals-header .activity-views { gap: 8px; margin: 0 0 8px; }
+.principals-header span { min-width: 0; overflow-wrap: anywhere; color: var(--muted); font-size: 13px; }
+.principals-content { min-height: 0; overflow: auto; padding-inline-end: 8px; padding-block-end: 8px; }
+.principals-copy { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.principals-dialog .activity-table table { min-width: 0; }
+.principals-dialog .activity-table tbody th { position: static; }
+.principal-grant-table { table-layout: fixed; }
+.principal-grant-table thead th:first-child { width: 27%; }
+.principal-grant-table thead th:last-child { width: 20%; }
+.principal-grant-table tbody th small { display: block; margin-top: 4px; color: var(--muted); }
+.principal-change-editor { padding-block: 10px; }
+.principal-change-editor .activity-check { margin-block: 12px; }
+.principal-change-context { margin-block: 12px; overflow-wrap: anywhere; }
+.principal-change-context p { margin: 0 0 4px; }
+.principal-change-context code { white-space: pre-wrap; }
+.principals-dialog li { overflow-wrap: anywhere; margin-block: 5px; }
+.principals-dialog select { min-width: 0; width: 100%; }
+.principals-dialog .activity-detail textarea { height: 6em; white-space: pre-wrap; overflow-wrap: anywhere; }
+.principals-fields { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; margin-block: 12px; }
+.principals-fields label { flex: 1 1 180px; min-width: 0; margin-bottom: 0; }
 .activity-dialog .dialog-heading { position: sticky; top: -24px; padding: 12px 0; background: var(--surface-raised); z-index: 2; }
 .activity-controls, .activity-views, .activity-paging { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 12px 0; }
 .activity-dialog .activity-check { display: flex; flex-direction: row; align-items: center; margin: 0; }

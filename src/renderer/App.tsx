@@ -19,6 +19,7 @@ import { EditorSettingsDialog } from './EditorSettingsDialog'
 import { useApplicationPreferences } from './use-application-preferences'
 import { DEFAULT_EDITOR_SETTINGS } from '../shared/editor-settings'
 import { ActivityDialog } from './ActivityDialog'
+import { SecurityPrincipalsDialog } from './SecurityPrincipalsDialog'
 import { QueryBuilderDialog } from './QueryBuilderDialog'
 import { DataCompareDialog } from './DataCompareDialog'
 import { SchemaCompareDialog } from './SchemaCompareDialog'
@@ -95,6 +96,7 @@ export function App() {
   const sidebarWidth = clampSize(layout.sidebarWidth, bounds.sidebarMin, bounds.sidebarMax)
   const resultsHeight = clampSize(layout.resultsHeight, bounds.resultsMin, bounds.resultsMax)
 
+  const [principalsOpen, setPrincipalsOpen] = useState<{ tabId: string; sessionId: string; database: string; owner: HTMLElement } | null>(null)
   const [activityOpen,setActivityOpen]=useState<{tabId:string;sessionId:string}|null>(null)
   const [builderOpen,setBuilderOpen]=useState<{tabId:string;sessionId:string;table?:GridTable}|null>(null)
   const [dataCompareOpen,setDataCompareOpen]=useState<{tabId:string;sessionId:string;table?:GridTable}|null>(null)
@@ -343,6 +345,17 @@ export function App() {
     { label: 'New independent connection', title: 'Starts a separate transaction and temporary-object scope. In-memory databases start empty.', disabled: !ready || !session || workspace.tabs.length >= MAX_TABS || sqlFiles.busy || Boolean(closeId), action: () => newTab(undefined, undefined, 'independent') }
   ]
 
+  async function principalOperation<T>(sessionId: string, operation: () => Promise<T>): Promise<T> {
+    const current = statesRef.current[tabId]
+    if (current?.session?.id !== sessionId || tabOperationBusy(current)) throw new Error('Wait for the connection to become idle.')
+    patchState(tabId, { schemaLoading: true })
+    try { return await operation() }
+    finally {
+      if (statesRef.current[tabId]?.session?.id === sessionId) patchState(tabId, { schemaLoading: false })
+      cleanupLostSession(sessionId)
+    }
+  }
+
   return <div className="app-shell">
     <TitleBar api={api} appearance={theme}><ActionMenu label="Workspace" items={workspaceTools}/><div className="panel-controls" role="group" aria-label="Panel layout"><button id="toggle-sidebar" aria-label="Toggle sidebar" aria-pressed={layout.sidebarVisible} title={`${layout.sidebarVisible ? 'Hide' : 'Show'} sidebar (Cmd/Ctrl+B)`} disabled={!ready} onClick={() => layoutCommand('toggle-sidebar')}><PanelLeft size={16} /></button><button id="toggle-results" aria-label="Toggle results" aria-pressed={layout.resultsVisible} title={`${layout.resultsVisible ? 'Hide' : 'Show'} results (Cmd/Ctrl+J)`} disabled={!ready} onClick={() => layoutCommand('toggle-results')}><PanelBottom size={16} /></button></div><button className="command-button" aria-label="Commands" title="Search commands (Cmd/Ctrl+K)" onClick={() => setPalette(true)}><Search size={13} />Commands<kbd>{shortcutKey} K</kbd></button></TitleBar>
     <UpdateBanner api={api} />
@@ -359,7 +372,7 @@ export function App() {
             onEdit={savedProfile => { setDialogError(''); setDialogInfo({ tabId, profile: savedProfile.config, profileId: savedProfile.id, saveOnly: true }) }}
             onDelete={savedProfile => { setDialogError(''); setDeleteProfileId(savedProfile.id) }}
             onFavorite={(id, favorite) => changeWorkspace(previous => ({ ...previous, profiles: previous.profiles.map(profile => profile.id === id ? { ...profile, config: { ...profile.config, favorite } } : profile) }))}/>
-          {session ? <DatabaseExplorer readCatalog={readCatalog} catalogPaused={closingTabs} browseDisabled={!ready || sqlFiles.busy || Boolean(closeId) || workspace.tabs.length >= MAX_TABS} onActivity={()=>setActivityOpen({tabId,sessionId:session.id})} onBuilder={table=>setBuilderOpen({tabId,sessionId:session.id,table})} onCompareData={table=>session&&setDataCompareOpen({tabId,sessionId:session.id,table})} key={tabId} state={state} onBackup={()=>setBackupOpen(true)} onCompare={()=>setCompareOpen({tabId,sessionId:session.id})} onDiagram={() => setDiagramOpen({tabId,sessionId:session.id})} onSchemaChange={target => setSchemaEditor({ tabId, sessionId: session.id, target })} onInspect={object => void inspectObject(object)} onRefreshDatabases={() => void refreshDatabases()} onRefreshSchema={() => void refreshTables()} onSwitch={requestSwitch} onFilter={setTableSearch} onAppendSelect={appendSelect} onEdit={table => void openGrid(table)} onBrowse={table => void browseTable(table)} /> : <p className="sidebar-description">Connect to load databases.</p>}
+          {session ? <DatabaseExplorer readCatalog={readCatalog} catalogPaused={closingTabs} browseDisabled={!ready || sqlFiles.busy || Boolean(closeId) || workspace.tabs.length >= MAX_TABS} onActivity={()=>setActivityOpen({tabId,sessionId:session.id})} onPrincipals={owner => setPrincipalsOpen({ tabId, sessionId: session.id, database: session.database, owner })} onBuilder={table=>setBuilderOpen({tabId,sessionId:session.id,table})} onCompareData={table=>session&&setDataCompareOpen({tabId,sessionId:session.id,table})} key={tabId} state={state} onBackup={()=>setBackupOpen(true)} onCompare={()=>setCompareOpen({tabId,sessionId:session.id})} onDiagram={() => setDiagramOpen({tabId,sessionId:session.id})} onSchemaChange={target => setSchemaEditor({ tabId, sessionId: session.id, target })} onInspect={object => void inspectObject(object)} onRefreshDatabases={() => void refreshDatabases()} onRefreshSchema={() => void refreshTables()} onSwitch={requestSwitch} onFilter={setTableSearch} onAppendSelect={appendSelect} onEdit={table => void openGrid(table)} onBrowse={table => void browseTable(table)} /> : <p className="sidebar-description">Connect to load databases.</p>}
         </>}
       </aside>
       {layout.sidebarVisible && <Splitter orientation="vertical" label="Resize sidebar" controls="workspace-sidebar" value={sidebarWidth} preferredValue={layout.sidebarWidth} min={bounds.sidebarMin} max={bounds.sidebarMax} disabled={!ready}
@@ -409,6 +422,11 @@ export function App() {
     {transfer?.tabId === tabId && transfer.sessionId === session?.id && <TransferDialog key={`${tabId}:${transfer.sourceLabel ?? 'editor'}`} session={session} sources={connectionGroups(workspace.tabs, states).map(group => ({ session: group.session, title: group.tabs[0].title, disabled: group.tabs.some(tab => tabOperationBusy(states[tab.id]) || Boolean(states[tab.id].gridChanges.length)) || group.session.transaction !== 'idle' || group.session.engine !== 'oracle' && group.session.autocommit === false }))} onPrepareTable={prepareSchemaChange} onApplyTable={applySchemaChange} onCommitTable={() => void run('COMMIT')} tables={state.tables.filter(table => table.kind === 'table')} sql={transfer.sql} sourceLabel={transfer.sourceLabel} jobs={transferJobs} blocked={!session || tabOperationBusy(state) || Boolean(state.gridChanges.length) || inTransaction || session.engine !== 'oracle' && session.autocommit === false} onClose={() => setTransfer(null)} />}
     {schemaEditor?.tabId === tabId && schemaEditor.sessionId === session?.id && session && <SchemaChangeDialog key={`${tabId}:${session.id}`} session={session} snapshot={state.schema} initialTarget={schemaEditor.target} blocked={schemaChangeBlocked()} onClose={() => setSchemaEditor(null)} onPrepare={prepareSchemaChange} onApply={applySchemaChange} />}
     {activityOpen?.tabId===tabId && activityOpen.sessionId===session?.id && <ActivityDialog key={session.id} session={session} onClose={()=>setActivityOpen(null)}/>}
+    {principalsOpen?.tabId === tabId && principalsOpen.sessionId === session?.id && principalsOpen.database === session.database &&
+      <SecurityPrincipalsDialog key={session.id} session={session} opener={principalsOpen.owner} onClose={() => setPrincipalsOpen(null)}
+        load={request => principalOperation(request.sessionId, () => api.inspectPrincipals(request))}
+        prepare={request => principalOperation(request.sessionId, () => api.preparePrincipalChange(request))}
+        apply={request => principalOperation(request.sessionId, () => api.applyPrincipalChange(request))} />}
     {builderOpen?.tabId===tabId && builderOpen.sessionId===session?.id && <QueryBuilderDialog key={session.id} session={session} snapshot={state.schema} initialTable={builderOpen.table} blocked={schemaChangeBlocked() ?? (!session.database ? 'Select a database before reviewing builder SQL.' : undefined)} onClose={()=>setBuilderOpen(null)} onRefresh={async()=>{await refreshTables(tabId,session.id);const error=statesRef.current[tabId]?.schemaError;if(error)throw new Error(error)}} onReview={async query=>{
       const id=session.id;patchState(tabId,{schemaLoading:true})
       try{return await api.prepareQueryBuilder({sessionId:id,query})}finally{if(statesRef.current[tabId]?.session?.id===id)patchState(tabId,{schemaLoading:false});cleanupLostSession(id)}
