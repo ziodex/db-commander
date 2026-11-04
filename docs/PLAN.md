@@ -56,7 +56,7 @@ Complete the confirmed correctness fixes first, then improve daily navigation an
 | A1 | Manage security principals | Inspect and manage users/logins/roles/grants using each engine's privilege model. Preview changes and surface inherited/effective permissions and visibility limits. | Complete · locally qualified |
 | A2 | Manage database lifecycle and maintenance | Add reviewed database create/rename/drop operations, supported maintenance/statistics/index tools, and richer backup/restore workflows. Use engine-specific capabilities and accurate transaction/permission reporting. | Complete · local macOS and driver validation |
 | A3 | Add operational diagnostics | Extend existing sessions/locks tooling with performance diagnostics, engine-specific job/schedule management where supported, and a unified operation/progress history. | Complete · local validation |
-| A4 | Complete authentication workflows | Add interactive Entra sign-in and renewal, Windows integrated authentication where supported, and separately qualified cloud/network paths. Document each supported authentication/platform combination. | Implemented locally · live Azure and native Windows qualification pending |
+| A4 | Complete authentication workflows | Add interactive Entra sign-in and renewal, Windows integrated authentication where supported, and separately qualified cloud/network paths. Document each supported authentication/platform combination. | Implemented · Windows integrated sign-in verified · live Azure qualification pending |
 
 The [Milestone 4 review](MILESTONE_4_REVIEW.md) records the combined qualification and remaining authentication checks.
 
