@@ -7,7 +7,7 @@ import { Connection, Request, TYPES } from 'tedious'
 import type { ConnectionConfig } from '../../src/shared/contracts'
 import { engineNames } from '../../src/shared/database-engines'
 import { tableNode } from './explorer-actions'
-import { enterWorkspaceSql, waitForConnectionIdle, waitForWorkspaceReady } from './workspace-ready'
+import { enterWorkspaceSql, resizeWorkspace, waitForConnectionIdle, waitForWorkspaceReady } from './workspace-ready'
 
 for (const engine of ['sqlserver', 'azure-sql'] as const) test(`database administration ${engine} shows master and table scope`, async ({}, info) => {
   test.setTimeout(120_000)
@@ -124,11 +124,7 @@ for (const engine of ['sqlserver', 'azure-sql'] as const) test(`database adminis
     expect(await exists()).toBe(true)
     await dismiss()
 
-    await desktop.evaluate(({ BrowserWindow }) => {
-      const window = BrowserWindow.getAllWindows()[0]
-      window.setContentSize(1440, 900)
-      window.webContents.setZoomFactor(2)
-    })
+    await resizeWorkspace(desktop, page, 1440, 900, 2)
     if (engine === 'sqlserver') {
       await open(databaseNode(database), 'Database administration')
       await operation.selectOption('drop-database')

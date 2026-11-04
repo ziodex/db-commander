@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { tableNode } from './explorer-actions'
-import { enterWorkspaceSql, waitForConnectionIdle, waitForWorkspaceReady } from './workspace-ready'
+import { enterWorkspaceSql, resizeWorkspace, waitForConnectionIdle, waitForWorkspaceReady } from './workspace-ready'
 
 for (const engine of ['sqlite', 'duckdb', 'oracle'] as const) test(`database administration ${engine} reviews native maintenance`, async ({}, info) => {
   test.setTimeout(120_000)
@@ -58,11 +58,7 @@ for (const engine of ['sqlite', 'duckdb', 'oracle'] as const) test(`database adm
     await expect(page.getByRole('cell', { name: '42', exact: true })).toBeVisible()
     const history = await page.evaluate(() => window.dbCommander.history())
 
-    await app.evaluate(({ BrowserWindow }, zoom) => {
-      const window = BrowserWindow.getAllWindows()[0]
-      window.setContentSize(1440, 900)
-      window.webContents.setZoomFactor(zoom)
-    }, engine === 'oracle' ? 1.25 : 2)
+    await resizeWorkspace(app, page, 1440, 900, engine === 'oracle' ? 1.25 : 2)
     const node = engine === 'duckdb' ? page.getByRole('button', { name: 'Switch to database local-fixture', exact: true }) : tableNode(page, table)
     await node.focus()
     await page.keyboard.press('Shift+F10')
