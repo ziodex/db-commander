@@ -21,6 +21,7 @@ No beta release has been declared. Package version 0.2.4 remains a developer pre
 
 - Shortened the SQL opened by Browse data to `SELECT *`, retaining identifier quoting, sorting and paging. Browser display conversions still preserve exact values.
 - Added SQL Server Windows Authentication with the current Windows account, using the Windows SQL client without storing a password. This mode requires a direct connection and uses the Windows certificate store for TLS.
+- Added experimental Azure SQL browser sign-in using an existing Microsoft Entra desktop app registration, with in-memory tokens and same-account renewal for new physical connections. Live Azure qualification is pending.
 - Added **Help → About Db Commander**, showing the actual running version and a short application description.
 
 - Updated the workbench with the VS Code 2026 Dark theme, Material file/object icons, a Windows title-bar application menu, clearer typography and a compact results toolbar.

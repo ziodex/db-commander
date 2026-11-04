@@ -122,12 +122,13 @@ const api: DesktopApi = {
     return () => ipcRenderer.removeListener('sql:layout-command', callback)
   },
   onEntraSignIn: listener => {
-    const callback = (_event: Electron.IpcRendererEvent, waiting: boolean) => listener(waiting)
+    const callback = (_event: Electron.IpcRendererEvent, progress: import('../shared/entra').EntraProgress) => listener(progress)
     ipcRenderer.on('sql:entra-sign-in', callback)
     return () => ipcRenderer.removeListener('sql:entra-sign-in', callback)
   },
-  cancelEntraSignIn: () => ipcRenderer.invoke('sql:cancelEntraSignIn'),
-  renewEntraSession: sessionId => ipcRenderer.invoke('sql:renewEntraSession', sessionId),
+  cancelEntraSignIn: attemptId => ipcRenderer.invoke('sql:cancelEntraSignIn', attemptId),
+  renewEntraSession: (sessionId, attempt) => ipcRenderer.invoke('sql:renewEntraSession', { sessionId, attempt }),
+  connectInteractive: (config, attempt) => ipcRenderer.invoke('sql:connectInteractive', { config, attempt }),
   connect: config => ipcRenderer.invoke('sql:connect', config),
   connectSavedPassword: (profileId, config, sshSecrets) => ipcRenderer.invoke('sql:connectSavedPassword', { profileId, config, sshSecrets }),
   sessionSafety: id => ipcRenderer.invoke('sql:sessionSafety', id),

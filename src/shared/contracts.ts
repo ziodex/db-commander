@@ -9,7 +9,7 @@ import { diagramLayoutsSchema } from './diagram-layouts'
 import { tableLayoutsSchema } from './table-layouts'
 import type { PasswordStatus } from './credentials'
 import { profileOptions, sshSecretsSchema, type ConnectionSafety } from './connection-options'
-import { azureSqlPublicHost, entraProfileSchema } from './entra'
+import { azureSqlPublicHost, entraProfileSchema, type EntraAttempt, type EntraProgress } from './entra'
 import { engineSchema, type DatabaseEngine } from './database-engines'
 export { engineSchema, engineNames, type DatabaseEngine } from './database-engines'
 
@@ -204,9 +204,10 @@ export interface DesktopApi {
   connectBackupTarget(jobId: string): Promise<SessionInfo>
   onBackupJob(listener: (job: import('./backup').BackupJob) => void): () => void
   onLayoutCommand(listener: (command: LayoutCommand) => void): () => void
-  onEntraSignIn(listener: (waiting: boolean) => void): () => void
-  cancelEntraSignIn(): Promise<void>
-  renewEntraSession(sessionId: string): Promise<void>
+  onEntraSignIn(listener: (progress: EntraProgress) => void): () => void
+  cancelEntraSignIn(attemptId: string): Promise<void>
+  renewEntraSession(sessionId: string, attempt: EntraAttempt): Promise<void>
+  connectInteractive(config: ConnectionConfig, attempt: EntraAttempt): Promise<SessionInfo>
   connect(config: ConnectionConfig): Promise<SessionInfo>
   connectSavedPassword(profileId: string, config: ConnectionProfile, sshSecrets?: ConnectionConfig['sshSecrets']): Promise<SessionInfo>
   sessionSafety(sessionId: string): Promise<ConnectionSafety>

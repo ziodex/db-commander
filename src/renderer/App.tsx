@@ -33,6 +33,7 @@ import { ObjectInspector } from './ObjectInspector'
 import { ConnectionDialog } from './ConnectionDialog'
 import { ProfileList } from './ProfileList'
 import { profileConnectionStates } from './profile-connections'
+import { EntraSession } from './EntraSession'
 import { SessionSafetyBar } from './SessionSafetyBar'
 import { SchemaChangeDialog } from './SchemaChangeDialog'
 import { DatabaseAdministrationDialog } from './DatabaseAdministrationDialog'
@@ -386,6 +387,7 @@ export function App() {
       {layout.sidebarVisible && <Splitter orientation="vertical" label="Resize sidebar" controls="workspace-sidebar" value={sidebarWidth} preferredValue={layout.sidebarWidth} min={bounds.sidebarMin} max={bounds.sidebarMax} disabled={!ready}
         onChange={sidebarWidth => changeLayout(layout => ({ ...layout, sidebarWidth }))} onToggle={() => layoutCommand('toggle-sidebar')} onReset={() => changeLayout(layout => ({ ...layout, sidebarWidth: DEFAULT_LAYOUT.sidebarWidth }))} />}
       <main className="main-workspace">
+        <EntraSession sessionId={session?.entraInteractive ? session.id : undefined}/>
         {session && <SessionSafetyBar key={session.id} session={session} onChange={safety => { const current = statesRef.current[tabId]; if (current.session?.id === session.id) patchState(tabId, { session: { ...current.session, safety } }) }}/>}
         <div className="editor-tabs"><QueryTabStrip tabs={workspace.tabs} activeId={tabId} states={states} disabled={!ready || sqlFiles.busy || Boolean(closeId)} closeDisabled={sqlFiles.busy}
           dirty={sqlFiles.dirty} path={id => sqlFiles.files[id]?.path} onSelect={activateEditor} onClose={requestClose} onSplit={splitEditors} splitDisabled={(workspace.editorViews?.tabIds.length ?? 1) >= MAX_EDITOR_VIEWS}
@@ -471,7 +473,7 @@ export function App() {
       setOperationsOpen(false); setBackupJobId(id); setBackupOpen(true)
     }}/>}
     {backupOpen && <BackupDialog initialJobId={backupJobId} key={session?.id ?? 'disconnected'} session={session} jobs={backupJobs} blocked={!session || tabOperationBusy(state) || Boolean(state.gridChanges.length) || inTransaction || session.engine !== 'oracle' && session.autocommit === false} canConnect={job => ready && !sqlFiles.busy && !closeId && workspace.tabs.length < MAX_TABS && Object.values(states).some(value => value.session?.id === job.sessionId && !value.closing && !value.connecting && !value.switching)} onConnect={job => { const opened = newTab(undefined, { title: 'Restored database.sql', sql: '', restored: job }, 'independent'); if (opened) closeBackup() }} onClose={closeBackup} />}
-    {dialogInfo && <ConnectionDialog key={`${dialogInfo.tabId}:${dialogInfo.saveOnly}`} profile={dialogInfo.profile} profileId={dialogInfo.profileId} saveOnly={dialogInfo.saveOnly} busy={Boolean(states[dialogInfo.tabId]?.connecting) || profileBusy} error={dialogError} onClose={() => setDialog(false)} onConnect={async (config, save, choice) => { await connect(config, save, undefined, choice) }} onSave={saveProfile} />}
+    {dialogInfo && <ConnectionDialog key={`${dialogInfo.tabId}:${dialogInfo.saveOnly}`} profile={dialogInfo.profile} profileId={dialogInfo.profileId} saveOnly={dialogInfo.saveOnly} busy={Boolean(states[dialogInfo.tabId]?.connecting) || profileBusy} error={dialogError} onClose={() => setDialog(false)} onConnect={async (config, save, choice, attempt) => { await connect(config, save, undefined, choice, attempt) }} onSave={saveProfile} />}
     {profileLibrary.preview && <ProfileImportDialog preview={profileLibrary.preview} existing={workspace.profiles} busy={profileLibrary.busy} onImport={profileLibrary.apply} onClose={profileLibrary.close}/>}
     {connectionWarning && <ModalDialog className="confirmation-dialog" aria-label="Connection failed" onDismiss={() => setConnectionWarning(null)}>
       <h2>Could not connect to {connectionWarning.name}</h2><p role="alert">{connectionWarning.error}</p>
