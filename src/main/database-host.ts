@@ -103,7 +103,8 @@ function initialize(): void {
     applyAdministration: payload => {
       const request = applyAdministrationSchema.parse(payload)
       const entry = startOperation('administration', driver.historyContext(request.sessionId).engine)
-      return trackOperation(entry, () => driver.applyAdministration(request),
+      const pending = driver.applyAdministration(request)
+      return trackOperation(entry, () => pending,
         result => result.status === 'applied' ? 'completed' : result.status === 'rejected' ? 'not-applied' : result.status)
     },
     cancelSchemaChange: payload => driver.cancelSchemaChange(idSchema.parse(payload)),
@@ -159,7 +160,8 @@ function initialize(): void {
     applyPrincipalChange: payload => {
       const request = applyPrincipalChangeSchema.parse(payload)
       const entry = startOperation('principal-change', driver.historyContext(request.sessionId).engine)
-      return trackOperation(entry, () => driver.applyPrincipalChange(request),
+      const pending = driver.applyPrincipalChange(request)
+      return trackOperation(entry, () => pending,
         result => result.status === 'applied' ? 'completed' : result.status === 'unknown' ? 'unknown' : 'not-applied')
     },
     inspectPrincipals: payload => driver.inspectPrincipals(principalRequestSchema.parse(payload)),

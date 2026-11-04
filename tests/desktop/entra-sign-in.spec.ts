@@ -44,18 +44,17 @@ for (const [theme, zoom] of [['dark', 1.25], ['light', 2]] as const) test(`A4 En
       const methods = (ipcMain as unknown as { _invokeHandlers: Map<string, Parameters<typeof ipcMain.handle>[1]> })._invokeHandlers
       const original = methods.get('sql:connect')
       if (!original) throw new Error('Expected the normal connection handler.')
-      let pending: { id: string; finish: (success: boolean) => void } | undefined
+      let pending: { attempt: EntraAttempt; finish: (outcome: 'success' | 'cancelled' | 'expired') => void } | undefined
       const notify = (attempt: EntraAttempt, phase: EntraProgress['phase']) =>
         BrowserWindow.getAllWindows()[0].webContents.send('sql:entra-sign-in', { ...attempt, phase })
       function simulate(attempt: EntraAttempt) {
         notify(attempt, 'opening')
         return new Promise<void>((resolve, reject) => {
-          pending = { id: attempt.id, finish: success => {
+          pending = { attempt, finish: outcome => {
             pending = undefined
-            if (success) notify(attempt, 'finishing')
             notify(attempt, 'finished')
-            if (success) resolve()
-            else reject(new Error('Microsoft Entra sign-in was cancelled.'))
+            if (outcome === 'success') resolve()
+            else reject(new Error(outcome === 'expired' ? 'Microsoft Entra sign-in expired. Try again.' : 'Microsoft Entra sign-in was cancelled.'))
           } }
         })
       }
@@ -69,27 +68,27 @@ for (const [theme, zoom] of [['dark', 1.25], ['light', 2]] as const) test(`A4 En
       })
       ipcMain.removeHandler('sql:cancelEntraSignIn')
       ipcMain.handle('sql:cancelEntraSignIn', (_event, id) => {
-        if (!pending || pending.id !== id) throw new Error('Wrong cancellation authority.')
-        pending.finish(false)
+        if (!pending || pending.attempt.id !== id) throw new Error('Wrong cancellation authority.')
+        pending.finish('cancelled')
       })
       ipcMain.removeHandler('sql:renewEntraSession')
       ipcMain.handle('sql:renewEntraSession', (_event, { attempt }) => simulate(attempt))
-      ipcMain.handle('fixture:openedBrowser', (_event, surface: EntraAttempt['surface']) => {
+      ipcMain.handle('fixture:progress', (_event, phase: 'browser' | 'finishing') => {
         if (!pending) throw new Error('Expected pending authorization.')
-        notify({ id: pending.id, surface }, 'browser')
+        notify(pending.attempt, phase)
       })
-      ipcMain.handle('fixture:finishRenewal', () => {
-        if (!pending) throw new Error('Expected pending renewal.')
-        pending.finish(true)
+      ipcMain.handle('fixture:finish', (_event, outcome: 'success' | 'expired') => {
+        if (!pending) throw new Error('Expected pending authorization.')
+        pending.finish(outcome)
       })
     })
-    async function signalFixture(name: 'openedBrowser' | 'finishRenewal', surface: EntraAttempt['surface'] = 'workspace') {
-      await app.evaluate(({ ipcMain }, { name, surface }) => {
+    async function signalFixture(signal: 'browser' | 'finishing' | 'success' | 'expired') {
+      await app.evaluate(({ ipcMain }, signal) => {
         const methods = (ipcMain as unknown as { _invokeHandlers: Map<string, Parameters<typeof ipcMain.handle>[1]> })._invokeHandlers
-        const invoke = methods.get(`fixture:${name}`)
+        const invoke = methods.get(signal === 'browser' || signal === 'finishing' ? 'fixture:progress' : 'fixture:finish')
         if (!invoke) throw new Error('Expected the fixture handler.')
-        Reflect.apply(invoke, undefined, [undefined, surface])
-      }, { name, surface })
+        Reflect.apply(invoke, undefined, [undefined, signal])
+      }, signal)
     }
     await page.getByRole('button', { name: 'Connect database', exact: true }).click()
     let form = page.getByRole('dialog')
@@ -143,7 +142,8 @@ for (const [theme, zoom] of [['dark', 1.25], ['light', 2]] as const) test(`A4 En
     const cancel = form.getByRole('button', { name: 'Cancel sign-in', exact: true })
     await expect(form.getByRole('status')).toContainText('Opening your browser')
     await expect(cancel).toBeFocused()
-    await signalFixture('openedBrowser', 'dialog')
+    await capture('entra-opening.png')
+    await signalFixture('browser')
     await expect(form.getByRole('status')).toHaveText('Finish Microsoft Entra sign-in in your browser.')
     await expect(cancel).toBeInViewport({ ratio: 0.95 })
     await capture('entra-waiting.png')
@@ -151,6 +151,14 @@ for (const [theme, zoom] of [['dark', 1.25], ['light', 2]] as const) test(`A4 En
     await expect(form.getByRole('alert')).toContainText('sign-in was cancelled')
     await expect(connect).toBeFocused()
     await capture('entra-cancelled.png')
+    await page.keyboard.press('Enter')
+    await expect(cancel).toBeFocused()
+    await signalFixture('browser')
+    await expect(form.getByRole('status')).toHaveText('Finish Microsoft Entra sign-in in your browser.')
+    await signalFixture('expired')
+    await expect(form.getByRole('alert')).toHaveText('Microsoft Entra sign-in expired. Try again.')
+    await expect(connect).toBeFocused()
+    await capture('entra-expired.png')
     await page.keyboard.press('Escape')
     await expect(form).toBeHidden()
     await expect(page.getByRole('alert', { name: 'Application error' })).toHaveCount(0)
@@ -165,7 +173,7 @@ for (const [theme, zoom] of [['dark', 1.25], ['light', 2]] as const) test(`A4 En
     await savedProfile.focus()
     await page.keyboard.press('Enter')
     await expect(cancelRenewal).toBeFocused()
-    await signalFixture('openedBrowser')
+    await signalFixture('browser')
     await expect(safety.getByRole('status')).toHaveText('Finish Microsoft Entra sign-in in your browser.')
     await capture('entra-saved-waiting.png')
     await page.keyboard.press('Enter')
@@ -182,7 +190,7 @@ for (const [theme, zoom] of [['dark', 1.25], ['light', 2]] as const) test(`A4 En
     await renewal.focus()
     await page.keyboard.press('Enter')
     await expect(cancelRenewal).toBeFocused()
-    await signalFixture('openedBrowser')
+    await signalFixture('browser')
     await expect(safety.getByRole('status')).toHaveText('Finish Microsoft Entra sign-in in your browser.')
     await expect(cancelRenewal).toBeInViewport({ ratio: 0.95 })
     expect(await cancelRenewal.evaluate(button => {
@@ -200,8 +208,11 @@ for (const [theme, zoom] of [['dark', 1.25], ['light', 2]] as const) test(`A4 En
     await capture('entra-renewal-cancelled.png')
     await page.keyboard.press('Enter')
     await expect(cancelRenewal).toBeFocused()
-    await signalFixture('openedBrowser')
-    await signalFixture('finishRenewal')
+    await signalFixture('browser')
+    await signalFixture('finishing')
+    await expect(safety.getByRole('status')).toHaveText('Finishing Microsoft Entra sign-in…')
+    await capture('entra-renewal-finishing.png')
+    await signalFixture('success')
     await expect(safety.getByRole('status')).toHaveText('Microsoft Entra sign-in renewed for new database connections.')
     await expect(renewal).toBeFocused()
     await expect(page.locator('.results-region')).toContainText('37')

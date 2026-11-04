@@ -90,6 +90,23 @@ it('cancels a pending loopback sign-in without exchanging a code or accepting a 
   expect(sdk.acquireTokenByCode).not.toHaveBeenCalled()
 })
 
+it('reports expiry separately and closes the expired callback', async () => {
+  const sdk = identity(), timer = new AbortController()
+  const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(timer.signal)
+  let opened!: (url: URL) => void
+  const browser = new Promise<URL>(resolve => { opened = resolve })
+  const notify = vi.fn()
+  const broker = new EntraGrants(async value => { opened(new URL(value)) }, () => sdk, notify)
+  const active = broker.open(profile)
+  const url = await browser
+  timer.abort(new DOMException('Fixture expired', 'TimeoutError'))
+  await expect(active).rejects.toThrow('sign-in expired')
+  expect(timeout).toHaveBeenCalledWith(120_000)
+  expect(notify.mock.calls.map(([event]) => event.phase)).toEqual(['opening', 'browser', 'finished'])
+  await expect(callback(url, {})).rejects.toThrow()
+  expect(sdk.acquireTokenByCode).not.toHaveBeenCalled()
+})
+
 it('requires the same account during explicit renewal and keeps the current grant if renewal fails', async () => {
   const sdk = identity()
   sdk.acquireTokenByCode.mockResolvedValueOnce(token('first-access'))
