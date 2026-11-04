@@ -25,6 +25,10 @@ import { exportResultCsv, type Completion, type DatabaseDriver, type Emit } from
 import { mysqlKeyword, splitMysqlScript, type MysqlSqlMode } from '../shared/sql/mysql'
 import { openMysqlTransport, type MysqlTransport } from './mysql-transport'
 import { quoteIdentifier } from '../shared/sql/common'
+import { mysqlMaintenanceResult, planMysqlAdministration } from '../administration/mysql'
+import type { AdministrationPlan } from '../administration/reviews'
+import type { AdministrationChange, AdministrationResult } from '../shared/database-administration'
+import type { CatalogQuery } from '../catalog/common'
 
 interface Operation { id: string; cancelled: boolean; active: boolean; cancelPromise?: Promise<boolean>; done?: Promise<void> }
 interface Session { editor?: TableEditor; client: MysqlTransport; config: ConnectionConfig; info: SessionInfo; mode: MysqlSqlMode; lost: boolean; busy?: Operation; metadata?: Promise<SchemaTable[]> }
@@ -224,6 +228,68 @@ export class MysqlDriver implements DatabaseDriver {
       }
       return { databases: databases.sort(), current: session.info.database, switchable: true }
     } finally { await client.end().catch(() => { client.destroy() }) }
+  }
+  private async withAdministration<T>(id: string, apply: boolean, work: (client: MysqlTransport, query: CatalogQuery) => Promise<T>) {
+    const session = this.session(id)
+    const client = await openMysqlTransport({ ...session.config, database: session.info.database })
+    const timer = setTimeout(() => client.destroy(), apply ? 80_000 : 18_000)
+    const query: CatalogQuery = async (sql, values = []) => (await client.bound(sql, values)).rows
+    try {
+      await client.query('SET SESSION lock_wait_timeout = 5, SESSION innodb_lock_wait_timeout = 5, SESSION foreign_key_checks = 1')
+      if (apply && (await query("SELECT GET_LOCK('dbcommander:administration:v1', 0)"))[0]?.[0] !== '1') {
+        throw new Error('Another reviewed administration operation is running on this server. Prepare a new review after it finishes.')
+      }
+      return await work(client, query)
+    } finally {
+      try { await client.end().catch(() => client.destroy()) }
+      finally { clearTimeout(timer) }
+    }
+  }
+  prepareAdministration(id: string, change: AdministrationChange): Promise<AdministrationPlan> {
+    return this.withAdministration(id, false, async (_client, query) => {
+      const { database, observer, scope, target, sql, notes, fingerprint } = await planMysqlAdministration(query, this.engine, change)
+      return { database, observer, scope, target, sql, notes, fingerprint }
+    })
+  }
+  applyAdministration(id: string, change: AdministrationChange, reviewed: AdministrationPlan, beforeDispatch: () => void): Promise<AdministrationResult> {
+    return this.withAdministration(id, true, async (client, query) => {
+      const fresh = await planMysqlAdministration(query, this.engine, change)
+      if (fresh.fingerprint !== reviewed.fingerprint || fresh.sql !== reviewed.sql) {
+        throw new Error('The reviewed database or table changed. Refresh the catalog and prepare a new review.')
+      }
+      beforeDispatch()
+      const unknown: AdministrationResult = {
+        status: 'unknown', message: 'The server did not confirm the reviewed effect. Inspect the current catalog and server activity before preparing another change.'
+      }
+      let acknowledged = false, warning = false
+      const rows: (string | null)[][] = []
+      try {
+        for await (const frame of client.stream(reviewed.sql)) {
+          if (frame.kind === 'ok') { acknowledged = true; warning ||= frame.warnings > 0 }
+          if (frame.kind === 'row') {
+            if (rows.length >= 20) { client.destroy(); return unknown }
+            rows.push(frame.row)
+          }
+        }
+      } catch (error) {
+        const failure = error as { errno?: number; fatal?: boolean }
+        if (!failure.fatal && [1007, 1008, 1044, 1142].includes(failure.errno ?? 0)) {
+          return { status: 'rejected', message: `The server rejected the statement (${failure.errno}). Check permissions and the current database name.` }
+        }
+        if (!failure.fatal && fresh.missingObjects && await fresh.missingObjects().catch(() => false)) {
+          return { status: 'partial', message: 'The drop did not complete and some reviewed objects are now missing. Inspect the database before taking further action.' }
+        }
+        return unknown
+      }
+      try {
+        if (!await fresh.verify()) return unknown
+        if ('table' in change) return mysqlMaintenanceResult(rows, change.action, `${change.schema}.${change.table}`) ?? unknown
+        if (acknowledged && !warning && !rows.length) {
+          return { status: 'applied', message: 'The server acknowledged the statement and the reviewed catalog effect was verified.' }
+        }
+      } catch { return unknown }
+      return unknown
+    })
   }
   activity(id:string, includeSql:boolean) { return this.withActivity(id,o=>readActivity(o.engine,o.database,o.currentSessionId,o.query,includeSql)) }
   activityId(id:string) { const session=this.session(id); return String(session.client.id) }

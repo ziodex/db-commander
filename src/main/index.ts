@@ -1,5 +1,5 @@
 import { applyPrincipalChangeSchema, preparePrincipalChangeSchema } from '../shared/principal-changes'
-import { DatabaseHostClient } from './database-host-client'
+import { DatabaseHostClient, DatabaseHostExitedError } from './database-host-client'
 import { SqlFiles } from '../files/sql-files'
 import { openSqlFileSchema, saveSqlFileSchema, reloadSqlFileSchema, finishSqlFileReloadSchema, type SaveSqlFileRequest } from '../shared/sql-files'
 import { rollbackRequestSchema } from '../shared/rollback'
@@ -23,6 +23,7 @@ import { explainRequestSchema, PLAN_LIMIT } from '../shared/explain'
 import { catalogPageSchema, inspectObjectSchema } from '../shared/catalog'
 import { sshSecretsSchema } from '../shared/connection-options'
 import { prepareSchemaChangeSchema, applySchemaChangeSchema } from '../shared/schema-changes'
+import { prepareAdministrationSchema, applyAdministrationSchema } from '../shared/database-administration'
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, MenuItem, net, powerMonitor, shell, utilityProcess, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron'
 import { UpdateChecker } from './update-checker'
 import { DesktopSettings } from './desktop-settings'
@@ -289,6 +290,18 @@ function registerIpc(): void {
   handle('unlockSession', async value => rpc('unlockSession', z.object({ sessionId: idSchema, confirmation: z.string().max(100) }).strict().parse(value)))
   handle('chooseSshKey', async () => { const result = await dialog.showOpenDialog(window!, { title: 'Choose SSH private key', properties: ['openFile'] }); return result.canceled ? null : result.filePaths[0] ?? null })
   handle('prepareSchemaChange', async value => rpc('prepareSchemaChange', prepareSchemaChangeSchema.parse(value)))
+  handle('prepareAdministration', async value => rpc('prepareAdministration', prepareAdministrationSchema.parse(value)))
+  handle('applyAdministration', async value => {
+    const request = applyAdministrationSchema.parse(value)
+    if (running.has(request.sessionId)) throw new Error('This tab already has a running operation.')
+    running.set(request.sessionId, `administration:${request.reviewId}`)
+    try { return await rpc('applyAdministration', request) }
+    catch (error) {
+      if (!(error instanceof DatabaseHostExitedError)) throw error
+      return { status: 'unknown', message: 'The database host stopped before confirming this operation. Reconnect and inspect the reviewed target before deciding whether to retry.' } as const
+    }
+    finally { running.delete(request.sessionId) }
+  })
   handle('prepareActivityAction', async value => rpc('prepareActivityAction',prepareActivityActionSchema.parse(value)))
   handle('applyActivityAction', async value => rpc('applyActivityAction',applyActivityActionSchema.parse(value)))
   handle('inspectRollback', async value => rpc('inspectRollback',rollbackRequestSchema.parse(value)))

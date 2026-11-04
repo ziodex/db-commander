@@ -482,6 +482,10 @@ body[data-resizing=horizontal], body[data-resizing=horizontal] * { cursor: row-r
 .schema-review h3 { scroll-margin-top: 90px; }
 .schema-review textarea { width: 100%; height: 220px; padding: 12px; font: 14px/1.6 monospace; white-space: pre; }
 .schema-review > fieldset { margin-top: 12px; }
+.database-administration-dialog { width: min(620px, 94vw); overflow-wrap: anywhere; }
+.database-administration-dialog textarea { width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; font-family: monospace; }
+.database-administration-dialog ul { padding-inline-start: 22px; }
+.database-administration-dialog li + li { margin-block-start: 6px; }
 .profile-folder { margin: 4px 0; }
 .profile-folder > summary { cursor: pointer; padding: 6px 9px; color: var(--muted); font-size: 14px; overflow-wrap: anywhere; }
 .profile-folder > summary small { margin-left: 8px; }

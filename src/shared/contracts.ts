@@ -166,6 +166,8 @@ export interface DesktopApi {
 
   prepareSchemaChange(request: import('./schema-changes').PrepareSchemaChange): Promise<import('./schema-changes').SchemaChangePlan>
   applySchemaChange(request: import('./schema-changes').ApplySchemaChange): Promise<import('./schema-changes').SchemaChangeResult>
+  prepareAdministration(request: import('./database-administration').PrepareAdministration): Promise<import('./database-administration').AdministrationReview>
+  applyAdministration(request: import('./database-administration').ApplyAdministration): Promise<import('./database-administration').AdministrationResult>
   cancelSchemaChange(sessionId: string): Promise<{ requested: boolean }>
   inspectImport(source: import('./transfer').ImportSource): Promise<import('./transfer').ImportPreview>
   inspectDataFile(source: { file: string; format: 'csv' | 'tsv' | 'json' | 'jsonl' }): Promise<import('./transfer').DataFilePreview>

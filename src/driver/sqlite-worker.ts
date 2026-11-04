@@ -1,3 +1,4 @@
+import { applySqliteAdministration, planSqliteAdministration } from '../administration/sqlite'
 import { executionUnits, failureSource } from '../language/execution'
 import { readDiagram } from '../catalog/diagram'
 import { boundValue } from './parameters'
@@ -186,6 +187,14 @@ process.on('message', async (message: { id: string; method: string; payload: any
           } })
         })
       } finally { if (owned) source.close(); active = false; backupController = undefined }
+    }
+    else if (method === 'prepareAdministration' || method === 'applyAdministration') {
+      if (active || db!.isTransaction) throw new Error('Finish SQLite queries and settle the transaction before maintenance.')
+      if (method === 'prepareAdministration') value = planSqliteAdministration(db!, payload.database, readOnly, payload.change)
+      else {
+        editor?.invalidate()
+        value = applySqliteAdministration(db!, payload.database, readOnly, payload.change, payload.reviewed)
+      }
     }
     else if (method === 'editGrid') {
       if (active) throw new Error('Wait for the query to finish before editing data.')

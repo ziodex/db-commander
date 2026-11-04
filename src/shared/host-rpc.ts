@@ -13,6 +13,7 @@ type Forwarded =
   | 'connect' | 'disconnect' | 'databases' | 'switchDatabase' | 'tables' | 'schema'
   | 'run' | 'cancel' | 'editGrid' | 'explain' | 'cancelExplain'
   | 'sessionSafety' | 'lockSession' | 'prepareSchemaChange' | 'applySchemaChange' | 'cancelSchemaChange'
+  | 'prepareAdministration' | 'applyAdministration'
   | 'inspectImport' | 'startTransfer' | 'cancelTransfer' | 'startBackup' | 'inspectBackup' | 'cancelBackup'
   | 'inspectDataFile' | 'transferMappings' | 'saveTransferMapping' | 'removeTransferMapping' | 'discardTransferCapture'
   | 'compareData' | 'compareSchemas' | 'prepareMigration' | 'prepareQueryBuilder'

@@ -1,5 +1,6 @@
 import { verifyMysqlPrincipalChanges } from './mysql-principal-changes-contract'
 import { verifyMysqlPrincipals } from './mysql-principals-contract'
+import { verifyMysqlAdministration } from './mysql-administration-contract'
 import { verifyTransferWorkflows } from './transfer-workflows-contract'
 import { verifyLargeServerCatalog } from './server-catalog-contract'
 import { verifyCatalogPerformance } from './catalog-performance-contract'
@@ -58,6 +59,7 @@ for (const engine of engines) describe(`Docker ${engine} driver contracts`, () =
 
   it('applies reviewed account changes with dependency and transaction guards', async () => { await verifyMysqlPrincipalChanges(config) }, 120000)
   it('inspects security principals with role activation and catalog visibility', async () => { await verifyMysqlPrincipals(config) })
+  it('reviews database lifecycle and table maintenance with native MySQL-family guards', () => verifyMysqlAdministration(config), 120000)
   it('browses accessible databases and safely replaces only the selected session', async () => { await verifyDatabaseBrowsing(config) })
   it('backs up and restores native schema/data with target protection, constraints and cancellation', async () => { await verifyBackups(config) }, 180000)
   it('isolates concurrent tab sessions, transaction state and cached exports', async () => { await verifySessionIsolation(config) })

@@ -1,5 +1,6 @@
 import { verifyOraclePrincipalChanges } from './oracle-principal-changes-contract'
 import { verifyOraclePrincipals } from './oracle-principals-contract'
+import { verifyOracleAdministration } from './oracle-administration-contract'
 import { verifyTransferWorkflows } from './transfer-workflows-contract'
 import { verifyInsertExport } from './insert-export-contract'
 import { verifyJsonImport } from './json-import-contract'
@@ -59,6 +60,7 @@ describe('Docker Oracle driver contracts', () => {
   it('applies reviewed Oracle principal changes with dependency and transaction guards', () => verifyOraclePrincipalChanges(config), 120000)
   it('inspects security principals with Oracle dictionary visibility and active roles', async () => { await verifyOraclePrincipals(config) }, 120000)
 
+  it('reviews Oracle table statistics and individual native index rebuilds', () => verifyOracleAdministration(config), 120000)
   // This contract runs multiple cold Data Pump exports/imports plus refusal paths.
   it('backs up and restores native schema/data with target protection, constraints and cancellation', async () => { await verifyBackups(config) }, 360000)
   it('isolates concurrent tab sessions, transaction state and cached exports', async () => { await verifySessionIsolation(config) })
