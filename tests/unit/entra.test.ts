@@ -1,9 +1,12 @@
 import { request } from 'node:http'
+import { createServer, type AddressInfo, type Socket } from 'node:net'
+import { once } from 'node:events'
 import { createHash } from 'node:crypto'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { AccountInfo, AuthenticationResult } from '@azure/msal-node'
 import { EntraGrants } from '../../src/main/entra'
 import { withEntraToken, resolveEntraToken } from '../../src/connections/entra-transport'
+import { routed, type Endpoint } from '../../src/connections/transport'
 import { connectionSchema, profileSchema } from '../../src/shared/contracts'
 import { connectionProfile } from '../../src/shared/connection-profiles'
 import { buildSqlServerConfig } from '../../src/driver/sqlserver-transport'
@@ -137,6 +140,31 @@ it('keeps only public registration fields in profiles and uses the current token
   expect(second.authentication).toMatchObject({ options: { token: 'second-access' } })
   expect(second.options).toMatchObject({ database: 'other', encrypt: true, trustServerCertificate: false })
   await expect(resolveEntraToken(config)).rejects.toThrow(/sign in/i)
+})
+
+it('keeps the logical TLS identity on SSH and refuses unintended Entra routing endpoints', async () => {
+  type Connector = (endpoint: Endpoint) => Promise<Socket>
+  const authenticated = { ...config, accessToken: 'fixture-only' }
+  const direct = buildSqlServerConfig(authenticated).options!.connector as unknown as Connector
+  await expect(direct({ host: 'test.database.windows.net.outside.example.test', port: 1433 })).rejects.toThrow(/unsupported routing endpoint/)
+  await expect(direct({ host: config.host, port: 65_536 })).rejects.toThrow(/unsupported routing endpoint/)
+
+  // The connector sees the server's logical endpoint. It should reach only
+  // the already-bound forwarding socket and retain TLS for the logical host.
+  const forwarder = createServer(peer => peer.end())
+  try {
+    forwarder.listen(0, '127.0.0.1')
+    await once(forwarder, 'listening')
+    const port = (forwarder.address() as AddressInfo).port
+    const transport = buildSqlServerConfig(routed(authenticated, { host: '127.0.0.1', port }))
+    expect(transport.options).toMatchObject({ serverName: config.host, encrypt: true, trustServerCertificate: false })
+    const connect = transport.options!.connector as unknown as Connector
+    await expect(connect({ host: 'redirect.database.windows.net', port: config.port })).rejects.toThrow(/SSH connections do not follow server redirects/)
+    await expect(connect({ host: config.host, port: config.port + 1 })).rejects.toThrow(/SSH connections do not follow server redirects/)
+    const socket = await connect({ host: config.host, port: config.port })
+    try { expect(socket.remoteAddress).toBe('127.0.0.1'); expect(socket.remotePort).toBe(port) }
+    finally { socket.destroy() }
+  } finally { forwarder.close() }
 })
 
 it('exchanges a PKCE code and renews with the packaged MSAL client against a mock issuer', async () => {
