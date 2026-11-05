@@ -16,7 +16,12 @@ for (const engine of ['duckdb', 'postgres'] as const) test(`${engine} saved prof
     const page = await app.firstWindow(); await waitForWorkspaceReady(page); return page
   }
   async function enter(page: Page, sql: string) {
-    await page.locator('.monaco-editor').click(); await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A'); await page.keyboard.insertText(sql)
+    const editor = page.locator('.monaco-editor'), input = editor.locator('textarea.inputarea')
+    await expect(input).toBeEditable()
+    await editor.click()
+    await expect(input).toBeFocused()
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A')
+    await page.keyboard.insertText(sql)
   }
   async function run(page: Page, sql: string, status = 'Completed') {
     await enter(page, sql); await page.getByRole('button', { name: /^Run SQL/ }).click(); await expect(page.locator('.status-text')).toHaveText(status)
@@ -157,7 +162,9 @@ for (const engine of ['duckdb', 'postgres'] as const) test(`${engine} saved prof
     await expect(page.getByRole('tab', { name: 'Untitled.sql', exact: true })).toHaveAttribute('aria-selected', 'true')
     await expect(page.locator('.monaco-editor')).toContainText('first recovered buffer')
     await expect(page.getByRole('button', { name: /^Run SQL/ })).toBeDisabled()
-    await page.getByRole('tab', { name: 'Query 2.sql', exact: true }).click()
+    const recoveredTab = page.getByRole('tab', { name: 'Query 2.sql', exact: true })
+    await recoveredTab.click()
+    await expect(recoveredTab).toHaveAttribute('aria-selected', 'true')
     await expect(page.locator('.monaco-editor')).toContainText('second recovered buffer')
     await expect(page.getByRole('button', { name: /^Run SQL/ })).toBeDisabled()
     await expect(page.getByRole('button', { name: 'Open Saved for later in new tab', exact: true })).toBeVisible()
@@ -181,9 +188,12 @@ for (const engine of ['duckdb', 'postgres'] as const) test(`${engine} saved prof
     await run(page, 'SELECT 99 AS recovered_profile')
     await expect(page.getByRole('cell', { name: '99', exact: true })).toBeVisible()
     await expect(page.getByText('Saved locally', { exact: true })).toBeVisible()
-    const recovered = app!.waitForEvent('window')
-    await app!.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.forcefullyCrashRenderer())
-    page = await recovered
+    const crashTarget = await app!.browserWindow(page)
+    const [recovered] = await Promise.all([
+      app!.waitForEvent('window'),
+      crashTarget.evaluate(window => window.webContents.forcefullyCrashRenderer())
+    ])
+    page = recovered
     await expect(page.getByRole('tab', { name: 'Query 3.sql', exact: true })).toHaveAttribute('aria-selected', 'true')
     await expect(page.getByRole('tab', { name: 'Query 2.sql', exact: true })).toHaveAttribute('aria-description', /Pinned/)
     await expect(page.locator('.monaco-editor')).toContainText('recovered_profile')
@@ -192,5 +202,9 @@ for (const engine of ['duckdb', 'postgres'] as const) test(`${engine} saved prof
     await expect(page.locator('.monaco-editor')).toContainText('first recovered buffer')
     await page.getByRole('tab', { name: 'Query 2.sql', exact: true }).click()
     await expect(page.locator('.monaco-editor')).toContainText('second recovered buffer')
-  } finally { await app?.close(); rmSync(directory, { recursive: true, force: true }) }
+  } finally {
+    await app?.evaluate(({ app }) => app.exit(0)).catch(() => {})
+    await app?.close().catch(() => {})
+    rmSync(directory, { recursive: true, force: true })
+  }
 })

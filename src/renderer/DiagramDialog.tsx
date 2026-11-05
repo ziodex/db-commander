@@ -1,23 +1,44 @@
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
 import { X } from './WorkbenchIcons'
 import { objectKey, type CatalogObject } from '../shared/catalog'
+import { layoutHasTables, resolveLayoutTables, type SavedDiagramLayout } from '../shared/diagram-layouts'
 import { DIAGRAM_TABLE_LIMIT, NODE_WIDTH, ROW_HEIGHT, diagramBounds, diagramLayout, edgeLabel, edgePath, nodeHeight, tableKey, tableLabel, type DiagramScope, type DiagramSnapshot, type Point } from '../shared/diagram'
 
 const short=(value:string,length:number)=>value.length>length?value.slice(0,length-1)+'…':value
-export function DiagramDialog({ title, initialTables, load, onClose }: { title: string; initialTables: CatalogObject[]; load(scope:DiagramScope):Promise<DiagramSnapshot>; onClose():void }) {
+type LayoutData = Omit<SavedDiagramLayout, 'scope'>
+export interface DiagramLayoutControls {
+  layouts: SavedDiagramLayout[]
+  canSave(objects: CatalogObject[]): boolean
+  save(layout: LayoutData): Promise<void>
+  remove(name: string): Promise<void>
+}
+
+export function DiagramDialog({ title, initialTables, load, onClose, savedLayouts }: {
+  title: string; initialTables: CatalogObject[]; load(scope: DiagramScope): Promise<DiagramSnapshot>; onClose(): void
+  savedLayouts?: DiagramLayoutControls
+}) {
   const dialog=useRef<HTMLDialogElement>(null),viewport=useRef<HTMLDivElement>(null),active=useRef(true),pending=useRef(false)
   const [snapshot,setSnapshot]=useState<DiagramSnapshot>(),[busy,setBusy]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState('')
   const [picked,setPicked]=useState<string[]>(()=>initialTables.filter(o=>o.kind==='table').slice(0,DIAGRAM_TABLE_LIMIT).map(objectKey)),[tableSearch,setTableSearch]=useState(''),[search,setSearch]=useState(''),[positions,setPositions]=useState<Record<string,Point>>({}),[zoom,setZoom]=useState(1),[columns,setColumns]=useState(true),[selected,setSelected]=useState(''),[edgeId,setEdgeId]=useState('')
+  const [layoutName, setLayoutName] = useState(''), [selectedLayout, setSelectedLayout] = useState('')
   const drag=useRef<{id?:string;x:number;y:number;start:Point;pointer:number}|undefined>(undefined),nodes=snapshot?.nodes??[],edges=snapshot?.edges??[],bounds=diagramBounds(nodes,positions,columns)
   const available=snapshot?.available??initialTables.filter(o=>o.kind==='table')
   const selectedNode=nodes.find(n=>n.id===selected),selectedEdge=edges.find(e=>e.id===edgeId)
   const chosen=useMemo(()=>new Set(picked),[picked]),matches=(s:string,query:string)=>s.toLowerCase().includes(query.toLowerCase())
   function fit(nextNodes=nodes,nextPositions=positions,showColumns=columns){const size=diagramBounds(nextNodes,nextPositions,showColumns),view=viewport.current;if(!view)return;setZoom(Math.max(.001,Math.min(1.5,(view.clientWidth-20)/size.width,(view.clientHeight-20)/size.height)));view.scrollTo(0,0)}
-  async function refresh(scope:DiagramScope={},reset=false){
+  async function refresh(scope: DiagramScope = {}, reset = false, saved?: SavedDiagramLayout){
     if(pending.current)return;pending.current=true;setBusy(true);setError('');setMessage('')
     try {const next=await load(scope);if(!active.current)return
-      const layout=diagramLayout(next.nodes,next.edges,columns),nextPositions=Object.fromEntries(next.nodes.map(n=>[n.id,!reset&&positions[n.id]?positions[n.id]:layout[n.id]]))
-      setSnapshot(next);setPicked(next.nodes.map(n=>objectKey(n.object)));setPositions(nextPositions);setSelected(next.nodes.some(n=>n.id===selected)?selected:next.nodes[0]?.id??'');setEdgeId('');setMessage('Diagram refreshed.');requestAnimationFrame(()=>fit(next.nodes,nextPositions))
+      if (saved && !layoutHasTables(saved, next.nodes.map(node => node.object))) throw new Error('The saved tables have changed. Load the current tables and save a new layout.')
+      const layout = diagramLayout(next.nodes, next.edges, columns)
+      const nextPositions = saved ? Object.fromEntries(saved.tables.map(({ table, position }) => [tableKey(table), position])) :
+        Object.fromEntries(next.nodes.map(node => [node.id, !reset && positions[node.id] ? positions[node.id] : layout[node.id]]))
+      setSnapshot(next);setPicked(next.nodes.map(n=>objectKey(n.object)));setPositions(nextPositions);setSelected(next.nodes.some(n=>n.id===selected)?selected:next.nodes[0]?.id??'');setEdgeId('')
+      if (saved) {
+        setLayoutName(saved.name); setColumns(saved.showColumns); setZoom(saved.zoom)
+        viewport.current?.scrollTo(0, 0)
+        setMessage('Saved diagram layout restored.')
+      } else { setMessage('Diagram refreshed.'); requestAnimationFrame(() => fit(next.nodes, nextPositions)) }
     }catch(e){if(active.current)setError((e as Error).message)}finally{pending.current=false;if(active.current)setBusy(false)}
   }
   const initialRefresh = useEffectEvent(() => { void refresh() })
@@ -25,10 +46,48 @@ export function DiagramDialog({ title, initialTables, load, onClose }: { title: 
   function chosenObjects(){return available.filter(o=>chosen.has(objectKey(o)))}
   function move(id:string,x:number,y:number){setPositions(p=>({...p,[id]:{x:Math.max(10,Math.min(50000,x)),y:Math.max(35,Math.min(50000,y))}}))}
   async function save(){if(!snapshot)return;try{const saved=await window.dbCommander.saveDiagram({title,nodes,edges,positions,showColumns:columns,caption:`Read ${snapshot.fetchedAt}. ${snapshot.notices.join(' ')} ${nodes.flatMap(n=>n.notices.map(notice=>`${tableLabel(n.object)}: ${notice}`)).join(' ')}`.slice(0,8000)});if(saved)setMessage('Diagram saved.')}catch(e){setError((e as Error).message)}}
+  const chosenLayout = savedLayouts?.layouts.find(layout => layout.name === selectedLayout)
+  function restoreLayout() {
+    if (!chosenLayout || !snapshot) return
+    try { void refresh({ tables: resolveLayoutTables(chosenLayout, snapshot.available) }, true, chosenLayout) }
+    catch (cause) { setError((cause as Error).message) }
+  }
+  async function persistLayout(remove = false) {
+    if (!savedLayouts || pending.current) return
+    pending.current = true; setBusy(true); setError(''); setMessage('')
+    try {
+      if (remove && chosenLayout) {
+        await savedLayouts.remove(chosenLayout.name)
+        setSelectedLayout(''); setMessage('Saved layout removed.')
+      } else {
+        const name = layoutName.trim()
+        const tables = nodes.map(({ id, object: { catalog, schema, name } }) => ({ table: { catalog, schema, name }, position: positions[id] }))
+        await savedLayouts.save({ name, showColumns: columns, zoom, tables })
+        setSelectedLayout(name); setMessage('Diagram layout saved.')
+      }
+    } catch (cause) { setError((cause as Error).message) }
+    finally { pending.current = false; setBusy(false) }
+  }
   function related(){if(!snapshot)return;const keys=new Set([...chosen,...snapshot.available.filter(o=>edges.some(e=>tableKey(o)===tableKey(e.targetTable))).map(objectKey)]);if(keys.size>DIAGRAM_TABLE_LIMIT){setError('Adding referenced tables exceeds 40 tables. Choose a smaller scope.');return}setPicked([...keys])}
   return <dialog ref={dialog} className="connection-dialog diagram-dialog" aria-label="ER diagram" onKeyDown={e=>e.stopPropagation()} onCancel={e=>{e.preventDefault();if(!busy)onClose()}}>
     <div className="dialog-heading"><div><h2>ER diagram</h2><p>{title}</p></div><button aria-label="Close ER diagram" disabled={busy} onClick={onClose}><X size={18}/></button></div>
     <div className="diagram-toolbar"><button disabled={busy} onClick={()=>void refresh(nodes.length?{tables:nodes.map(n=>n.object)}:{})}>Refresh diagram</button><button disabled={!nodes.length||busy} onClick={()=>{const p=diagramLayout(nodes,edges,columns);setPositions(p);fit(nodes,p)}}>Auto arrange</button><button disabled={!nodes.length} onClick={()=>fit()}>Fit diagram</button><button aria-label="Zoom out diagram" onClick={()=>setZoom(z=>Math.max(.001,z/1.25))}>−</button><output aria-label="Diagram zoom">{zoom<.1?(zoom*100).toFixed(1):Math.round(zoom*100)}%</output><button aria-label="Zoom in diagram" onClick={()=>setZoom(z=>Math.min(2.5,z*1.25))}>+</button><label className="diagram-check"><input type="checkbox" checked={columns} onChange={e=>setColumns(e.target.checked)}/>Show columns</label><button disabled={!nodes.length||busy} onClick={()=>void save()}>Save diagram SVG</button></div>
+    <details className="diagram-saved-layouts"><summary>Saved layouts{savedLayouts?.layouts.length ? ` (${savedLayouts.layouts.length})` : ''}</summary>
+      {savedLayouts ? <div className="diagram-layout-fields"><div className="comparison-controls">
+        <label>Saved layout<select aria-label="Saved layout" value={selectedLayout} disabled={busy} onChange={event => setSelectedLayout(event.target.value)}>
+          <option value="">Choose a layout</option>{savedLayouts.layouts.map(layout => <option key={layout.name}>{layout.name}</option>)}
+        </select></label>
+        <button disabled={busy || !chosenLayout || !snapshot} onClick={restoreLayout}>Restore layout</button>
+        <button disabled={busy || !chosenLayout} onClick={() => void persistLayout(true)}>Remove saved layout</button>
+        </div><div className="comparison-controls">
+        <label>Layout name<input value={layoutName} maxLength={80} disabled={busy} onChange={event => setLayoutName(event.target.value)}/></label>
+        <button disabled={busy || !layoutName.trim() || !nodes.length || !savedLayouts.canSave(nodes.map(node => node.object))} onClick={() => void persistLayout()}>
+          {savedLayouts.layouts.some(layout => layout.name === layoutName.trim()) ? 'Update saved layout' : 'Save layout'}
+        </button>
+        </div>
+        {nodes.length > 0 && !savedLayouts.canSave(nodes.map(node => node.object)) && <p>Save layouts for tables in the opened database. Attached and temporary tables use the current diagram only.</p>}
+      </div> : <p>Layouts can be saved for server databases and opened database files. In-memory diagrams are kept in this dialog.</p>}
+    </details>
     <p className="diagram-help">Arrow: foreign key → referenced table. PK = primary key, FK = foreign key, ? = nullable. Drag tables or use arrow keys on a focused table; drag the background to pan. Keys are declared relationships; enforcement and cardinality are not inferred.</p>
     {busy?<p role="status">Reading diagram metadata…</p>:message&&<p role="status">{message}</p>}{error&&<p role="alert">{error}</p>}
     {snapshot&&<p className="diagram-source">{nodes.length} tables · {edges.length} relationships · Read {new Date(snapshot.fetchedAt).toLocaleTimeString()} · {snapshot.source==='session'?'This tab’s catalog and transaction':'Separate catalog connection; committed metadata only'}. {snapshot.notices.filter(Boolean).join(' ')}</p>}
@@ -51,7 +110,7 @@ export function DiagramDialog({ title, initialTables, load, onClose }: { title: 
       <aside className="diagram-details"><h3>{selectedNode?.object.name??'Relationships'}</h3>{selectedNode&&<><p>{tableLabel(selectedNode.object)}</p>{selectedNode.notices.map((n,i)=><p role="alert" key={i}>{n}</p>)}<details><summary>Columns ({selectedNode.columns.length})</summary><ul>{selectedNode.columns.map(c=><li key={c.name}>{c.name} · {c.type}{c.primaryKey?' · PK':''}{c.nullable?' · nullable':''}</li>)}</ul></details></>}
         <h4>Declared relationships</h4><div className="diagram-relations">{edges.filter(e=>e.source===selected||e.target===selected).map(e=><button key={e.id} aria-label={`Inspect relationship ${e.name}`} className={edgeId===e.id?'active':''} onClick={()=>setEdgeId(e.id)}>{e.name}<small>{tableLabel(e.targetTable)}{!e.target?(e.targetVisible?' · outside diagram':' · not visible'):''}</small></button>)}</div>
         {selectedEdge&&<section aria-label="Relationship details"><h4>{selectedEdge.name}</h4><p>{tableLabel(nodes.find(n=>n.id===selectedEdge.source)!.object)} → {tableLabel(selectedEdge.targetTable)}</p><ol>{selectedEdge.columns.map((c,i)=><li key={i}>{c} → {selectedEdge.targetColumns[i]}</li>)}</ol>{!selectedEdge.target&&<p>{selectedEdge.targetVisible?'Referenced table is outside the selected diagram. Use Add referenced tables, then Load selected tables.':'Referenced table is not visible in this catalog. Check metadata permissions and catalog limits.'}</p>}</section>}
-        <p className="diagram-help">Only outgoing keys of loaded tables are fetched. Permissions can hide relationships. Metadata may change during a read; refresh after schema changes. Layout is kept while this dialog is open.</p>
+        <p className="diagram-help">Only outgoing keys of loaded tables are fetched. Permissions can hide relationships. Refresh after schema changes. Use Saved layouts to keep positions and display settings across sessions.</p>
       </aside>
     </div>
   </dialog>

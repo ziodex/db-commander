@@ -14,7 +14,7 @@ import { openImport } from '../transfer/import'
 import type { GridOperation, ImportContext, ImportSource, ImportRequest } from '../shared/transfer'
 
 export interface GridQueryResult { rows: Cell[][]; affected: number; warnings?: number }
-export type GridQuery = (sql: string, values?: Cell[]) => Promise<GridQueryResult>
+export type GridQuery = (sql: string, values?: Cell[], rowLimit?: number) => Promise<GridQueryResult>
 const truth = (value: Cell) => ['1', 'true', 't'].includes(value ?? '')
 export function duckdbGeneratedColumns(sql: string): Set<string> {
   const tokens = lexSql(sql, 'duckdb').filter(token => token.kind !== 'comment'), generated = new Set<string>()

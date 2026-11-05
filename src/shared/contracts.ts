@@ -1,12 +1,15 @@
 import { MAX_SQL_CHARACTERS, MAX_WORKSPACE_SQL_CHARACTERS } from './workspace-limits'
 import { z } from 'zod'
+import { idSchema } from './id-schema'
 import { parametersSchema } from './parameters'
 import { layoutSchema, type LayoutCommand } from './layout'
 import { editorSettingsSchema } from './editor-settings'
 import { editorViewsSchema } from './editor-views'
+import { diagramLayoutsSchema } from './diagram-layouts'
 import { tableLayoutsSchema } from './table-layouts'
 import type { PasswordStatus } from './credentials'
 import { profileOptions, sshSecretsSchema, type ConnectionSafety } from './connection-options'
+import { azureSqlPublicHost, entraProfileSchema, type EntraAttempt, type EntraProgress } from './entra'
 import { engineSchema, type DatabaseEngine } from './database-engines'
 export { engineSchema, engineNames, type DatabaseEngine } from './database-engines'
 
@@ -20,7 +23,8 @@ const connectionFields = z.object({
   database: z.string().max(255).default(''),
   user: z.string().max(255),
   password: z.string().max(4096),
-  authentication: z.enum(['sql-password', 'entra-token', 'windows']).optional(),
+  authentication: z.enum(['sql-password', 'entra-token', 'entra-interactive', 'windows']).optional(),
+  entra: entraProfileSchema.optional(),
   accessToken: z.string().max(65536).optional(),
   tls: z.enum(['verify-full', 'disable']),
   ca: z.string().max(65536).optional(),
@@ -29,11 +33,16 @@ const connectionFields = z.object({
   duckdbMode: z.enum(['read-write', 'read-only', 'create', 'memory']).optional()
 }).strict()
 const hasEndpoint = (config: { engine: DatabaseEngine; database: string; ssh?: unknown }) => (config.engine !== 'oracle' || Boolean(config.database.trim())) && !(config.ssh && ['sqlite', 'duckdb'].includes(config.engine))
-const hasAuthentication = (config: { engine: DatabaseEngine; authentication?: string; user: string }) => config.authentication === 'windows'
-  ? config.engine === 'sqlserver'
-  : Boolean(config.user.length) && (config.authentication !== 'entra-token' || config.engine === 'azure-sql')
+const hasAuthentication = (config: Omit<z.infer<typeof connectionFields>, 'password'> & { password?: string }) => {
+  if (config.authentication === 'entra-interactive') return config.engine === 'azure-sql' && !!config.entra &&
+    azureSqlPublicHost(config.host) && !!config.database.trim() && config.tls === 'verify-full' && !config.ca?.trim() &&
+    !config.password && !config.accessToken
+  if (config.entra) return false
+  return config.authentication === 'windows' ? config.engine === 'sqlserver'
+    : Boolean(config.user.length) && (config.authentication !== 'entra-token' || config.engine === 'azure-sql')
+}
 export const connectionSchema = connectionFields.refine(hasEndpoint, { message: 'Oracle requires a service name.', path: ['database'] })
-  .refine(hasAuthentication, { message: 'Enter a user. Windows authentication is available only for SQL Server; Entra tokens only for Azure SQL.', path: ['authentication'] })
+  .refine(hasAuthentication, { message: 'Check the authentication settings. Interactive Entra requires a tenant, application, database and verified Azure SQL endpoint.', path: ['authentication'] })
 export type ConnectionConfig = z.infer<typeof connectionSchema>
 export type ConnectionProfile = Omit<ConnectionConfig, 'password' | 'accessToken' | 'sshSecrets'>
 export const profileSchema = connectionFields.omit({ password: true, accessToken: true, sshSecrets: true }).refine(hasEndpoint, { message: 'Oracle requires a service name. Embedded databases cannot use SSH.' })
@@ -41,7 +50,7 @@ export const profileSchema = connectionFields.omit({ password: true, accessToken
 export const DEFAULT_PROFILE: ConnectionProfile = { engine: 'postgres', name: 'Local PostgreSQL', host: 'localhost', port: 5432, database: 'postgres', user: 'postgres', tls: 'verify-full', ca: '' }
 export const MAX_TABS = 20
 export const MAX_PROFILES = 100
-export const idSchema = z.string().uuid()
+export { idSchema } from './id-schema'
 export const switchDatabaseSchema = z.object({ sessionId: idSchema, database: z.string().min(1).max(255), retainSource: z.boolean().optional() }).strict()
 export type SwitchDatabaseRequest = z.infer<typeof switchDatabaseSchema>
 export interface DatabaseCatalog { databases: string[]; current: string; switchable: boolean; notice?: string }
@@ -50,7 +59,7 @@ export type SavedConnectionProfile = z.infer<typeof savedProfileSchema>
 const workspaceTabSchema = z.object({ id: idSchema, title: z.string().trim().min(1).max(255), sql: z.string().max(MAX_SQL_CHARACTERS), profile: profileSchema, profileId: idSchema.optional(), pinned: z.boolean().optional() }).strict()
 export type WorkspaceTab = z.infer<typeof workspaceTabSchema>
 export type TransactionState = 'idle' | 'transaction' | 'failed' | 'unknown'
-export interface SessionInfo { id: string; engine: DatabaseEngine; name: string; database: string; user: string; host: string; port: number; tls: boolean; transaction: TransactionState; autocommit?: boolean; version: string; mysqlSqlMode?: { noBackslashEscapes: boolean; ansiQuotes: boolean }; safety?: ConnectionSafety }
+export interface SessionInfo { id: string; engine: DatabaseEngine; name: string; database: string; user: string; host: string; port: number; tls: boolean; entraInteractive?: true; transaction: TransactionState; autocommit?: boolean; version: string; mysqlSqlMode?: { noBackslashEscapes: boolean; ansiQuotes: boolean }; safety?: ConnectionSafety }
 export interface Column { name: string; typeId: number; typeName?: string; displayEncoding?: 'hex' }
 export type Cell = string | null
 export interface ResultSet { index: number; statement: string; columns: Column[]; rows: Cell[][]; rowCount: number | null; command: string; truncated: boolean }
@@ -70,7 +79,8 @@ export interface HistoryEntry { engine?: DatabaseEngine; database?: string; favo
 // Version 1 is accepted only by the storage migration, never by new IPC writes.
 export const legacyWorkspaceSchema = z.object({ sql: z.string().max(MAX_SQL_CHARACTERS), profile: profileSchema.optional() }).strict()
 export const workspaceSchema = z.object({ version: z.literal(2), tabs: z.array(workspaceTabSchema).min(1).max(MAX_TABS), activeTabId: idSchema,
-  profiles: z.array(savedProfileSchema).max(MAX_PROFILES), layout: layoutSchema.optional(), editorSettings: editorSettingsSchema.optional(), editorViews: editorViewsSchema.optional(), tableLayouts: tableLayoutsSchema.optional() }).strict().superRefine((workspace, context) => {
+  profiles: z.array(savedProfileSchema).max(MAX_PROFILES), layout: layoutSchema.optional(), editorSettings: editorSettingsSchema.optional(), editorViews: editorViewsSchema.optional(),
+  tableLayouts: tableLayoutsSchema.optional(), diagramLayouts: diagramLayoutsSchema.optional() }).strict().superRefine((workspace, context) => {
   const tabs = new Set(workspace.tabs.map(tab => tab.id)), profiles = new Set(workspace.profiles.map(profile => profile.id))
   if (tabs.size !== workspace.tabs.length || profiles.size !== workspace.profiles.length) context.addIssue({ code: 'custom', message: 'Tab and profile IDs must be unique.' })
   if (!tabs.has(workspace.activeTabId)) context.addIssue({ code: 'custom', message: 'The active tab must exist.' })
@@ -148,7 +158,16 @@ export interface DesktopApi {
   prepareActivityAction(request:import('./activity-control').PrepareActivityAction):Promise<import('./activity-control').ActivityActionReview>
   applyActivityAction(request:import('./activity-control').ApplyActivityAction):Promise<import('./activity-control').ActivityActionResult>
   inspectRollback(request:import('./rollback').RollbackRequest):Promise<import('./rollback').RollbackSnapshot>
+  preparePrincipalChange(request: import('./principal-changes').PreparePrincipalChange): Promise<import('./principal-changes').PrincipalChangeReview>
+  applyPrincipalChange(request: import('./principal-changes').ApplyPrincipalChange): Promise<import('./principal-changes').PrincipalChangeResult>
+  inspectPrincipals(request: import('./principals').PrincipalRequest): Promise<import('./principals').PrincipalSnapshot>
   inspectActivity(request:import('./activity').ActivityRequest):Promise<import('./activity').ActivitySnapshot>
+  inspectPerformance(sessionId: string): Promise<import('./performance').PerformanceSnapshot>
+  operationHistory(): Promise<import('./operation-history').OperationEntry[]>
+  onOperationHistoryChanged(listener: () => void): () => void
+  inspectScheduler(sessionId: string): Promise<import('./scheduler').SchedulerSnapshot>
+  prepareScheduleChange(request: import('./scheduler').PrepareScheduleChange): Promise<import('./scheduler').ScheduleReview>
+  applyScheduleChange(request: import('./scheduler').ApplyScheduleChange): Promise<import('./scheduler').ScheduleResult>
   saveActivity(snapshot:import('./activity').ActivitySnapshot):Promise<string|null>
   prepareQueryBuilder(request: import('./query-builder').PrepareBuilder): Promise<import('./query-builder').BuilderPreview>
   prepareMigration(request: import('./migrations').PrepareMigration): Promise<import('./migrations').MigrationPreview>
@@ -156,10 +175,12 @@ export interface DesktopApi {
   explain(request: import('./explain').ExplainRequest): Promise<import('./explain').ExplainResult>
   cancelExplain(sessionId: string): Promise<{ requested: boolean }>
   savePlan(value: { text: string; format: 'json' | 'xml' | 'text' | 'table' }): Promise<string | null>
-  saveValue(value: { text: string; format: 'json' | 'xml' | 'text' }): Promise<string | null>
+  saveValue(value: { text: string; format: 'json' | 'xml' | 'text' | 'synchronization-plan' }): Promise<string | null>
 
   prepareSchemaChange(request: import('./schema-changes').PrepareSchemaChange): Promise<import('./schema-changes').SchemaChangePlan>
   applySchemaChange(request: import('./schema-changes').ApplySchemaChange): Promise<import('./schema-changes').SchemaChangeResult>
+  prepareAdministration(request: import('./database-administration').PrepareAdministration): Promise<import('./database-administration').AdministrationReview>
+  applyAdministration(request: import('./database-administration').ApplyAdministration): Promise<import('./database-administration').AdministrationResult>
   cancelSchemaChange(sessionId: string): Promise<{ requested: boolean }>
   inspectImport(source: import('./transfer').ImportSource): Promise<import('./transfer').ImportPreview>
   inspectDataFile(source: { file: string; format: 'csv' | 'tsv' | 'json' | 'jsonl' }): Promise<import('./transfer').DataFilePreview>
@@ -183,6 +204,10 @@ export interface DesktopApi {
   connectBackupTarget(jobId: string): Promise<SessionInfo>
   onBackupJob(listener: (job: import('./backup').BackupJob) => void): () => void
   onLayoutCommand(listener: (command: LayoutCommand) => void): () => void
+  onEntraSignIn(listener: (progress: EntraProgress) => void): () => void
+  cancelEntraSignIn(attemptId: string): Promise<void>
+  renewEntraSession(sessionId: string, attempt: EntraAttempt): Promise<void>
+  connectInteractive(config: ConnectionConfig, attempt: EntraAttempt): Promise<SessionInfo>
   connect(config: ConnectionConfig): Promise<SessionInfo>
   connectSavedPassword(profileId: string, config: ConnectionProfile, sshSecrets?: ConnectionConfig['sshSecrets']): Promise<SessionInfo>
   sessionSafety(sessionId: string): Promise<ConnectionSafety>
@@ -207,6 +232,7 @@ export interface DesktopApi {
   compareData(request: import('./data-compare').DataCompareRequest): Promise<import('./data-compare').DataComparison>
   diagram(request: import('./diagram').DiagramRequest): Promise<import('./diagram').DiagramSnapshot>
   saveDiagram(request: import('./diagram').DiagramExport): Promise<string|null>
+  catalogPage(request: import('./catalog').CatalogPageRequest): Promise<import('./catalog').CatalogPage>
   inspectObject(request: import('./catalog').InspectObjectRequest): Promise<import('./catalog').ObjectDetail>
   editGrid(request: GridRequest): Promise<GridResponse>
   loadWorkspace(): Promise<(Workspace & { recoveryNotice?: string }) | null>
@@ -239,7 +265,10 @@ export interface DesktopApi {
   onFileCommand(listener: (command: import('./sql-files').SqlFileCommand) => void): () => void
   chooseSqliteFile(create: boolean): Promise<string | null>
   chooseDuckdbFile(create: boolean): Promise<string | null>
-  openSql(request: { tabId: string; recentId?: string }): Promise<import('./sql-files').OpenedSqlFile | null>
+  openSql(request: import('./sql-files').OpenSqlFileRequest): Promise<import('./sql-files').OpenedSqlFile | null>
+  chooseSqlProject(): Promise<import('./sql-files').SqlProject | null>
+  listSqlProject(): Promise<import('./sql-files').SqlProject | null>
+  closeSqlProject(): Promise<void>
   onEvent(listener: (event: DatabaseEvent) => void): () => void
   onSaveRequested(listener: () => Promise<void>): () => void
 }

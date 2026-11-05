@@ -2,7 +2,7 @@ import type { DatabaseDriver } from '../driver/driver'
 import { quoteIdentifier } from '../shared/sql/common'
 import { objectKey, type CatalogObject, type ObjectDetail } from '../shared/catalog'
 import type { DatabaseEngine, SessionInfo } from '../shared/contracts'
-import { compareSchemaSchema, type CompareScope, type CompareSchemaRequest, type ComparedObject, type SchemaComparison } from '../shared/schema-compare'
+import { SCHEMA_DETAIL_LIMIT, SCHEMA_INVENTORY_LIMIT, compareSchemaSchema, type CompareScope, type CompareSchemaRequest, type ComparedObject, type SchemaComparison } from '../shared/schema-compare'
 
 type Reader = Pick<DatabaseDriver, 'getSession' | 'explore'>
 const key = (o: CatalogObject) => JSON.stringify([o.kind,o.name,o.parent ?? '',o.signature ?? ''])
@@ -47,53 +47,120 @@ function suggestions(item: ComparedObject, engine: DatabaseEngine, target: Compa
   item.notices.push('Suggestions cover only missing nullable scalar columns. Column removal/conversion, keys, indexes, triggers and remaining definition differences require manual SQL.')
 }
 export async function compareSchemas(input: CompareSchemaRequest, source: Reader, target: Reader): Promise<SchemaComparison> {
-  const request = compareSchemaSchema.parse(input), a = source.getSession(request.source.sessionId), b = target.getSession(request.target.sessionId)
+  const request = compareSchemaSchema.parse(input)
+  const a = source.getSession(request.source.sessionId), b = target.getSession(request.target.sessionId)
   if (a.engine !== b.engine) throw new Error('Schema comparison requires the same engine in both tabs (including the same SQL Server/Azure SQL profile type).')
-  ready(a); ready(b)
+  ready(a)
+  ready(b)
   if (JSON.stringify(request.source) === JSON.stringify(request.target)) throw new Error('Choose different tabs or namespaces for source and target.')
   let bytes = 0
-  const started=performance.now()
-  const budget=()=>{if(performance.now()-started>45_000)throw new Error('Schema comparison exceeded its 45-second collection budget. Narrow the scope and retry.')}
-  const read = async (driver: Reader, scope: CompareScope) => {
-    const snapshot = (await driver.explore(scope.sessionId)).catalog
-    if (!snapshot || snapshot.truncated) throw new Error('The catalog is unavailable or truncated; a complete object inventory is required for comparison.')
-    const objects = snapshot.objects.filter(o => inScope(o,scope) && request.kinds.includes(o.kind) && o.name.toLowerCase().includes(request.filter.toLowerCase()))
-    if (objects.length > 40) throw new Error('Comparison is limited to 40 objects per side. Narrow the name filter or object kinds.')
-    const entries = new Map<string,{object: CatalogObject; detail?: ObjectDetail; error?: string}>()
-    for (const object of objects) {
-      budget()
-      if (entries.has(key(object))) throw new Error('Ambiguous object names or overloads in this scope; narrow the comparison.')
-      let detail: ObjectDetail | undefined, error: string | undefined
-      try { detail = (await driver.explore(scope.sessionId, object)).detail } catch (e) { error = (e as Error).message }
-      budget()
-      bytes += JSON.stringify(detail ?? '').length
-      if (bytes > 4_000_000) throw new Error('Comparison metadata exceeds 4 MB. Narrow the comparison.')
-      entries.set(key(object), {object,detail,error})
-    }
-    budget()
-    const after = (await driver.explore(scope.sessionId)).catalog
-    if (!after || after.truncated || JSON.stringify(after.objects.filter(o=>inScope(o,scope)).map(objectKey).sort()) !== JSON.stringify(snapshot.objects.filter(o=>inScope(o,scope)).map(objectKey).sort())) throw new Error('The catalog changed during comparison. Refresh and compare again.')
-    return {entries,notice:snapshot.notice}
+  const started = performance.now()
+  const budget = () => {
+    if (performance.now() - started > 45_000) throw new Error('Schema comparison exceeded its 45-second collection budget. Narrow the scope and retry.')
   }
-  const left = await read(source,request.source), right = await read(target,request.target)
-  const objects: ComparedObject[] = [...new Set([...left.entries.keys(),...right.entries.keys()])].sort().map(k => {
-    const l = left.entries.get(k), r = right.entries.get(k), o = (l ?? r)!.object
-    const unknown = l && !complete(l.detail) || r && !complete(r.detail)
-    const item: ComparedObject = {key:k,name:o.name,kind:o.kind,parent:o.parent,signature:o.signature,status:unknown ? 'unknown' : !l ? 'target-only' : !r ? 'source-only' : signature(l.detail!) === signature(r.detail!) ? 'matching' : 'changed',source:l?.detail,target:r?.detail,notices:[],sql:[],destructiveSql:[]}
-    if (unknown) item.notices.push('Unreadable or incomplete definition/metadata; no SQL suggestions are generated.',...[l?.error,r?.error].filter((s):s is string=>Boolean(s)))
-    if (item.status === 'changed' && item.source && item.target) {
-      const sourceSections=new Map(item.source.sections.map(s=>[s.title,s])),targetSections=new Map(item.target.sections.map(s=>[s.title,s]))
-      const changed=[...new Set([...sourceSections.keys(),...targetSections.keys()])].filter(title=>JSON.stringify(sourceSections.get(title))!==JSON.stringify(targetSections.get(title)))
-      if(changed.length)item.notices.push(`Different metadata sections: ${changed.join(', ')}.`)
-      if(item.source.definition.sql!==item.target.definition.sql)item.notices.push('Definition text differs; review both definitions, including namespace qualifiers and formatting.')
+  async function inventory(driver: Reader, scope: CompareScope) {
+    budget()
+    const snapshot = (await driver.explore(scope.sessionId, undefined, undefined, {
+      inventory: true,
+      namespace: { schema: scope.schema, catalog: scope.catalog || undefined },
+      kinds: request.kinds,
+      nameContains: request.filter,
+      limit: SCHEMA_INVENTORY_LIMIT
+    })).catalog
+    budget()
+    if (!snapshot) throw new Error('The visible catalog is unavailable. Refresh and compare again.')
+    if (snapshot.truncated) throw new Error(`The scoped inventory is truncated at ${SCHEMA_INVENTORY_LIMIT} objects per side. Narrow the name filter or object kinds. No partial comparison was produced.`)
+    const entries = new Map<string, CatalogObject>()
+    for (const object of snapshot.objects) {
+      if (!inScope(object, scope) || !request.kinds.includes(object.kind)) continue
+      if (entries.has(key(object))) throw new Error('Ambiguous object names or overloads in this scope. Narrow the comparison.')
+      entries.set(key(object), object)
     }
-    suggestions(item,a.engine,request.target)
-    return item
-  })
-  return {engine:a.engine,source:request.source,target:request.target,sourceLabel:`${a.name} / ${a.host}${a.port ? ':'+a.port : ''} / ${a.database} / ${request.source.catalog ? request.source.catalog+'.' : ''}${request.source.schema}`,targetLabel:`${b.name} / ${b.host}${b.port ? ':'+b.port : ''} / ${b.database} / ${request.target.catalog ? request.target.catalog+'.' : ''}${request.target.schema}`,objects,fetchedAt:new Date().toISOString(),notices:[
-    'Comparison covers visible catalog metadata and exact definition text, not data or a complete migration. Matching does not certify database equivalence. Whitespace, namespace qualifiers and generated names can appear as differences. SQL text is never rewritten to remap namespaces.',
-    'Metadata is read sequentially, not in a cross-database snapshot. Refresh before using SQL; no changes are executed by comparison.',
-    ...(!left.entries.size?['No source objects matched. Verify the namespace, filter and permissions before considering target-only drops.']:[]),
-    ...(['sqlite','duckdb'].includes(a.engine)?['Attached databases and temporary objects belong to the original sessions. A new query tab does not replay ATTACH or recreate temporary objects; establish that context explicitly before using exported SQL.']:[]),
-    `Source: ${left.notice}`,`Target: ${right.notice}`]}
+    return { entries, notice: snapshot.notice }
+  }
+  const left = await inventory(source, request.source)
+  const right = await inventory(target, request.target)
+  const keys = [...new Set([...left.entries.keys(), ...right.entries.keys()])].sort()
+  const inventoryOnly = request.mode === 'inventory'
+  const selected = new Set(request.selection ?? keys)
+  if (request.selection?.some(id => !left.entries.has(id) && !right.entries.has(id))) {
+    throw new Error('A selected object is no longer visible. Refresh the inventory and select it again.')
+  }
+  if (!inventoryOnly && [left, right].some(side => [...side.entries.keys()].filter(id => selected.has(id)).length > SCHEMA_DETAIL_LIMIT)) {
+    throw new Error(`Definition comparison is limited to ${SCHEMA_DETAIL_LIMIT} objects per side. Compare the inventory first and select definitions, or narrow the scope.`)
+  }
+  async function detail(driver: Reader, scope: CompareScope, object?: CatalogObject) {
+    if (!object || inventoryOnly) return {}
+    budget()
+    let detail: ObjectDetail | undefined
+    let error: string | undefined
+    try { detail = (await driver.explore(scope.sessionId, object)).detail }
+    catch (cause) { error = (cause as Error).message }
+    budget()
+    bytes += Buffer.byteLength(JSON.stringify(detail ?? ''))
+    if (bytes > 4_000_000) throw new Error('Comparison metadata exceeds 4 MB. Select fewer definitions.')
+    return { detail, error }
+  }
+  const objects: ComparedObject[] = []
+  for (const id of keys) {
+    if (!selected.has(id)) continue
+    const l = left.entries.get(id), r = right.entries.get(id), object = (l ?? r)!
+    const from = await detail(source, request.source, l)
+    const to = await detail(target, request.target, r)
+    const unknown = !inventoryOnly && (l && !complete(from.detail) || r && !complete(to.detail))
+    const status = unknown ? 'unknown' : !l ? 'target-only' : !r ? 'source-only' :
+      inventoryOnly ? 'unchecked' : signature(from.detail!) === signature(to.detail!) ? 'matching' : 'changed'
+    const item: ComparedObject = {
+      key: id, name: object.name, kind: object.kind, parent: object.parent, signature: object.signature,
+      status, source: from.detail, target: to.detail, notices: [], sql: [], destructiveSql: []
+    }
+    if (inventoryOnly) item.notices.push('Inventory only. Compare this object’s definition before planning changes.')
+    else {
+      if (unknown) item.notices.push('Unreadable or incomplete definition or metadata. No SQL suggestions are generated.', ...[from.error, to.error].filter((value): value is string => Boolean(value)))
+      if (status === 'changed' && from.detail && to.detail) {
+        const before = new Map(from.detail.sections.map(section => [section.title, section]))
+        const after = new Map(to.detail.sections.map(section => [section.title, section]))
+        const changed = [...new Set([...before.keys(), ...after.keys()])].filter(title => JSON.stringify(before.get(title)) !== JSON.stringify(after.get(title)))
+        if (changed.length) item.notices.push(`Different metadata sections: ${changed.join(', ')}.`)
+        if (from.detail.definition.sql !== to.detail.definition.sql) item.notices.push('Definition text differs. Review both definitions, including namespace qualifiers and formatting.')
+      }
+      suggestions(item, a.engine, request.target)
+    }
+    if (item.destructiveSql.length && r) {
+      budget()
+      try {
+        const refs = (await target.explore(request.target.sessionId, undefined, undefined, { incoming: r })).incoming
+        if (!refs) throw new Error('Foreign-key metadata is unavailable.')
+        item.requiredDrops = refs.map(reference => ({
+          key: inScope({ ...r, ...reference }, request.target) ?
+            JSON.stringify(['table', reference.name, '', '']) : 'outside:' + JSON.stringify(reference),
+          name: [reference.catalog, reference.schema, reference.name].filter(Boolean).join('.')
+        }))
+      } catch (cause) {
+        item.destructiveSql = []
+        item.notices.push(`Drop withheld because referencing tables could not be verified. ${(cause as Error).message}`)
+      }
+      budget()
+    }
+    objects.push(item)
+  }
+  const identities = (entries: Map<string, CatalogObject>) => JSON.stringify([...entries.values()].map(objectKey).sort())
+  if (identities((await inventory(source, request.source)).entries) !== identities(left.entries) ||
+      identities((await inventory(target, request.target)).entries) !== identities(right.entries)) {
+    throw new Error('The catalog changed during comparison. Refresh and compare again.')
+  }
+  const label = (session: SessionInfo, scope: CompareScope) =>
+    `${session.name} / ${session.host}${session.port ? ':' + session.port : ''} / ${session.database} / ${scope.catalog ? scope.catalog + '.' : ''}${scope.schema}`
+  return {
+    engine: a.engine, mode: inventoryOnly ? 'inventory' : 'definitions', source: request.source, target: request.target,
+    sourceLabel: label(a, request.source), targetLabel: label(b, request.target), objects, fetchedAt: new Date().toISOString(),
+    notices: [
+      inventoryOnly ? 'Presence is based on complete visible inventories for the selected scope. Objects on both sides still need definition review.' : 'Matching means the exposed metadata and definition text agree. Whitespace, namespace qualifiers and generated names can appear as differences.',
+      'Metadata comes from sequential live reads. Permissions and concurrent DDL affect what each connection sees. Refresh before acting on a result.',
+      ...(!inventoryOnly ? ['Drop ordering uses visible foreign keys read from the target. Check privileges, hidden references, views and triggers before running SQL. SQLite can apply foreign-key actions to rows when dropping a table.'] : []),
+      ...(!left.entries.size ? ['No source objects matched. Verify the namespace, filter and permissions before considering target-only drops.'] : []),
+      ...(['sqlite', 'duckdb'].includes(a.engine) ? ['Attached databases and temporary objects belong to the original sessions. Establish that context explicitly before running exported SQL.'] : []),
+      `Source: ${left.notice}`, `Target: ${right.notice}`
+    ]
+  }
 }

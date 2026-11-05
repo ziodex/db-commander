@@ -1,21 +1,24 @@
 import { access, mkdir, open, readFile, realpath, rename, unlink, link, lstat } from 'node:fs/promises'
-import { constants } from 'node:fs'
+import { constants, type Stats } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
 import { z } from 'zod'
-import { normalizedSql, SQL_FILE_LIMIT, type SqlFileInfo, type SqlFilesState, type OpenedSqlFile, type PreparedSqlFileReload } from '../shared/sql-files'
+import { normalizedSql, SQL_FILE_LIMIT, SQL_FILE_REGISTRY_VERSION, type SqlFileInfo, type SqlFilesState, type OpenedSqlFile, type PreparedSqlFileReload } from '../shared/sql-files'
+import { chooseProjectRoot, listProject, projectRootSchema, verifyProjectPath } from './sql-project'
 
 const hash = (value: string | Buffer) => createHash('sha256').update(value).digest('hex')
 export const sqlHash = (sql: string) => hash(normalizedSql(sql))
 const documentSchema = z.object({ tabId: z.string().uuid(), path: z.string().min(1).max(4096), savedHash: z.string().length(64), revision: z.string().length(64), bom: z.boolean(), eol: z.enum(['\n', '\r\n']) }).strict()
 type Document = z.infer<typeof documentSchema>
-const stateSchema = z.object({ version: z.literal(1), documents: z.array(documentSchema).max(20), recent: z.array(z.object({ id: z.string().uuid(), path: z.string().min(1).max(4096) }).strict()).max(20) }).strict()
+const stateSchema = z.object({ version: z.union([z.literal(1), z.literal(SQL_FILE_REGISTRY_VERSION)]), documents: z.array(documentSchema).max(20), recent: z.array(z.object({ id: z.string().uuid(), path: z.string().min(1).max(4096) }).strict()).max(20), project: projectRootSchema.optional() }).strict()
+  .refine(value => !value.project || value.version === SQL_FILE_REGISTRY_VERSION)
 type State = z.infer<typeof stateSchema>
 const samePath = (a: string, b: string) => process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b
 const absent = (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT'
 
-async function inspect(path: string) {
+async function inspect(path: string, expected?: Stats) {
   const stat = await lstat(path)
+  if (expected && (expected.dev !== stat.dev || expected.ino !== stat.ino)) throw new Error('The project file changed before opening. Refresh the project list.')
   if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('SQL files must be regular files, not symbolic links or directories.')
   if (stat.size > 4 * SQL_FILE_LIMIT) throw new Error('SQL files support up to 1,000,000 characters of UTF-8 text.')
   const file = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW || 0))
@@ -50,13 +53,14 @@ export class SqlFiles {
   private notice?: string
   private writeError?: Error
   private pendingReload?: { id: string; previous: Document; next: Document; expiresAt: number }
+  private projectEntries = new Map<string, string>()
   constructor(private readonly statePath: string) {}
   async load() {
     try {
       const info = await lstat(this.statePath)
       if (!info.isFile() || info.size > 1024 * 1024) throw new Error('Invalid SQL file registry.')
       const value = JSON.parse(await readFile(this.statePath, 'utf8'))
-      if (value && Number.isInteger(value.version) && value.version > 1) {
+      if (value && Number.isInteger(value.version) && value.version > SQL_FILE_REGISTRY_VERSION) {
         this.writeError = new Error('SQL file associations were created by a newer Db Commander version and were kept intact. Recovered SQL buffers remain available; use that version for SQL file operations.')
         throw this.writeError
       }
@@ -97,8 +101,38 @@ export class SqlFiles {
     }
     return { files, recent: this.state.recent.map(item => ({ ...item, name: basename(item.path) })), notice: this.notice }
   }
-  async open(tabId: string, path: string): Promise<OpenedSqlFile> {
-    const canonical = await realpath(path), disk = await inspect(canonical)
+  get projectPath() { return this.state.project?.path }
+  async chooseProject(path: string) {
+    const root = await chooseProjectRoot(path)
+    const { project, entries } = await listProject(root)
+    await this.persist({ ...this.state, version: SQL_FILE_REGISTRY_VERSION, project: root })
+    this.projectEntries = entries
+    return project
+  }
+  async listProject() {
+    this.projectEntries.clear()
+    const root = this.state.project
+    if (!root) return null
+    const { project, entries } = await listProject(root)
+    this.projectEntries = entries
+    return project
+  }
+  async closeProject() {
+    await this.persist({ ...this.state, version: 1, project: undefined })
+    this.projectEntries.clear()
+  }
+  async openProjectFile(tabId: string, entryId: string) {
+    const path = this.projectEntries.get(entryId), root = this.state.project
+    if (!path || !root) throw new Error('This entry is no longer listed. Refresh the SQL project.')
+    return this.open(tabId, path, () => verifyProjectPath(root, path))
+  }
+  async open(tabId: string, path: string, verify?: () => Promise<Stats | undefined>): Promise<OpenedSqlFile> {
+    const identity = await verify?.()
+    const canonical = await realpath(path)
+    if (verify && !samePath(canonical, path)) throw new Error('The project file changed. Refresh the SQL project.')
+    const disk = await inspect(canonical, identity)
+    const after = await verify?.()
+    if (identity && (!after || identity.dev !== after.dev || identity.ino !== after.ino)) throw new Error('The project file changed while opening. Refresh the project list.')
     const existing = this.state.documents.find(item => samePath(item.path, canonical))
     if (existing) { await this.persist(this.touch(canonical)); return { file: this.info(existing, disk.revision === existing.revision ? 'unchanged' : 'changed'), sql: disk.sql } }
     if (this.document(tabId) || this.state.documents.length >= 20) throw new Error('Open this file in a new available query tab.')

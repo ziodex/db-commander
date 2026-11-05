@@ -1,3 +1,5 @@
+import type { AdministrationPlan } from '../administration/reviews'
+import type { AdministrationChange, AdministrationResult } from '../shared/database-administration'
 import type { DiagramScope } from '../shared/diagram'
 import { bindRequest } from './parameters'
 import type { CatalogObject } from '../shared/catalog'
@@ -101,6 +103,21 @@ export class SqliteDriver implements DatabaseDriver {
       return response
     } finally { context?.signal.removeEventListener('abort', cancel); session.importProgress = undefined }
   }
+  prepareAdministration(id: string, change: AdministrationChange): Promise<AdministrationPlan> {
+    const session = this.session(id)
+    if (session.busy || session.inspection) throw new Error('Wait for the SQLite operation to finish before reviewing maintenance.')
+    return this.rpc(session, 'prepareAdministration', { database: session.info.database, change })
+  }
+  async applyAdministration(id: string, change: AdministrationChange, reviewed: AdministrationPlan, beforeDispatch: () => void): Promise<AdministrationResult> {
+    const session = this.session(id)
+    if (session.busy || session.inspection) throw new Error('Wait for the SQLite operation to finish before applying maintenance.')
+    beforeDispatch()
+    try { return await this.rpc(session, 'applyAdministration', { database: session.info.database, change, reviewed }) }
+    catch (error) {
+      if (!session.lost && !(error instanceof Error && error.message === 'SQLite worker timed out. Reconnect explicitly.')) throw error
+      return { status: 'unknown', message: 'The SQLite worker did not confirm the outcome. Reconnect and inspect the database before retrying.' }
+    }
+  }
   async backup(request: BackupRequest, context: BackupContext) {
     const session = this.session(request.sessionId)
     context.signal.throwIfAborted()
@@ -139,10 +156,10 @@ export class SqliteDriver implements DatabaseDriver {
     if (!session.lost) await this.rpc(session, 'close')
     this.results.forget(id); this.sessions.delete(id)
   }
-  async explore(id: string, object?: CatalogObject, diagram?: DiagramScope) {
+  async explore(id: string, object?: CatalogObject, diagram?: DiagramScope, page?: import('../catalog/paging').CatalogRead) {
     const session = this.session(id)
     if (session.busy || session.inspection) throw new Error('Wait for the SQLite operation to finish before inspecting objects.')
-    return this.rpc(session, 'explore', {object,diagram})
+    return this.rpc(session, 'explore', {object,diagram,page})
   }
   async schema(id: string): Promise<SchemaSnapshot> {
     const session = this.session(id)

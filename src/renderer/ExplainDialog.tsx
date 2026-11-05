@@ -1,21 +1,31 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { X } from './WorkbenchIcons'
 import { engineNames, type SessionInfo } from '../shared/contracts'
-import { postgresPlan, separatePlanConnection, type ExplainRequest, type ExplainResult } from '../shared/explain'
+import { separatePlanConnection, type ExplainRequest, type ExplainResult } from '../shared/explain'
+import { explainTree } from '../shared/plan-tree'
 import { parameterNames, type QueryParameter } from '../shared/parameters'
 import { ParameterDialog } from './ParameterDialog'
+import { PlanComparison } from './PlanComparison'
 
-export function ExplainDialog({ session, sql, previous, onRun, onClose }: { session: SessionInfo; sql: string; previous?: ExplainResult; onRun(request: ExplainRequest): Promise<ExplainResult>; onClose(): void }) {
+export function ExplainDialog({ session, sql, previous, baseline, onBaseline, onRun, onClose }: {
+  session: SessionInfo; sql: string; previous?: ExplainResult; baseline?: ExplainResult
+  onBaseline(result?: ExplainResult): void; onRun(request: ExplainRequest): Promise<ExplainResult>; onClose(): void
+}) {
   const dialog = useRef<HTMLDialogElement>(null)
   const [mode, setMode] = useState<ExplainRequest['mode']>('estimated'), [confirmed, setConfirmed] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(''), [message, setMessage] = useState('')
-  const [result, setResult] = useState(previous?.sql === sql.trim() ? previous : undefined), [raw, setRaw] = useState(session.engine !== 'postgres'), [selected, setSelected] = useState(0), [collapsed, setCollapsed] = useState(new Set<number>())
+  const [result, setResult] = useState(previous?.sql === sql.trim() && previous.session.id === session.id && previous.session.database === session.database ? previous : undefined)
+  const [raw, setRaw] = useState(session.engine !== 'postgres'), [selected, setSelected] = useState(0), [collapsed, setCollapsed] = useState(new Set<number>())
+  const [comparing, setComparing] = useState(false)
   const [parameterRequest, setParameterRequest] = useState<{ request: ExplainRequest; names: string[] }>()
   useEffect(() => { const node = dialog.current!; node.showModal(); return () => node.close() }, [])
   const parsed = useMemo(() => {
-    if (result?.engine !== 'postgres' || !result.raw) return {}
-    try { return { plan: postgresPlan(result.raw) } } catch (error) { return { error: (error as Error).message } }
+    if (result?.status !== 'completed' || !result.raw) return {}
+    try { return { plan: explainTree(result) } }
+    catch { return { error: 'The operator tree is unavailable for this capture. Use Raw plan to inspect the native output.' } }
   }, [result])
   const plan = parsed.plan, node = plan?.nodes[selected]
+  const childParents = new Set(plan?.nodes.flatMap(node => node.parent === undefined ? [] : [node.parent]))
+  const compareAllowed = Boolean(baseline && result && baseline.mode === result.mode && baseline.capturedAt !== result.capturedAt)
   const hidden = new Set<number>()
   const visible = plan?.nodes.filter(node => { if (node.parent !== undefined && (collapsed.has(node.parent) || hidden.has(node.parent))) { hidden.add(node.id); return false }; return true })
   function prepare() {
@@ -36,6 +46,10 @@ export function ExplainDialog({ session, sql, previous, onRun, onClose }: { sess
     try { if (copy) { await window.dbCommander.copyDefinition(result!.raw); setMessage('Plan copied.') } else if (await window.dbCommander.savePlan({ text: result!.raw, format: result!.format })) setMessage('Plan saved.') }
     catch (error) { setError((error as Error).message) }
   }
+  function pin(next?: ExplainResult) {
+    try { onBaseline(next); setComparing(false); setMessage(next ? 'Captured plan pinned as the baseline.' : 'Plan baseline cleared.') }
+    catch (cause) { setError((cause as Error).message) }
+  }
   return <dialog ref={dialog} className="connection-dialog explain-dialog" aria-label="Query plan" onKeyDown={event => event.stopPropagation()} onCancel={event => { event.preventDefault(); if (!busy) onClose() }}>
     <div className="dialog-heading"><div><h2>Query plan</h2><p>{engineNames[session.engine]} · {session.name} · {session.database || 'Server'}</p></div><button aria-label="Close query plan" disabled={busy} onClick={onClose}><X size={18}/></button></div>
     <p>{separatePlanConnection(session.engine) ? 'Uses a separate connection with this profile’s defaults. Temporary objects, uncommitted changes and tab-specific settings are not included.' : 'Uses this tab’s session, settings and transaction.'} Plans depend on current statistics and permissions; planning can invoke server functions.</p>
@@ -50,20 +64,26 @@ export function ExplainDialog({ session, sql, previous, onRun, onClose }: { sess
     {busy && <p role="status">Collecting plan… A cancellation is requested after 60 seconds.</p>}{error && <p role="alert">{error}</p>}{message && <p role="status">{message}</p>}
     {result && <section aria-label="Captured plan"><p role={result.status === 'completed' ? 'status' : 'alert'}>{result.message}</p><p className="plan-summary">Captured {result.mode === 'analyze' ? 'actual' : 'estimated'} plan · {new Date(result.capturedAt).toLocaleString()} · {result.durationMs} ms · {result.session.transaction} transaction state</p>
       {result.status === 'completed' && <><div className="object-actions">{plan && <><button aria-pressed={!raw} onClick={() => setRaw(false)}>Plan tree</button><button aria-pressed={raw} onClick={() => setRaw(true)}>Raw plan</button><button onClick={() => setCollapsed(new Set())}>Expand all nodes</button></>}
-        <button onClick={() => void save(true)}>Copy plan</button><button onClick={() => void save()}>Save plan</button></div>
-        {parsed.error && <p role="alert">{parsed.error}</p>}
-        {!raw && plan ? <><p>Estimated cost is in planner units, not milliseconds. Node costs and times include child work; do not sum them. Actual rows and times are per loop.</p>
+        <button onClick={() => void save(true)}>Copy plan</button><button onClick={() => void save()}>Save plan</button>
+        <button disabled={baseline?.capturedAt === result.capturedAt} onClick={() => pin(result)}>{baseline ? 'Replace baseline' : 'Pin as baseline'}</button>
+        {baseline && <><button disabled={!compareAllowed} aria-pressed={comparing && compareAllowed} onClick={() => setComparing(value => !value)}>Compare with baseline</button>
+          <button onClick={() => pin()}>Clear baseline</button></>}
+        </div>
+        {baseline && baseline.mode !== result.mode && <p>Capture the same plan mode as the pinned baseline to compare.</p>}
+        {parsed.error && <p role="status">{parsed.error}</p>}
+        {!raw && plan ? <><p>{result.engine === 'postgres' ? 'Planner cost uses native cost units. Node cost and time include child work. Actual rows and times are per loop.' : 'The tree uses the native operators and available estimates. Costs use engine-specific units. Missing metrics are shown as unavailable.'}</p>
           <p className="plan-summary">{plan.nodes.length} operators{plan.planningTime !== undefined ? ` · Planning ${plan.planningTime} ms` : ''}{plan.executionTime !== undefined ? ` · Execution ${plan.executionTime} ms` : ''}</p>{plan.notice && <p>{plan.notice}</p>}
-          <div className="plan-visual"><div className="plan-tree" aria-label="PostgreSQL plan tree">{visible?.map(item => <div key={item.id} className="plan-node-row" style={{ marginLeft: Math.min(item.depth, 20) * 22 }}>
-            {plan.nodes.some(child => child.parent === item.id) && <button className="plan-collapse" aria-label={`${collapsed.has(item.id) ? 'Expand' : 'Collapse'} node ${item.id + 1}`} aria-expanded={!collapsed.has(item.id)} onClick={() => setCollapsed(previous => { const next = new Set(previous); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next })}>{collapsed.has(item.id) ? '+' : '−'}</button>}
+          <div className="plan-visual"><div className="plan-tree" aria-label={`${engineNames[result.engine]} plan tree`}>{visible?.map(item => <div key={item.id} className="plan-node-row" style={{ marginLeft: Math.min(item.depth, 20) * 22 }}>
+            {childParents.has(item.id) && <button className="plan-collapse" aria-label={`${collapsed.has(item.id) ? 'Expand' : 'Collapse'} node ${item.id + 1}`} aria-expanded={!collapsed.has(item.id)} onClick={() => setCollapsed(previous => { const next = new Set(previous); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next })}>{collapsed.has(item.id) ? '+' : '−'}</button>}
             <button className={`plan-node ${selected === item.id ? 'selected' : ''}`} aria-label={`Plan node ${item.id + 1}: ${item.type}`} aria-pressed={selected === item.id} onClick={() => setSelected(item.id)}>
               <strong>{item.type}{item.relation ? ` · ${item.relation}` : ''}</strong><span>Est. rows {item.estimatedRows ?? '—'} · total cost {item.cost ?? '—'}</span>
               {item.actualRows !== undefined && <span>Actual rows {item.actualRows} × {item.loops ?? '—'} loops · {item.time ?? '—'} ms/loop</span>}
-              <i className="plan-cost" style={{ width: `${Math.max(1, Math.min(100, (item.cost ?? 0) / (plan.nodes[0].cost || 1) * 100))}%` }}/>
+              {result.engine === 'postgres' && item.cost !== undefined && <i className="plan-cost" style={{ width: `${Math.max(1, Math.min(100, item.cost / (plan.nodes[0].cost || 1) * 100))}%` }}/>}
             </button></div>)}</div>
-            {node && <aside className="plan-node-details"><h3>{node.type}</h3><p>Operator {node.id + 1} · inclusive cost/time</p><table aria-label="Plan node details"><tbody>{Object.entries(node.details).map(([key,value]) => <tr key={key}><th>{key}</th><td>{typeof value === 'object' ? JSON.stringify(value) : String(value)}</td></tr>)}</tbody></table></aside>}
+            {node && <aside className="plan-node-details"><h3>{node.type}</h3><p>Operator {node.id + 1}{result.engine === 'postgres' ? ' · inclusive cost and time' : ''}</p><table aria-label="Plan node details"><tbody>{Object.entries(node.details).map(([key,value]) => <tr key={key}><th>{key}</th><td>{typeof value === 'object' ? JSON.stringify(value) : String(value)}</td></tr>)}</tbody></table></aside>}
           </div></> : <textarea className="plan-raw" aria-label="Raw query plan" readOnly spellCheck={false} value={result.raw}/>}
         <details><summary>Submitted plan commands</summary><pre className="plan-sql">{result.submittedSql.join('\n\n')}</pre></details>
+        {comparing && compareAllowed && baseline && <PlanComparison key={result.capturedAt} baseline={baseline} current={result} plan={plan}/>}
       </>}
     </section>}
     {parameterRequest && <ParameterDialog engine={session.engine} sql={parameterRequest.request.sql} names={parameterRequest.names} submitLabel={parameterRequest.request.mode === 'analyze' ? 'Execute and analyze with parameters' : 'Explain with parameters'} onRun={values => run(parameterRequest.request, values)} onClose={() => setParameterRequest(undefined)} />}

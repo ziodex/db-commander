@@ -20,7 +20,14 @@ export async function verifyActivity(config:ConnectionConfig) {
   const inspect=(id=source.id,includeSql=false)=>driver.inspectActivity({sessionId:id,includeSql})
   try {
     const cached=await run(engine==='oracle'?'SELECT 42 FROM dual':'SELECT 42'),before=events.length
-    const pending=inspect();expect(()=>inspect()).toThrow(/inspection/);const first=await pending
+    const pending=inspect()
+    expect(()=>inspect()).toThrow(/inspection/)
+    expect(()=>driver.inspectPerformance(source.id)).toThrow(/inspection/)
+    const first=await pending
+    const performance=await driver.inspectPerformance(source.id)
+    expect(performance.engine).toBe(engine)
+    if (engine==='oracle') expect(performance).toMatchObject({status:'unavailable',metrics:[]})
+    if (embedded) expect(performance.metrics).toContainEqual({label:'Connections open',value:'2',unit:'count',basis:'current'})
     expect(events).toHaveLength(before);expect(first.sessions.rows.every(r=>r.query===null)).toBe(true)
     await driver.exportCsv(cached,0,join(directory,'before.csv'));expect(readFileSync(join(directory,'before.csv'),'utf8')).toContain('42')
     if(!embedded&&engine!=='postgres')expect([first.sessions,first.locks,first.waits].some(s=>s.status==='unavailable')).toBe(true)
@@ -29,6 +36,7 @@ export async function verifyActivity(config:ConnectionConfig) {
     await run(begin);await run(`UPDATE ${table} SET ${q('value')}=11 WHERE ${q('id')}=1`)
     expect(driver.getSession(source.id).transaction).toBe('transaction');const during=await inspect();expect(driver.getSession(source.id).transaction).toBe('transaction')
     if(embedded) {
+      expect((await driver.inspectPerformance(source.id)).metrics).toContainEqual({label:'Connections with known transactions',value:'1',unit:'count',basis:'current'})
       expect(during.sessions.rows.find(r=>r.id===source.id)?.transaction).toBe('transaction');expect(during.sessions.rows.some(r=>r.id===actor.id)).toBe(true)
       expect(during.locks.status).toBe('unsupported');expect(during.waits.status).toBe('unsupported');expect(during.locks.rows).toEqual([])
     } else {
@@ -42,6 +50,11 @@ export async function verifyActivity(config:ConnectionConfig) {
       const marker='waiting_'+name,queryId=driver.start({sessionId:actor.id,sql:`/* ${marker} */ UPDATE ${table} SET ${q('value')}=12 WHERE ${q('id')}=1`,maxRows:1})
       // Inspection must work on the connection whose query is currently blocked.
       await inspect(actor.id)
+      await driver.inspectPerformance(actor.id)
+      const counters=await driver.inspectPerformance(monitor)
+      expect(counters.status,JSON.stringify(counters)).toBe('available')
+      expect(counters.metrics.some(metric=>Number(metric.value)>0)).toBe(true)
+      expect(JSON.stringify(counters)).not.toContain(marker)
       let snapshot=await inspect(monitor,true)
       const deadline=Date.now()+10000
       while(!snapshot.waits.rows.some(w=>w.waiting===actorId&&w.blocking===first.currentSessionId)&&Date.now()<deadline){await new Promise(r=>setTimeout(r,150));snapshot=await inspect(monitor,true)}

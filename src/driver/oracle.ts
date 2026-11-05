@@ -1,10 +1,19 @@
+import { planOraclePrincipalChange } from '../principals/oracle-changes'
+import type { CatalogQuery } from '../catalog/common'
+import type { PrincipalPlan } from '../principals/reviews'
+import type { PreparePrincipalChange, PrincipalChangeResult } from '../shared/principal-changes'
+import { readOraclePrincipals } from '../principals/oracle'
+import type { PrincipalRequest } from '../shared/principals'
+import { planOracleAdministration } from '../administration/oracle'
+import type { AdministrationPlan } from '../administration/reviews'
+import type { AdministrationChange, AdministrationResult } from '../shared/database-administration'
 import { failureSource } from '../language/execution'
 import type { ActivityObserver } from '../activity/control'
 import { readActivity } from '../activity/read'
 import type { DiagramScope } from '../shared/diagram'
 import { readDiagram } from '../catalog/diagram'
 import { bindRequest, boundValue } from './parameters'
-import { inspect } from '../catalog/common'
+import { readCatalog, inspect } from '../catalog/common'
 import { endpoint, isRouted } from '../connections/transport'
 import { oracleCatalog } from '../catalog/oracle'
 import type { CatalogObject } from '../shared/catalog'
@@ -116,9 +125,9 @@ export class OracleDriver implements DatabaseDriver {
     const session = this.session(request.sessionId)
     if (request.action === 'release') this.results.forget(request.sessionId, request.viewId)
     if (session.busy) throw new Error('Wait for the running query before editing data.')
-    session.editor ??= new TableEditor('oracle', async (sql, values = []) => {
+    session.editor ??= new TableEditor('oracle', async (sql, values = [], rowLimit) => {
       const binds = Object.fromEntries(values.map((value, index) => [`p${index + 1}`, { val: value, type: oracledb.STRING }]))
-      const result = await session.client.execute<unknown[]>(sql, binds, { outFormat: oracledb.OUT_FORMAT_ARRAY, autoCommit: false, maxRows: 202 })
+      const result = await session.client.execute<unknown[]>(sql, binds, { outFormat: oracledb.OUT_FORMAT_ARRAY, autoCommit: false, maxRows: rowLimit ?? 202 })
       const rows: Cell[][] = []
       for (const row of result.rows ?? []) {
         const cells: Cell[] = []
@@ -279,6 +288,56 @@ export class OracleDriver implements DatabaseDriver {
     await operation.cancelPromise
     return { requested: true }
   }
+  private async withAdministration<T>(id: string, apply: boolean,
+    work: (client: oracledb.Connection, query: CatalogQuery, timeout: (limit: number) => void) => Promise<T>): Promise<T> {
+    const session = this.session(id)
+    const client = await oracledb.getConnection(oracleConnectionOptions(session.config))
+    const deadline = Date.now() + (apply ? 80_000 : 18_000)
+    const timeout = (limit: number) => {
+      const remaining = deadline - Date.now()
+      if (remaining <= 0) throw new Error('Oracle administration timed out.')
+      client.callTimeout = Math.min(remaining, limit)
+    }
+    const query: CatalogQuery = async (sql, values = []) => {
+      timeout(10_000)
+      const result = await client.execute<unknown[]>(sql, values, { outFormat: oracledb.OUT_FORMAT_ARRAY, maxRows: 21 })
+      return (result.rows ?? []).map(row => row.map(value => value == null ? null : String(value)))
+    }
+    try {
+      timeout(5000)
+      await client.execute('ALTER SESSION SET DDL_LOCK_TIMEOUT = 5')
+      return await work(client, query, timeout)
+    } finally { await client.close().catch(() => {}) }
+  }
+  prepareAdministration(id: string, change: AdministrationChange): Promise<AdministrationPlan> {
+    return this.withAdministration(id, false, (_client, query) => planOracleAdministration(query, change))
+  }
+  applyAdministration(id: string, change: AdministrationChange, reviewed: AdministrationPlan, beforeDispatch: () => void): Promise<AdministrationResult> {
+    return this.withAdministration(id, true, async (client, query, timeout) => {
+      const fresh = await planOracleAdministration(query, change)
+      if (fresh.fingerprint !== reviewed.fingerprint || fresh.sql !== reviewed.sql) {
+        throw new Error('The reviewed Oracle table or indexes changed. Refresh the catalog and prepare a new review.')
+      }
+      timeout(65_000)
+      beforeDispatch()
+      const unknown: AdministrationResult = {
+        status: 'unknown', message: 'Oracle did not confirm the reviewed effect. Inspect the table statistics and indexes before preparing another change.'
+      }
+      try {
+        await client.execute(reviewed.sql, [], { autoCommit: false })
+        return await fresh.verify() ? { status: 'applied', message: 'Oracle confirmed the reviewed operation.' } : unknown
+      } catch (error) {
+        const failure = error as { errorNum?: number }
+        if (await fresh.rebuiltIndex().catch(() => false)) {
+          return { status: 'partial', message: 'Oracle reported a failure and one or more reviewed indexes now show a changed build. Inspect all indexes before retrying.' }
+        }
+        if (change.action === 'analyze-table' && [1031, 20005].includes(failure.errorNum ?? 0)) {
+          return { status: 'rejected', message: 'Oracle refused the statistics update. Check privileges and statistics locks.' }
+        }
+        return unknown
+      }
+    })
+  }
   activity(id:string, includeSql:boolean) { return this.withActivity(id,o=>readActivity(o.engine,o.database,o.currentSessionId,o.query,includeSql)) }
   activityId(id:string) { const session=this.session(id); return session.nativeId }
   invalidateActivity(id:string) { const session=this.sessions.get(id);if(!session||session.lost)return;session.lost=true;session.info.transaction='unknown';void this.emit({type:'session-lost',sessionId:id,message:'Session termination was requested. The connection is no longer usable; verify rollback and reconnect explicitly.'}) }
@@ -292,7 +351,91 @@ export class OracleDriver implements DatabaseDriver {
       }})
     } finally { await client.close().catch(()=>{}) }
   }
-  async explore(id: string, object?: CatalogObject, diagram?: DiagramScope) {
+  private applyingPrincipalChange = false
+
+  private async withPrincipalCatalog<T>(id: string, action: (query: CatalogQuery) => Promise<T>): Promise<T> {
+    const session = this.session(id), client = await openOracle(session.config)
+    const deadline = Date.now() + 15000
+    try {
+      const query: CatalogQuery = async (sql, values = []) => {
+        const remaining = deadline - Date.now()
+        if (remaining <= 0) throw new Error('The Oracle principal catalog operation timed out.')
+        client.callTimeout = Math.min(5000, remaining)
+        const result = await client.execute<unknown[]>(sql, values, { outFormat: oracledb.OUT_FORMAT_ARRAY, maxRows: 101 })
+        return (result.rows ?? []).map(row => row.map(cell => cell == null ? null : String(cell)))
+      }
+      return await action(query)
+    } finally { await client.close().catch(() => {}) }
+  }
+  inspectPrincipals(request: PrincipalRequest) {
+    return this.withPrincipalCatalog(request.sessionId, async query => {
+      await query('SET TRANSACTION READ ONLY')
+      return readOraclePrincipals(query, request)
+    })
+  }
+  private async principalPlan(query: CatalogQuery, change: import('../shared/principal-changes').OraclePrincipalChange) {
+    try { return await planOraclePrincipalChange(query, change) }
+    catch (error) {
+      if ([942, 1031].includes(Number((error as { errorNum?: number })?.errorNum))) {
+        throw new Error('Reviewing this Oracle change requires visibility of the relevant dictionary views in the current container.')
+      }
+      throw error
+    }
+  }
+  preparePrincipalChange(request: PreparePrincipalChange): Promise<PrincipalPlan> {
+    const { change, sessionId } = request
+    if (!('engine' in change) || change.engine !== 'oracle') throw new Error('Select an Oracle principal change.')
+    return this.withPrincipalCatalog(sessionId, async query => {
+      await query('ALTER SESSION SET NLS_COMP = BINARY')
+      await query('SET TRANSACTION READ ONLY')
+      const { database, observer, sql, notes, fingerprint, implicitCommit, requiresPassword } = await this.principalPlan(query, change)
+      return { database, observer, sql, notes, fingerprint, implicitCommit, requiresPassword }
+    })
+  }
+  async applyPrincipalChange(
+    request: PreparePrincipalChange, retained: PrincipalPlan, beforeDispatch: () => void, _beforeCommit: () => void, newPassword?: string
+  ): Promise<PrincipalChangeResult> {
+    const { change, sessionId } = request
+    if (!('engine' in change) || change.engine !== 'oracle') throw new Error('Select an Oracle principal change.')
+    if (change.action === 'create-login' && (!newPassword || /["\r\n]/.test(newPassword))) {
+      throw new Error('Oracle requires a password without double quotes or line breaks. Prepare a new review.')
+    }
+    if (this.applyingPrincipalChange) throw new Error('Another reviewed Oracle principal change is in progress. Prepare a new review.')
+    this.applyingPrincipalChange = true
+    const unknown: PrincipalChangeResult = { status: 'unknown',
+      message: 'Oracle did not confirm the reviewed catalog effect. Refresh and verify the actual state before preparing another change.' }
+    try {
+      return await this.withPrincipalCatalog(sessionId, async query => {
+        await query('ALTER SESSION SET NLS_COMP = BINARY')
+        const fresh = await this.principalPlan(query, change)
+        if (fresh.sql !== retained.sql || fresh.fingerprint !== retained.fingerprint) {
+          throw new Error('The reviewed Oracle principal, relation or grant changed. Refresh and prepare a new review.')
+        }
+        beforeDispatch()
+        try {
+          if (change.action === 'create-login') {
+            // Oracle DDL requires a quoted literal for IDENTIFIED BY. Keep the
+            // password bound to a fixed PL/SQL block and out of SQL text.
+            const marker = ':newPassword', index = retained.sql.lastIndexOf(marker)
+            await query('BEGIN EXECUTE IMMEDIATE :prefix || CHR(34) || :secret || CHR(34) || :suffix; END;',
+              [retained.sql.slice(0, index), newPassword!, retained.sql.slice(index + marker.length, -1)])
+          } else await query(retained.sql.slice(0, -1))
+        } catch (error) {
+          if ([988, 1031, 1917, 1918, 1919, 1920, 1921, 1940, 1951, 1952, 28003].includes(Number((error as { errorNum?: number })?.errorNum))) {
+            return { status: 'rejected', message: change.action === 'create-login'
+              ? 'Oracle rejected user creation. Check your authorization and the server password policy.'
+              : 'Oracle rejected the reviewed change. Check the current privileges and dependencies.' }
+          }
+          return unknown
+        }
+        try {
+          if (await fresh.verify()) return { status: 'applied', message: 'Oracle acknowledged the automatic commit and the catalog effect was verified.' }
+        } catch { /* A successful statement can outlive the verification connection. */ }
+        return unknown
+      })
+    } finally { this.applyingPrincipalChange = false }
+  }
+  async explore(id: string, object?: CatalogObject, diagram?: DiagramScope, page?: import('../catalog/paging').CatalogRead) {
     const session = this.session(id), client = await openOracle(session.config)
     let definitionClient: oracledb.Connection | undefined
     const deadline = Date.now() + 45000
@@ -323,7 +466,7 @@ export class OracleDriver implements DatabaseDriver {
         return rows
       }
       const query = queryFor(client), adapter=oracleCatalog(query, definitionClient && queryFor(definitionClient))
-      return diagram?{diagram:await readDiagram(adapter,query,'oracle',diagram,'catalog-connection')}:await inspect(adapter,object)
+      return diagram?{diagram:await readDiagram(adapter,query,'oracle',diagram,'catalog-connection')}:page ? await readCatalog(adapter, query, 'oracle', page, 'catalog-connection') : await inspect(adapter,object)
     } finally {
       const readers = definitionClient ? [client, definitionClient] : [client]
       const closed = await Promise.allSettled(readers.map(async reader => { await reader.close() }))

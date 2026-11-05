@@ -1,3 +1,4 @@
+import { catalogRows } from './paging'
 import { catalog, definition, section, type CatalogAdapter, type CatalogQuery } from './common'
 import { quoteIdentifier } from '../shared/sql/common'
 export function oracleCatalog(query: CatalogQuery, definitionQuery?: CatalogQuery): CatalogAdapter {
@@ -12,15 +13,15 @@ export function oracleCatalog(query: CatalogQuery, definitionQuery?: CatalogQuer
   return {
     // Scope is deliberately the login's own objects. USER_* avoids the broad
     // privilege expansion in ALL_*; one scan identifies MV backing tables.
-    async list() { return catalog(await query(`SELECT * FROM (
-      SELECT NULL AS catalog_name,USER AS schema_name,o.object_name AS name,LOWER(o.object_type) AS kind,TO_CHAR(o.object_id) AS identity_name,CASE WHEN i.table_owner=USER THEN i.table_name WHEN t.table_owner=USER THEN t.table_name END AS parent_name,CAST(NULL AS VARCHAR2(128)) AS signature_name,CAST(NULL AS VARCHAR2(32)) AS constraint_type FROM (
+    async list(read) { return catalog(await catalogRows(query, 'oracle', `
+      SELECT NULL AS catalog_name,USER AS schema_name,o.object_name AS object_name,LOWER(o.object_type) AS kind,TO_CHAR(o.object_id) AS identity_name,CASE WHEN i.table_owner=USER THEN i.table_name WHEN t.table_owner=USER THEN t.table_name END AS parent_name,CAST(NULL AS VARCHAR2(128)) AS signature_name,CAST(NULL AS VARCHAR2(32)) AS constraint_type FROM (
         SELECT object_name,object_type,object_id,MAX(CASE WHEN object_type='MATERIALIZED VIEW' THEN 1 ELSE 0 END) OVER (PARTITION BY object_name) AS materialized
         FROM user_objects WHERE object_type IN ('TABLE','VIEW','MATERIALIZED VIEW','INDEX','FUNCTION','PROCEDURE','TRIGGER','SEQUENCE','PACKAGE','TYPE')
       ) o LEFT JOIN user_indexes i ON o.object_type='INDEX' AND i.index_name=o.object_name
       LEFT JOIN user_triggers t ON o.object_type='TRIGGER' AND t.trigger_name=o.object_name
       WHERE o.object_type<>'TABLE' OR o.materialized=0
       UNION ALL SELECT NULL,USER,constraint_name,'constraint',constraint_name,table_name,NULL,CASE constraint_type WHEN 'P' THEN 'primary key' WHEN 'R' THEN 'foreign key' WHEN 'U' THEN 'unique' WHEN 'C' THEN 'check' ELSE 'other' END FROM user_constraints
-      ) objects ORDER BY CASE WHEN kind IN ('table','view','materialized view') THEN 0 ELSE 1 END,schema_name,kind,name,identity_name FETCH FIRST 2001 ROWS ONLY`), 'Objects owned by the current Oracle user, from a separate catalog connection. Package/type specifications are included. Materialized-view definitions are generated logical summaries; other definitions use GET_DDL with Oracle metadata privileges; other owners and package bodies are outside this view.') },
+`, [], read), 'Objects owned by the current Oracle user, from a separate catalog connection. Package/type specifications are included. Materialized-view definitions are generated logical summaries; other definitions use GET_DDL with Oracle metadata privileges; other owners and package bodies are outside this view.', read?.object ? 1 : read?.limit) },
     async detail(o) {
       // Only overlap reads when the driver supplies a separate connection.
       // Inspect validates the object against the owned catalog before this.

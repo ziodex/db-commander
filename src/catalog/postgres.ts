@@ -1,12 +1,13 @@
+import { catalogRows } from './paging'
 import { catalog, definition, section, type CatalogAdapter, type CatalogQuery } from './common'
 import { quoteIdentifier } from '../shared/sql/common'
 export function postgresCatalog(query: CatalogQuery): CatalogAdapter {
   const q = (s: string) => quoteIdentifier(s, 'postgres')
   const visible = `substring(n.nspname from 1 for 3)<>'pg_' AND n.nspname<>'information_schema' AND pg_catalog.has_schema_privilege(n.oid,'USAGE')`
   return {
-    async list() { return catalog(await query(`SELECT * FROM (
-      SELECT NULL::text,n.nspname,c.relname,CASE c.relkind WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'i' THEN 'index' WHEN 'I' THEN 'index' WHEN 'S' THEN 'sequence' ELSE 'table' END AS kind,c.oid::text,
-        (SELECT t.relname FROM pg_catalog.pg_index x JOIN pg_catalog.pg_class t ON t.oid=x.indrelid WHERE x.indexrelid=c.oid),NULL::text,NULL::text
+    async list(read) { return catalog(await catalogRows(query, 'postgres', `
+      SELECT NULL::text AS catalog_name,n.nspname AS schema_name,c.relname AS object_name,CASE c.relkind WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'i' THEN 'index' WHEN 'I' THEN 'index' WHEN 'S' THEN 'sequence' ELSE 'table' END AS kind,c.oid::text AS identity_name,
+        (SELECT t.relname FROM pg_catalog.pg_index x JOIN pg_catalog.pg_class t ON t.oid=x.indrelid WHERE x.indexrelid=c.oid) AS parent_name,NULL::text AS signature_name,NULL::text AS constraint_type
       FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
       WHERE ${visible} AND c.relkind IN ('r','p','v','m','f','i','I','S') AND
         (CASE WHEN c.relkind='S' THEN pg_catalog.has_sequence_privilege(c.oid,'USAGE,SELECT,UPDATE') WHEN c.relkind IN ('i','I') THEN EXISTS(SELECT 1 FROM pg_catalog.pg_index x WHERE x.indexrelid=c.oid AND pg_catalog.has_table_privilege(x.indrelid,'SELECT,INSERT,UPDATE,DELETE')) ELSE pg_catalog.has_table_privilege(c.oid,'SELECT,INSERT,UPDATE,DELETE') OR pg_catalog.has_any_column_privilege(c.oid,'SELECT') END)
@@ -14,7 +15,7 @@ export function postgresCatalog(query: CatalogQuery): CatalogAdapter {
       FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE ${visible} AND p.prokind IN ('f','p') AND pg_catalog.has_function_privilege(p.oid,'EXECUTE')
       UNION ALL SELECT NULL,n.nspname,c.conname,'constraint',c.oid::text,t.relname,NULL,CASE c.contype WHEN 'p' THEN 'primary key' WHEN 'f' THEN 'foreign key' WHEN 'u' THEN 'unique' WHEN 'c' THEN 'check' WHEN 'n' THEN 'not null' ELSE 'other' END FROM pg_catalog.pg_constraint c JOIN pg_catalog.pg_class t ON t.oid=c.conrelid JOIN pg_catalog.pg_namespace n ON n.oid=t.relnamespace WHERE ${visible} AND pg_catalog.has_table_privilege(t.oid,'SELECT,INSERT,UPDATE,DELETE')
       UNION ALL SELECT NULL,n.nspname,g.tgname,'trigger',g.oid::text,t.relname,NULL,NULL FROM pg_catalog.pg_trigger g JOIN pg_catalog.pg_class t ON t.oid=g.tgrelid JOIN pg_catalog.pg_namespace n ON n.oid=t.relnamespace WHERE ${visible} AND NOT g.tgisinternal AND pg_catalog.has_table_privilege(t.oid,'SELECT,INSERT,UPDATE,DELETE')
-      ) objects ORDER BY CASE WHEN kind IN ('table','view','materialized view') THEN 0 ELSE 1 END,2,4,3,5 LIMIT 2001`), 'Visible user objects from a separate catalog connection. Uncommitted and session-temporary objects are not included.') },
+`, [], read), 'Visible user objects from a separate catalog connection. Uncommitted and session-temporary objects are not included.', read?.object ? 1 : read?.limit) },
     async detail(o) {
       const id = [o.identity], full = `${q(o.schema)}.${q(o.name)}`, sections: import('../shared/catalog').CatalogSection[] = []
       if (['table','view','materialized view'].includes(o.kind)) {

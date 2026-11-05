@@ -41,6 +41,14 @@ export async function verifyLanguageTools(config: ConnectionConfig) {
     expect(await run(query)).toEqual([["a'b -- c", '17']]); expect(await run(formatSql(query, config.engine))).toEqual([["a'b -- c", '17']])
     const cte = `with x as (select ${q('id')} from ${table.insertText}) select x.${q('id')} from x`
     expect(await run(formatSql(cte, config.engine))).toEqual([['17']])
+    const derived = `select d. from (select p.${q('Display Name')} as ${q('Shown Value')} from ${table.insertText} p) d`
+    const projected = completeSql(derived, 'select d.'.length, config.engine, schema)
+    expect(projected.suggestions.map(item => item.insertText)).toEqual([q('Shown Value')])
+    expect(await run(derived.slice(0, projected.start) + projected.suggestions[0].insertText + derived.slice(projected.end))).toEqual([["a'b -- c"]])
+    const correlated = `select p.${q('id')} from ${table.insertText} p where exists (select 1 from ${table.insertText} i where i.${q('id')}=p.)`
+    const outer = completeSql(correlated, correlated.lastIndexOf('p.') + 2, config.engine, schema)
+    expect(outer.suggestions.map(item => item.insertText)).toContain(q('id'))
+    expect(await run(correlated.slice(0, outer.start) + q('id') + correlated.slice(outer.end))).toEqual([['17']])
     // Saved style preferences must only affect layout, including in a native transaction.
     for (const useTabs of [false, true]) {
       const preferences = { expressionWidth: useTabs ? 20 : 120, linesBetweenQueries: useTabs ? 3 : 0 }

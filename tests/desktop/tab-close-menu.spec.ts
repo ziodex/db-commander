@@ -7,7 +7,10 @@ import { join, resolve } from 'node:path'
 test('bulk tab closing uses the context tab, protects pinned and busy tabs, and releases shared connections once', async ({}, info) => {
   const directory = mkdtempSync(join(tmpdir(), 'dbcommander-close-menu-'))
   const env: Record<string, string | undefined> = { ...process.env, SQLCOMMANDER_USER_DATA: directory }; delete env.ELECTRON_RUN_AS_NODE
-  const app = await electron.launch({ args: [resolve('.')], env: env as Record<string, string> })
+  const app = await electron.launch({
+    ...(process.env.SQLCOMMANDER_TEST_EXECUTABLE ? { executablePath: resolve(process.env.SQLCOMMANDER_TEST_EXECUTABLE) } : { args: [resolve('.')] }),
+    env: env as Record<string, string>
+  })
   const page = await app.firstWindow()
   const tab = (name: string) => page.getByRole('tab', { name, exact: true })
   const tabs = page.getByRole('tablist', { name: 'Query tabs', exact: true }).getByRole('tab')
@@ -23,6 +26,26 @@ test('bulk tab closing uses the context tab, protects pinned and busy tabs, and 
       ;(globalThis as any).disconnectCalls = 0
       ipcMain.removeHandler('sql:disconnect')
       ipcMain.handle('sql:disconnect', (event, request) => { (globalThis as any).disconnectCalls++; return original(event, request) })
+      const save = (ipcMain as any)._invokeHandlers.get('sql:saveWorkspace')
+      const catalog = (ipcMain as any)._invokeHandlers.get('sql:catalogPage')
+      const batch = { active: false, savedIntermediate: false, resumeSave() {}, resumeCatalog() {} }
+      const saveGate = new Promise<void>(resolve => { batch.resumeSave = resolve })
+      const catalogGate = new Promise<void>(resolve => { batch.resumeCatalog = resolve })
+      ;(globalThis as any).closeBatch = batch
+      ipcMain.removeHandler('sql:saveWorkspace')
+      ipcMain.handle('sql:saveWorkspace', async (event, workspace) => {
+        const saved = await save(event, workspace)
+        if (batch.active && workspace.tabs.length === 2 && workspace.tabs.some((tab: { title: string }) => tab.title === 'Query 3.sql')) {
+          batch.savedIntermediate = true
+          await saveGate
+        }
+        return saved
+      })
+      ipcMain.removeHandler('sql:catalogPage')
+      ipcMain.handle('sql:catalogPage', async (event, request) => {
+        if (batch.active) await catalogGate
+        return catalog(event, request)
+      })
     })
     await page.getByRole('button', { name: 'Connect database', exact: true }).click()
     const form = page.getByRole('dialog')
@@ -63,8 +86,17 @@ test('bulk tab closing uses the context tab, protects pinned and busy tabs, and 
     await preferences.getByRole('tab', { name: 'Tabs', exact: true }).click()
     await preferences.getByRole('checkbox', { name: 'Confirm before closing a tab', exact: true }).uncheck()
     await preferences.getByRole('button', { name: 'Apply settings', exact: true }).click()
+    await expect(preferences).toBeHidden()
+    await expect(page.getByRole('button', { name: /^Run SQL/ })).toBeEnabled()
+    await app.evaluate(() => { (globalThis as any).closeBatch.active = true })
     await menu('Untitled.sql', 'Close all tabs')
+    // Hold the real save acknowledgement after the first release. A catalog
+    // read from the intermediate tab would keep the next release blocked.
+    await expect.poll(() => app.evaluate(() => (globalThis as any).closeBatch.savedIntermediate)).toBe(true)
+    await expect(tab('Query 3.sql')).toHaveAttribute('aria-selected', 'true')
+    await app.evaluate(() => (globalThis as any).closeBatch.resumeSave())
     await expect(tabs).toHaveCount(1); await expect(page.getByRole('dialog')).toHaveCount(0)
+    await app.evaluate(() => (globalThis as any).closeBatch.resumeCatalog())
     await expect(tab('Untitled.sql')).toHaveAttribute('id', originalId!)
     await expect(page.getByRole('button', { name: /^Run SQL/ })).toBeEnabled()
     expect(await app.evaluate(() => (globalThis as any).disconnectCalls)).toBe(0)

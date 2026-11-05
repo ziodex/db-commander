@@ -57,7 +57,20 @@ const api: DesktopApi = {
   prepareActivityAction: request => ipcRenderer.invoke('sql:prepareActivityAction',request),
   applyActivityAction: request => ipcRenderer.invoke('sql:applyActivityAction',request),
   inspectRollback: request => ipcRenderer.invoke('sql:inspectRollback',request),
+  preparePrincipalChange: request => ipcRenderer.invoke('sql:preparePrincipalChange', request),
+  applyPrincipalChange: request => ipcRenderer.invoke('sql:applyPrincipalChange', request),
+  inspectPrincipals: request => ipcRenderer.invoke('sql:inspectPrincipals', request),
   inspectActivity: request => ipcRenderer.invoke('sql:inspectActivity',request),
+  operationHistory: () => ipcRenderer.invoke('sql:operationHistory'),
+  onOperationHistoryChanged: listener => {
+    const callback = () => listener()
+    ipcRenderer.on('sql:operation-history-changed', callback)
+    return () => ipcRenderer.removeListener('sql:operation-history-changed', callback)
+  },
+  inspectScheduler: sessionId => ipcRenderer.invoke('sql:inspectScheduler', sessionId),
+  prepareScheduleChange: request => ipcRenderer.invoke('sql:prepareScheduleChange', request),
+  applyScheduleChange: request => ipcRenderer.invoke('sql:applyScheduleChange', request),
+  inspectPerformance: sessionId => ipcRenderer.invoke('sql:inspectPerformance', sessionId),
   saveActivity: snapshot => ipcRenderer.invoke('sql:saveActivity',snapshot),
   prepareQueryBuilder: request => ipcRenderer.invoke('sql:prepareQueryBuilder', request),
   prepareMigration: request => ipcRenderer.invoke('sql:prepareMigration', request),
@@ -68,6 +81,8 @@ const api: DesktopApi = {
   saveValue: value => ipcRenderer.invoke('sql:saveValue', value),
 
   prepareSchemaChange: request => ipcRenderer.invoke('sql:prepareSchemaChange', request),
+  prepareAdministration: request => ipcRenderer.invoke('sql:prepareAdministration', request),
+  applyAdministration: request => ipcRenderer.invoke('sql:applyAdministration', request),
   applySchemaChange: request => ipcRenderer.invoke('sql:applySchemaChange', request),
   cancelSchemaChange: id => ipcRenderer.invoke('sql:cancelSchemaChange', id),
   inspectImport: source => ipcRenderer.invoke('sql:inspectImport', source),
@@ -106,6 +121,14 @@ const api: DesktopApi = {
     ipcRenderer.on('sql:layout-command', callback)
     return () => ipcRenderer.removeListener('sql:layout-command', callback)
   },
+  onEntraSignIn: listener => {
+    const callback = (_event: Electron.IpcRendererEvent, progress: import('../shared/entra').EntraProgress) => listener(progress)
+    ipcRenderer.on('sql:entra-sign-in', callback)
+    return () => ipcRenderer.removeListener('sql:entra-sign-in', callback)
+  },
+  cancelEntraSignIn: attemptId => ipcRenderer.invoke('sql:cancelEntraSignIn', attemptId),
+  renewEntraSession: (sessionId, attempt) => ipcRenderer.invoke('sql:renewEntraSession', { sessionId, attempt }),
+  connectInteractive: (config, attempt) => ipcRenderer.invoke('sql:connectInteractive', { config, attempt }),
   connect: config => ipcRenderer.invoke('sql:connect', config),
   connectSavedPassword: (profileId, config, sshSecrets) => ipcRenderer.invoke('sql:connectSavedPassword', { profileId, config, sshSecrets }),
   sessionSafety: id => ipcRenderer.invoke('sql:sessionSafety', id),
@@ -130,6 +153,7 @@ const api: DesktopApi = {
   compareSchemas: request => ipcRenderer.invoke('sql:compareSchemas', request),
   diagram: request => ipcRenderer.invoke('sql:diagram',request),
   saveDiagram: request => ipcRenderer.invoke('sql:saveDiagram',request),
+  catalogPage: request => ipcRenderer.invoke('sql:catalogPage', request),
   inspectObject: request => ipcRenderer.invoke('sql:inspectObject', request),
   schema: id => ipcRenderer.invoke('sql:schema', id),
   loadWorkspace: () => ipcRenderer.invoke('sql:loadWorkspace'),
@@ -159,6 +183,9 @@ const api: DesktopApi = {
   finishSqlFileReload: request => ipcRenderer.invoke('sql:finishSqlFileReload', request),
   forgetSqlFile: id => ipcRenderer.invoke('sql:forgetSqlFile', id),
   clearRecentSqlFiles: () => ipcRenderer.invoke('sql:clearRecentSqlFiles'),
+  chooseSqlProject: () => ipcRenderer.invoke('sql:chooseSqlProject'),
+  listSqlProject: () => ipcRenderer.invoke('sql:listSqlProject'),
+  closeSqlProject: () => ipcRenderer.invoke('sql:closeSqlProject'),
   onFileCommand: listener => {
     const callback = (_event: Electron.IpcRendererEvent, command: unknown) => { if (typeof command === 'string' && ['open', 'save', 'save-as', 'recent', 'reload'].includes(command)) listener(command as SqlFileCommand) }
     ipcRenderer.on('sql:file-command', callback)

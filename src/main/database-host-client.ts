@@ -5,6 +5,8 @@ import type { TransferJob } from '../shared/transfer'
 import type { HostArgs, HostMethod, HostResult, HostMessage } from '../shared/host-rpc'
 
 interface HostCallbacks {
+  operation(entry: import('../shared/operation-history').OperationEntry): void
+  entraToken?(id: string): Promise<string>
   event(event: DatabaseEvent, token?: string): void
   backup(job: BackupJob): void
   transfer(job: TransferJob): void
@@ -19,8 +21,12 @@ interface HostProcess {
   once(event: 'exit', listener: () => void): void
 }
 
-const unbounded = new Set<HostMethod>(['applyActivityAction', 'editGrid', 'inspectImport', 'startTransfer', 'switchDatabase', 'databases', 'applySchemaChange', 'connect', 'explain', 'compareData'])
-const inspection = new Set<HostMethod>(['inspectRollback', 'inspectActivity', 'inspectObject', 'prepareSchemaChange', 'diagram', 'compareSchemas'])
+const unbounded = new Set<HostMethod>(['applyActivityAction', 'applyPrincipalChange', 'applyAdministration', 'applyScheduleChange', 'connectEntra', 'editGrid', 'inspectImport', 'startTransfer', 'switchDatabase', 'databases', 'applySchemaChange', 'connect', 'explain', 'compareData'])
+const inspection = new Set<HostMethod>(['catalogPage', 'inspectRollback', 'inspectActivity', 'inspectPerformance', 'inspectScheduler', 'inspectPrincipals', 'preparePrincipalChange', 'inspectObject', 'prepareSchemaChange', 'diagram', 'compareSchemas'])
+
+export class DatabaseHostExitedError extends Error {
+  constructor() { super('Database host exited. An in-flight operation may have an unknown outcome.') }
+}
 
 /** One workspace owns this host until exit, including after startup failure. */
 export class DatabaseHostClient {
@@ -49,6 +55,15 @@ export class DatabaseHostClient {
         if ('ready' in message) { clearTimeout(startup); resolve(); return }
         if ('backupJob' in message) { this.callbacks.backup(message.backupJob); return }
         if ('transferJob' in message) { this.callbacks.transfer(message.transferJob); return }
+        if ('operation' in message) { this.callbacks.operation(message.operation); return }
+        if ('entraToken' in message) {
+          const { requestId, grantId } = message.entraToken
+          const respond = (accessToken?: string) => {
+            if (this.child === child) child.postMessage({ entraToken: { requestId, accessToken } })
+          }
+          void Promise.resolve().then(() => this.callbacks.entraToken?.(grantId)).then(respond, () => respond()).catch(() => {})
+          return
+        }
         if ('event' in message) {
           if (message.token) this.acknowledgements.add(message.token)
           this.callbacks.event(message.event, message.token)
@@ -65,7 +80,7 @@ export class DatabaseHostClient {
         reject(new Error(startupFailure ?? 'Database host exited.'))
         for (const request of this.pending.values()) {
           clearTimeout(request.timer)
-          request.reject(new Error('Database host exited. An in-flight operation may have an unknown outcome.'))
+          request.reject(new DatabaseHostExitedError())
         }
         this.pending.clear(); this.acknowledgements.clear()
         this.child = undefined; this.ready = undefined
@@ -81,7 +96,7 @@ export class DatabaseHostClient {
   async call<K extends HostMethod>(method: K, ...args: HostArgs<K>): Promise<HostResult<K>> {
     await this.ensureReady()
     const child = this.child
-    if (!child) throw new Error('Database host exited. An in-flight operation may have an unknown outcome.')
+    if (!child) throw new DatabaseHostExitedError()
     return new Promise((resolve, reject) => {
       const id = randomUUID()
       // Writes remain owned until completion or host exit. A transport timeout

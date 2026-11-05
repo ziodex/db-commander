@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { tableAction } from './explorer-actions'
-import { waitForWorkspaceReady } from './workspace-ready'
+import { waitForConnectionIdle, waitForWorkspaceReady } from './workspace-ready'
 
 for (const engine of ['sqlite', 'duckdb'] as const) test(`object source ${engine}: compare, review and apply a view`, async ({}, testInfo) => {
   test.setTimeout(120000)
@@ -15,11 +15,12 @@ for (const engine of ['sqlite', 'duckdb'] as const) test(`object source ${engine
   async function run(sql: string) {
     const editor = page.locator('.monaco-editor'), input = editor.locator('textarea.inputarea')
     await app.evaluate(({ BrowserWindow }) => { const window = BrowserWindow.getAllWindows()[0]; window.show(); window.focus() })
-    await expect(page.getByRole('button', { name: /^Run SQL/ })).toBeEnabled()
+    await waitForConnectionIdle(page)
     await expect(input).toBeEditable(); await editor.click(); await expect(input).toBeFocused()
     await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A'); await page.keyboard.insertText(sql); await page.keyboard.press('Escape')
     await expect(editor).toContainText(sql)
     await page.getByRole('button', { name: /^Run SQL/ }).click(); await expect(page.locator('.status-text')).toHaveText('Completed')
+    await expect.poll(async () => (await page.evaluate(() => window.dbCommander.history()))[0]?.sql).toBe(sql)
     await expect(page.getByRole('button', { name: 'Refresh schema', exact: true })).toBeEnabled({ timeout: 60000 })
   }
   try {
@@ -53,7 +54,10 @@ for (const engine of ['sqlite', 'duckdb'] as const) test(`object source ${engine
     await apply.click(); await expect(inspector.getByText(/Close this dialog, then Commit or Rollback/)).toBeVisible({ timeout: 60000 })
     await inspector.getByRole('button', { name: 'Discard draft and close editor' }).click()
     await inspector.getByRole('button', { name: 'Close object details' }).click()
+    await expect(inspector).toBeHidden()
+    await waitForConnectionIdle(page)
     await page.getByRole('button', { name: 'Commit', exact: true }).click(); await expect(page.locator('.status-text')).toHaveText('Completed')
+    await expect(page.getByRole('status', { name: 'Transaction status' })).toHaveText('Autocommit')
     await run(`SELECT id FROM "${name}"`)
     await expect(page.locator('.result-grid-container')).toContainText('2')
     if (engine === 'duckdb') {

@@ -1,4 +1,4 @@
-import { waitForWorkspaceReady } from './workspace-ready'
+import { waitForConnectionIdle, waitForWorkspaceReady } from './workspace-ready'
 import { _electron as electron, test, expect, type ElectronApplication, type Page } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
 import { DatabaseSync } from 'node:sqlite'
@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { tableAction } from './explorer-actions'
+import { tableAction, tableNode } from './explorer-actions'
 import { processIsAlive as alive } from '../process-liveness'
 
 const modifier = process.platform === 'darwin' ? 'Meta' : 'Control'
@@ -55,15 +55,92 @@ async function killHost(app: ElectronApplication) {
   })
 }
 
-function descendants(parent: number): number[] {
-  const records: { pid: number; parent: number }[] = process.platform === 'win32'
-    ? JSON.parse(execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'Get-CimInstance Win32_Process -Property ProcessId,ParentProcessId -ErrorAction Stop | Select-Object ProcessId,ParentProcessId | ConvertTo-Json -Compress'], { encoding: 'utf8', timeout: 10_000 })).map((item: { ProcessId: number; ParentProcessId: number }) => ({ pid: item.ProcessId, parent: item.ParentProcessId }))
-    : execFileSync('ps', ['-axo', 'pid=,ppid='], { encoding: 'utf8', timeout: 10_000 }).trim().split('\n').map(line => { const [pid, parent] = line.trim().split(/\s+/).map(Number); return { pid, parent } })
+function buildWindowsProcessSnapshot(directory: string): string {
+  const executable = join(directory, 'windows-process-snapshot.exe')
+  const compiler = join(process.env.SystemRoot!, 'Microsoft.NET/Framework64/v4.0.30319/csc.exe')
+  execFileSync(compiler, ['/nologo', '/target:exe', '/platform:x64', `/out:${executable}`, resolve('tests/desktop/fixtures/windows-process-snapshot.cs')], { windowsHide: true, timeout: 30_000 })
+  return executable
+}
+
+function descendants(parent: number, windowsSnapshot?: string): number[] {
+  const command = windowsSnapshot ?? 'ps'
+  const args = windowsSnapshot ? [] : ['-axo', 'pid=,ppid=']
+  const output = execFileSync(command, args, { encoding: 'utf8', timeout: 10_000, windowsHide: true })
+  const records = output.trim().split(/\r?\n/).map(line => {
+    const [pid, parent] = line.trim().split(/\s+/).map(Number)
+    return { pid, parent }
+  })
+  expect(records.some(item => item.pid === parent)).toBe(true)
   const owned = new Set([parent])
   let previous = 0
   while (owned.size !== previous) { previous = owned.size; for (const item of records) if (owned.has(item.parent)) owned.add(item.pid) }
   return [...owned].filter(pid => pid !== parent)
 }
+
+test('host recovery keeps the reviewed database administration outcome unknown', async ({}, info) => {
+  const directory = mkdtempSync(join(tmpdir(), 'dbcommander-admin-host-loss-'))
+  const file = join(directory, 'review.sqlite')
+  let app: ElectronApplication | undefined
+  let blocker: DatabaseSync | undefined
+  try {
+    const launched = await launch(directory); app = launched.app
+    const { page } = launched
+    await connect(app, page, 'sqlite', file, 'create')
+    await run(page, 'CREATE TABLE reviewed_table(n INTEGER); INSERT INTO reviewed_table VALUES(7);')
+    const history = await page.evaluate(() => window.dbCommander.history())
+    await waitForConnectionIdle(page)
+    await tableNode(page, 'reviewed_table').click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Table maintenance for reviewed_table', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Table maintenance' })
+    await dialog.getByRole('combobox', { name: 'Operation' }).selectOption('analyze-table')
+    await dialog.getByRole('button', { name: 'Review operation' }).click()
+    const confirmation = dialog.getByRole('textbox', { name: 'Administration confirmation' })
+    await expect(confirmation).toHaveAccessibleDescription('Type ANALYZE TABLE "main"."reviewed_table" to confirm')
+    await confirmation.fill('ANALYZE TABLE "main"."reviewed_table"')
+    await dialog.getByRole('checkbox', { name: 'I reviewed the SQL and its effects.' }).check()
+    // Hold the real SQLite writer lock so the dispatched RPC stays in flight
+    // until the actual utility host is killed. The response is never mocked.
+    blocker = new DatabaseSync(file)
+    blocker.exec('BEGIN EXCLUSIVE')
+    await app.evaluate(({ app, ipcMain }) => {
+      const channel = 'sql:applyAdministration'
+      const original = (ipcMain as any)._invokeHandlers.get(channel)
+      ipcMain.removeHandler(channel)
+      ipcMain.handle(channel, async (event, request) => {
+        const hosts = app.getAppMetrics().filter(item => item.name === 'Db Commander database host')
+        if (hosts.length !== 1) throw new Error('Expected one live database host before Apply.')
+        const pending = original(event, request)
+        await Promise.resolve()
+        process.kill(hosts[0].pid, 'SIGKILL')
+        return pending
+      })
+    })
+    await dialog.getByRole('button', { name: 'Apply operation' }).click()
+    await expect(dialog.getByRole('heading', { name: 'Outcome unknown', exact: true })).toBeFocused()
+    await expect(dialog).toContainText('"main"."reviewed_table"')
+    await expect(dialog).toContainText('Reconnect and inspect the reviewed target before deciding whether to retry.')
+    await expect(dialog.getByRole('button', { name: 'Apply operation' })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /^Run SQL/ })).toBeDisabled()
+    expect(await app.evaluate(({ app }) => app.getAppMetrics().filter(item => item.name === 'Db Commander database host').length)).toBe(0)
+    const png = await app.evaluate(async ({ BrowserWindow }) => {
+      const window = BrowserWindow.getAllWindows()[0]
+      return (await window.webContents.capturePage()).resize({ width: window.getContentSize()[0] }).toPNG().toString('base64')
+    })
+    writeFileSync(info.outputPath('sqlite-host-loss-unknown.png'), Buffer.from(png, 'base64'))
+    await page.keyboard.press('Escape')
+    await expect(dialog).toBeHidden()
+    await expect(page.getByRole('button', { name: 'Connect database', exact: true })).toBeFocused()
+    blocker.exec('ROLLBACK'); blocker.close(); blocker = undefined
+    await connect(app, page, 'sqlite', file, 'read-write')
+    expect(await page.evaluate(() => window.dbCommander.history())).toEqual(history)
+    await run(page, 'SELECT n FROM reviewed_table;')
+    await expect(page.getByRole('cell', { name: '7', exact: true })).toBeVisible()
+  } finally {
+    blocker?.close()
+    await close(app)
+    await rm(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 })
+  }
+})
 
 test('host recovery keeps the replacement workspace when the prior window closes late', async ({}, info) => {
   const directory = mkdtempSync(join(tmpdir(), 'dbcommander-late-window-'))
@@ -116,6 +193,7 @@ for (const engine of ['sqlite', 'duckdb'] as const) test(`application crash ${en
   let owned: number[] = []
   let databaseProcessesExited = false
   try {
+    const windowsSnapshot = process.platform === 'win32' ? buildWindowsProcessSnapshot(directory) : undefined
     let launched = await launch(directory); app = launched.app
     const page = launched.page
     await connect(app, page, engine, file, 'create')
@@ -127,7 +205,7 @@ for (const engine of ['sqlite', 'duckdb'] as const) test(`application crash ${en
     // with the long native query; retain the existing ten-second probe budget.
     const processes = await app.evaluate(({ app }) => ({ main: process.pid, hosts: app.getAppMetrics().filter(item => item.name === 'Db Commander database host').map(item => item.pid) }))
     expect(processes.hosts).toHaveLength(1)
-    const capturedAt = Date.now(), workers = descendants(processes.hosts[0]); owned = [...processes.hosts, ...workers]
+    const capturedAt = Date.now(), workers = descendants(processes.hosts[0], windowsSnapshot); owned = [...processes.hosts, ...workers]
     // Windows also owns one kernel-handle guard; it cannot stand in for the
     // separate SQLite execution process required by this assertion.
     if (engine === 'sqlite') expect(workers.length).toBeGreaterThan(process.platform === 'win32' ? 1 : 0)

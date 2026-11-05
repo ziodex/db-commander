@@ -18,14 +18,19 @@ export async function verifySchemaComparison(config: ConnectionConfig) {
   const newSchema=['postgres','sqlserver','azure-sql'].includes(engine)
   const left:CompareScope={sessionId:a.id,schema:nativeSchema,...(engine==='duckdb'?{catalog:a.database}:{})},right:CompareScope={sessionId:b.id,schema:newSchema?prefix:engine==='oracle'?b.user.toUpperCase():['mysql','mariadb'].includes(engine)?b.database:'main',...(engine==='duckdb'?{catalog:b.database}:{})}
   const full=(s:CompareScope,n:string)=>[...(s.catalog?[q(s.catalog)]:[]),q(s.schema),q(n)].join('.')
-  const name=prefix+'_shared',onlySource=prefix+'_source',onlyTarget=prefix+'_target',odd=engine==='oracle'?"added ' ` ]":"added ' \" ` ]"
+  const name=prefix+'_shared',onlySource=prefix+'_source',onlyTarget=prefix+'_target', child=prefix+'_z_child',odd=engine==='oracle'?"added ' ` ]":"added ' \" ` ]"
   const request:CompareSchemaRequest={source:left,target:right,kinds:['table'],filter:prefix}
   const drops:{sessionId:string;sql:string}[]=[]
   async function run(sql:string,id=a.id){const queryId=driver.start({sessionId:id,sql,maxRows:100});await driver.wait(id);const done=events.find(e=>e.type==='complete'&&e.queryId===queryId) as Extract<DatabaseEvent,{type:'complete'}>;expect(done?.status,`${sql}: ${done?.error}`).toBe('completed');return queryId}
   async function create(scope:CompareScope,n:string,extra=false){await run(`CREATE TABLE ${full(scope,n)} (${q('id')} INTEGER${extra?`,${q(odd)} INTEGER`:''})`,scope.sessionId);drops.unshift({sessionId:scope.sessionId,sql:`DROP TABLE ${full(scope,n)}`})}
   try {
     if(newSchema)await run(`CREATE SCHEMA ${q(right.schema)}`,b.id)
-    await create(left,name,true);await create(right,name);await create(left,onlySource);await create(right,onlyTarget)
+    await create(left,name,true);await create(right,name);await create(left,onlySource)
+    await run(`CREATE TABLE ${full(right,onlyTarget)} (id INTEGER PRIMARY KEY)`, b.id)
+    drops.unshift({ sessionId: b.id, sql: `DROP TABLE ${full(right,onlyTarget)}` })
+    const reference = embedded ? q(onlyTarget) : full(right,onlyTarget)
+    await run(`CREATE TABLE ${full(right,child)} (id INTEGER, parent_id INTEGER, FOREIGN KEY(parent_id) REFERENCES ${reference}(id))`, b.id)
+    drops.unshift({ sessionId: b.id, sql: `DROP TABLE ${full(right,child)}` })
     const cached=await run(engine==='oracle'?'SELECT 42 FROM dual':'SELECT 42'),before=events.length
     const pending=driver.compareSchemas(request)
     for(const id of [a.id,b.id])expect(()=>driver.start({sessionId:id,sql:'SELECT 1',maxRows:1})).toThrow(/operation/)
@@ -39,6 +44,24 @@ export async function verifySchemaComparison(config: ConnectionConfig) {
     const defaultSql=comparisonSql(result,result.objects.map(o=>o.key)),dangerous=comparisonSql(result,result.objects.map(o=>o.key),true)
     expect(defaultSql.split('\n').filter(s=>s.startsWith('DROP TABLE'))).toHaveLength(0)
     expect(dangerous).toContain(`\nDROP TABLE ${full(right,onlyTarget)};`)
+    const parentDrop = result.objects.find(object => object.name === onlyTarget)!
+    const childDrop = result.objects.find(object => object.name === child)!
+    expect(parentDrop.requiredDrops).toEqual([{ key: childDrop.key, name: [right.catalog, right.schema, child].filter(Boolean).join('.') }])
+    expect(dangerous.indexOf(`\nDROP TABLE ${full(right,child)};`)).toBeLessThan(dangerous.indexOf(`\nDROP TABLE ${full(right,onlyTarget)};`))
+    const narrow = await driver.compareSchemas({ ...request, filter: onlyTarget })
+    expect(() => driver.prepareMigration({
+      sourceId: narrow.migrationSourceId!, name: 'blocked_drop', selected: [parentDrop.key],
+      includeDestructive: true, transaction: 'caller'
+    })).toThrow(/still references/)
+    const ordered = driver.prepareMigration({
+      sourceId: result.migrationSourceId!, name: 'ordered_drop', selected: [parentDrop.key, childDrop.key],
+      includeDestructive: true, transaction: 'caller'
+    })
+    expect(ordered.sql.match(/^DROP TABLE.+$/gm)).toEqual([
+      `DROP TABLE ${full(right,child)};`, `DROP TABLE ${full(right,onlyTarget)};`
+    ])
+    expect(() => driver.reviewedMigration({ id: ordered.id, reviewed: true, destructiveApproved: false })).toThrow(/Acknowledge destructive/)
+
     await driver.exportCsv(cached,0,join(directory,'cached.csv'));expect(readFileSync(join(directory,'cached.csv'),'utf8')).toContain('42')
     const same=await driver.connect({...sourceConfig,sqliteMode:'read-write',duckdbMode:'read-write',environment:'production'})
     const equal=await driver.compareSchemas({...request,target:{...left,sessionId:same.id}})

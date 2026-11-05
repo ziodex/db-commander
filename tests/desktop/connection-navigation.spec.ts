@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { DEFAULT_PROFILE } from '../../src/shared/contracts'
 import { WorkspaceStore } from '../../src/storage/store'
-import { waitForWorkspaceReady } from './workspace-ready'
+import { waitForConnectionIdle, waitForWorkspaceReady } from './workspace-ready'
 
 async function launch(directory: string) {
   const env: Record<string, string | undefined> = { ...process.env, SQLCOMMANDER_USER_DATA: directory }; delete env.ELECTRON_RUN_AS_NODE
@@ -33,6 +33,7 @@ async function run(page: Page, sql: string, status = 'Completed') {
   await expect(page.getByRole('button', { name: /^Run SQL/ })).toBeEnabled()
 }
 async function closeTab(page: Page, title: string) {
+  await waitForConnectionIdle(page)
   await page.getByRole('button', { name: `Close ${title}`, exact: true }).click()
   await page.getByRole('dialog', { name: 'Close query tab', exact: true }).getByRole('button', { name: 'Close tab', exact: true }).click()
 }
@@ -76,6 +77,7 @@ for (const engine of ['sqlite', 'duckdb'] as const) test(`connection navigation 
     await page.getByRole('button', { name: 'Begin', exact: true }).click(); await expect(page.getByLabel('Transaction status')).toHaveText('In transaction')
     await run(page, 'INSERT INTO shared_data VALUES(11)')
     await page.getByRole('tab', { name: 'Query 2.sql', exact: true }).click(); await expect(page.getByLabel('Transaction status')).toHaveText('In transaction')
+    await waitForConnectionIdle(page)
     await page.getByRole('button', { name: 'Close Query 2.sql', exact: true }).click()
     await expect(page.getByRole('alert', { name: 'Application error' })).toContainText('Commit or roll back')
     await expect(page.getByRole('tab')).toHaveCount(3)

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type MutableRefObject } from 'react'
 import { MAX_TABS, type Workspace, type WorkspaceTab } from '../shared/contracts'
-import { normalizedSql, type SqlFileInfo, type SqlFilesState } from '../shared/sql-files'
+import { normalizedSql, type OpenSqlFileRequest, type SqlFileInfo, type SqlFilesState, type SqlProject } from '../shared/sql-files'
 
 const api = window.dbCommander
 interface Options {
@@ -17,6 +17,8 @@ export function useSqlFiles(options: Options) {
   const [busy, setBusy] = useState(false), busyRef = useRef(false)
   const [error, setError] = useState('')
   const [recentOpen, setRecentOpen] = useState(false)
+  const [projectOpen, setProjectOpen] = useState(false)
+  const [project, setProject] = useState<SqlProject | null>()
   const [hashes, setHashes] = useState<Record<string, { sql: string; hash: string }>>({})
   const hashesRef = useRef(hashes); hashesRef.current = hashes
   const revision = useRef(0), checking = useRef(false)
@@ -66,9 +68,9 @@ export function useSqlFiles(options: Options) {
     finally { revision.current++; busyRef.current = false; setBusy(false) }
   }
   function accept(file: SqlFileInfo) { setState(previous => ({ ...previous, files: [...previous.files.filter(item => item.tabId !== file.tabId), file] })) }
-  async function open(recentId?: string) {
+  async function openFile(sourceRequest: Omit<OpenSqlFileRequest, 'tabId'>) {
     await work(async () => {
-      const source = currentTab()!, opened = await api.openSql({ tabId: crypto.randomUUID(), recentId })
+      const source = currentTab()!, opened = await api.openSql({ tabId: crypto.randomUUID(), ...sourceRequest })
       if (!opened) return
       const { file, sql } = opened, workspace = latest.current.workspaceRef.current
       if (workspace.tabs.some(tab => tab.id === file.tabId)) {
@@ -83,9 +85,21 @@ export function useSqlFiles(options: Options) {
           id: file.tabId, title: file.name, sql, profile: source.profile, profileId: source.profileId
         }] }))
       }
-      accept(file); setRecentOpen(false)
+      accept(file); setRecentOpen(false); setProjectOpen(false)
       await latest.current.persist(); await refresh()
     })
+  }
+  function open(recentId?: string) { return openFile({ recentId }) }
+  function openProjectFile(projectEntryId: string) { return openFile({ projectEntryId }) }
+  function refreshProject() {
+    return work(async () => { setProject(undefined); setProject(await api.listSqlProject()) })
+  }
+  function showProject() { setProjectOpen(true); return refreshProject() }
+  function chooseProject() {
+    return work(async () => { const next = await api.chooseSqlProject(); if (next) setProject(next) })
+  }
+  function closeProject() {
+    return work(async () => { await api.closeSqlProject(); setProject(null) })
   }
   async function save(id = latest.current.workspaceRef.current.activeTabId, saveAs = false): Promise<boolean> {
     return Boolean(await work(async () => {
@@ -135,5 +149,6 @@ export function useSqlFiles(options: Options) {
     else if (command === 'reload') void actions.current.reload()
     else void actions.current.save(undefined, command === 'save-as')
   }), [])
-  return { files, error, recent: state.recent, notice: state.notice, busy: busy || !initialized, dirty, open, save, reload, forget, clearRecent, recentOpen, setRecentOpen }
+  return { files, error, recent: state.recent, notice: state.notice, busy: busy || !initialized, dirty, open, save, reload, forget, clearRecent, recentOpen, setRecentOpen,
+    project, projectOpen, setProjectOpen, showProject, refreshProject, chooseProject, closeProject, openProjectFile }
 }

@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 import { act, cleanup, renderHook } from '@testing-library/react'
-import { useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { DEFAULT_PROFILE, type DatabaseEvent, type DesktopApi, type GridSnapshot, type SessionInfo, type Workspace, type WorkspaceTab } from '../../src/shared/contracts'
 import { DEFAULT_EDITOR_SETTINGS } from '../../src/shared/editor-settings'
-import { emptyTabState } from '../../src/renderer/query-tabs'
+import { canCloseTab, emptyTabState, tabOperationBusy } from '../../src/renderer/query-tabs'
 import { useQueryExecution } from '../../src/renderer/use-query-execution'
 import { useTabRuntime } from '../../src/renderer/use-tab-runtime'
 import { useTableData } from '../../src/renderer/use-table-data'
@@ -25,7 +25,7 @@ function deferred<T>() {
   return { promise, resolve, reject }
 }
 
-function setup() {
+function setup(catalogOnNewTab = false) {
   const listeners = new Set<(event: DatabaseEvent) => void>()
   const api = {
     history: vi.fn().mockResolvedValue([]),
@@ -36,6 +36,7 @@ function setup() {
     disconnect: vi.fn().mockResolvedValue(undefined),
     editGrid: vi.fn().mockResolvedValue({ session }),
     databases: vi.fn().mockResolvedValue({ current: ':memory:', databases: [] }),
+    catalogPage: vi.fn(),
     schema: vi.fn().mockResolvedValue({ objects: [], database: ':memory:', source: 'session', fetchedAt: '', truncated: false }),
     exportCsv: vi.fn().mockResolvedValue('preview.csv'),
     saveProfilePassword: vi.fn().mockResolvedValue(undefined),
@@ -62,7 +63,10 @@ function setup() {
     const tabs = useWorkspaceTabs({ api: desktopApi, runtime, ready: true, sqlFiles, sessions, editorSettings: DEFAULT_EDITOR_SETTINGS })
     const query = useQueryExecution({ api: desktopApi, runtime, tab: active, editorRef, sessions })
     const tables = useTableData({ api: desktopApi, runtime, workspace, tab: active, ready: true, readyRef, editors,
-      sqlFiles, closeId: tabs.closeId, newTab: tabs.newTab, changeLayout: () => {}, focusEditor: () => {} })
+      sqlFiles, closeId: tabs.closeId, newTab: tabs.newTab, sessions, changeLayout: () => {}, focusEditor: () => {} })
+    useLayoutEffect(() => {
+      if (catalogOnNewTab && !['a', 'b'].includes(active.id)) void sessions.readCatalog({ sessionId: session.id, search: '', rootsOnly: true }).catch(() => {})
+    }, [active.id])
     return { runtime, workspace, sessions, tabs, query, tables }
   })
   const emit = (event: DatabaseEvent) => { for (const listener of listeners) listener(event) }
@@ -286,4 +290,56 @@ it('disconnects a superseded database-switch connection without attaching it or 
   expect(hook.api.disconnect).toHaveBeenCalledExactlyOnceWith('late-switch')
   expect(hook.result.current.runtime.statesRef.current.a.session?.id).toBe('replacement')
   expect(hook.api.run).not.toHaveBeenCalled()
+})
+
+
+it('reserves catalog reads across shared tabs and rejects responses after host replacement', async () => {
+  const hook = setup(), pending = deferred<import('../../src/shared/catalog').CatalogPage>()
+  hook.api.catalogPage.mockReturnValue(pending.promise)
+  act(() => {
+    hook.result.current.runtime.patchState('a', { ...emptyTabState(), session })
+    hook.result.current.runtime.patchState('b', { ...emptyTabState(), session })
+  })
+  let reading!: ReturnType<typeof hook.result.current.sessions.readCatalog>
+  act(() => { reading = hook.result.current.sessions.readCatalog({ sessionId: session.id, search: 'items', rootsOnly: false }) })
+  expect(hook.result.current.runtime.statesRef.current.a.catalogLoading).toBe(true)
+  expect(hook.result.current.runtime.statesRef.current.b.sharedSessionBusy).toBe(true)
+  expect(tabOperationBusy(hook.result.current.runtime.statesRef.current.b)).toBe(true)
+  expect(canCloseTab(hook.result.current.runtime.statesRef.current.a)).toBeTruthy()
+  await act(async () => { await hook.result.current.query.run('SELECT 99') })
+  expect(hook.api.run).not.toHaveBeenCalled()
+  act(() => { hook.result.current.runtime.patchState('a', { ...emptyTabState(), session: { ...session, id: 'replacement' } }) })
+  await act(async () => {
+    pending.resolve({ objects: [], notice: '', source: 'session', fetchedAt: 'old' })
+    await expect(reading).rejects.toThrow('previous connection')
+  })
+  expect(hook.result.current.runtime.statesRef.current.a.session?.id).toBe('replacement')
+  expect(hook.result.current.runtime.statesRef.current.a.catalogLoading).toBe(false)
+})
+
+
+it.each([false, true])('settles the new-tab catalog read before explicit Browse; replaced session=%s', async replaced => {
+  const hook = setup(true), pending = deferred<import('../../src/shared/catalog').CatalogPage>()
+  hook.api.catalogPage.mockReturnValue(pending.promise)
+  hook.api.editGrid.mockResolvedValue({ session, grid: { ...grid, mode: 'browse', statement: 'SELECT * FROM items' } } as never)
+  act(() => hook.result.current.runtime.patchState('a', { ...emptyTabState(), session }))
+  let browsing!: Promise<void>
+  act(() => { browsing = hook.result.current.tables.browseTable(grid.table) })
+  await act(async () => {})
+  const id = hook.result.current.workspace.activeTabId
+  expect(id).not.toBe('a')
+  expect(hook.api.catalogPage).toHaveBeenCalledTimes(1)
+  expect(hook.result.current.runtime.statesRef.current[id].catalogLoading).toBe(true)
+  expect(hook.api.editGrid).not.toHaveBeenCalled()
+  if (replaced) act(() => hook.result.current.runtime.patchState(id, { ...emptyTabState(), session: { ...session, id: 'replacement' } }))
+  await act(async () => {
+    pending.resolve({ objects: [], notice: '', source: 'session', fetchedAt: 'now' })
+    await browsing
+  })
+  if (replaced) expect(hook.api.editGrid).not.toHaveBeenCalled()
+  else {
+    expect(hook.api.editGrid).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ action: 'browse', sessionId: session.id, viewId: id, table: grid.table }))
+    expect(hook.result.current.runtime.statesRef.current[id].status).toBe('Table loaded')
+    expect(hook.result.current.workspace.tabs.find(tab => tab.id === id)?.sql).toBe('SELECT * FROM items;')
+  }
 })

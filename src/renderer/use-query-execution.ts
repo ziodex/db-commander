@@ -4,7 +4,7 @@ import { changesSchema } from '../language/completion'
 import { currentExecution } from '../language/execution'
 import { engineNames, type DatabaseEvent, type DesktopApi, type HistoryEntry, type WorkspaceTab } from '../shared/contracts'
 import type { ExecutionSource } from '../shared/execution'
-import type { ExplainRequest } from '../shared/explain'
+import type { ExplainRequest, ExplainResult } from '../shared/explain'
 import { parameterNames, type QueryParameter } from '../shared/parameters'
 import { applyDatabaseEvent, emptyTabState, tabOperationBusy } from './query-tabs'
 import { sessionOwners } from './shared-sessions'
@@ -26,6 +26,23 @@ export function useQueryExecution({ api, runtime, tab, editorRef, sessions }: Op
   const activeSessionId = session?.id
   const setStatus = (status: string) => patchState(tabId, { status })
   const [explainText, setExplainText] = useState<string | null>(null)
+  const [baseline, setBaseline] = useState<{ owner: string; result: ExplainResult }>()
+  const baselineSession = baseline && statesRef.current[baseline.owner]?.session
+  const baselineAvailable = baselineSession && baselineSession.id === baseline.result.session.id &&
+    baselineSession.database === baseline.result.session.database &&
+    (!baselineSession.safety?.protected || baselineSession.safety.unlockedUntil > Date.now())
+  const planBaseline = baselineAvailable && baselineSession?.id === activeSessionId && baselineSession.database === session?.database ? baseline?.result : undefined
+  useEffect(() => { if (!baselineAvailable) setBaseline(undefined) }, [baselineAvailable])
+
+  function pinPlan(result?: ExplainResult) {
+    if (!result) { setBaseline(undefined); return }
+    const current = statesRef.current[tabId]?.session
+    if (result.status !== 'completed' || !current || current.id !== result.session.id || current.database !== result.session.database ||
+        current.safety?.protected && current.safety.unlockedUntil <= Date.now()) {
+      throw new Error('Capture a new plan on the current unlocked connection before pinning it.')
+    }
+    setBaseline({ owner: tabId, result })
+  }
 
   const [parameterRun,setParameterRun]=useState<{tabId:string;sessionId:string;sql:string;names:string[];source?:ExecutionSource}>()
 
@@ -124,5 +141,5 @@ export function useQueryExecution({ api, runtime, tab, editorRef, sessions }: Op
   }, [api])
 
   return { history, setHistory, explainText, setExplainText, parameterRun, setParameterRun,
-    openExplain, explainQuery, run, runCurrent, runScript, exportCsv }
+    openExplain, explainQuery, planBaseline, pinPlan, run, runCurrent, runScript, exportCsv }
 }

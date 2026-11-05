@@ -1,10 +1,16 @@
 import { failureSource } from '../language/execution'
 import type { ActivityObserver } from '../activity/control'
 import { readActivity } from '../activity/read'
+import { planPostgresPrincipalChange } from '../principals/postgres-changes'
+import type { PrincipalPlan } from '../principals/reviews'
+import type { PreparePrincipalChange, PrincipalChangeResult } from '../shared/principal-changes'
+import { readPostgresPrincipals } from '../principals/postgres'
+import type { PrincipalRequest } from '../shared/principals'
+import type { CatalogQuery } from '../catalog/common'
 import type { DiagramScope } from '../shared/diagram'
 import { readDiagram } from '../catalog/diagram'
 import { bindRequest, boundValue } from './parameters'
-import { inspect } from '../catalog/common'
+import { readCatalog, inspect } from '../catalog/common'
 import { postgresCatalog } from '../catalog/postgres'
 import type { CatalogObject } from '../shared/catalog'
 import type { DriverRunRequest } from './driver'
@@ -22,6 +28,9 @@ import { isIP } from 'node:net'
 import Cursor from 'pg-cursor'
 import type { Cell, ConnectionConfig, DatabaseEvent, ResultSet, SchemaTable, SessionInfo, TransactionState } from '../shared/contracts'
 import { firstKeyword, splitPostgresScript } from '../shared/sql/common'
+import { planPostgresAdministration } from '../administration/postgres'
+import type { AdministrationPlan } from '../administration/reviews'
+import type { AdministrationChange, AdministrationResult } from '../shared/database-administration'
 
 interface Operation { id: string; cancelled: boolean; cancelPromise?: Promise<boolean>; done?: Promise<void> }
 interface Session { editor?: TableEditor; client: pg.Client; config: ConnectionConfig; info: SessionInfo; pid: number; busy?: Operation; lost: boolean; metadata?: Promise<SchemaTable[]> }
@@ -203,6 +212,53 @@ export class PostgresDriver implements DatabaseDriver {
       return { databases: result.rows.map(row => row.datname as string), current: session.info.database, switchable: true }
     } finally { await client.end().catch(() => {}) }
   }
+  private async withAdministration<T>(id: string, apply: boolean, work: (client: pg.Client, query: CatalogQuery) => Promise<T>) {
+    const session = this.session(id)
+    const client = new pg.Client({ ...this.config(session.config), database: session.info.database })
+    client.on('error', () => {})
+    const timer = setTimeout(() => { void client.end().catch(() => {}) }, apply ? 80_000 : 18_000)
+    try {
+      await client.connect()
+      await client.query("SET statement_timeout = 5000; SET lock_timeout = 5000; SET search_path = pg_catalog; SET standard_conforming_strings = on")
+      const query: CatalogQuery = async (text, values = []) => (await client.query({ text, values, rowMode: 'array' })).rows
+        .map(row => row.map((cell: unknown) => cell == null ? null : String(cell)))
+      return await work(client, query)
+    } finally { clearTimeout(timer); await client.end().catch(() => {}) }
+  }
+  prepareAdministration(id: string, change: AdministrationChange): Promise<AdministrationPlan> {
+    return this.withAdministration(id, false, async (_client, query) => {
+      const { database, observer, scope, target, sql, notes, fingerprint } = await planPostgresAdministration(query, change)
+      return { database, observer, scope, target, sql, notes, fingerprint }
+    })
+  }
+  applyAdministration(id: string, change: AdministrationChange, reviewed: AdministrationPlan, beforeDispatch: () => void): Promise<AdministrationResult> {
+    return this.withAdministration(id, true, async (client, query) => {
+      const fresh = await planPostgresAdministration(query, change)
+      if (fresh.fingerprint !== reviewed.fingerprint || fresh.sql !== reviewed.sql) {
+        throw new Error('The reviewed database or table changed. Refresh the catalog and prepare a new review.')
+      }
+      await client.query('SET statement_timeout = 60000')
+      beforeDispatch()
+      const unknown: AdministrationResult = {
+        status: 'unknown', message: 'PostgreSQL did not confirm the reviewed effect. Inspect the current catalog and server activity before preparing another change.'
+      }
+      let warning = false
+      client.on('notice', () => { warning = true })
+      try { await client.query(reviewed.sql) }
+      catch (error) {
+        const code = (error as { code?: string }).code
+        if (code && ['42501', '55006', '42P04', '3D000', '42P01'].includes(code) && change.action !== 'vacuum-table') {
+          return { status: 'rejected', message: `PostgreSQL rejected the statement (${code}). Check current permissions, names and active connections.` }
+        }
+        return unknown
+      }
+      try {
+        await client.query('SET statement_timeout = 5000')
+        if (warning || !await fresh.verify()) return unknown
+      } catch { return unknown }
+      return { status: 'applied', message: 'PostgreSQL acknowledged the statement and the reviewed catalog target was verified.' }
+    })
+  }
   activity(id:string, includeSql:boolean) { return this.withActivity(id,o=>readActivity(o.engine,o.database,o.currentSessionId,o.query,includeSql)) }
   activityId(id:string) { const session=this.session(id); return String(session.pid) }
   invalidateActivity(id:string) { const session=this.sessions.get(id);if(!session||session.lost)return;session.lost=true;session.info.transaction='unknown';void this.emit({type:'session-lost',sessionId:id,message:'Session termination was requested. The connection is no longer usable; verify rollback and reconnect explicitly.'}) }
@@ -214,14 +270,86 @@ export class PostgresDriver implements DatabaseDriver {
       return await read({engine:'postgres',database,currentSessionId:String(session.pid),query:async sql=>(await client.query({text:sql,rowMode:'array',types:rawTypes})).rows})
     } finally { await client.end().catch(()=>{}) }
   }
-  async explore(id: string, object?: CatalogObject, diagram?: DiagramScope) {
+  private async withPrincipalCatalog<T>(
+    id: string, read: (client: pg.Client, query: CatalogQuery) => Promise<T>
+  ): Promise<T> {
+    const session = this.session(id)
+    const client = new pg.Client({
+      ...this.config(session.config), database: session.info.database, statement_timeout: 5000, query_timeout: 8000
+    })
+    client.on('error', () => {})
+    try {
+      await client.connect()
+      const query: CatalogQuery = async (text, values = []) =>
+        (await client.query({ text, values, rowMode: 'array' })).rows.map(row =>
+          row.map((cell: unknown) => cell == null ? null : String(cell)))
+      return await read(client, query)
+    } finally { await client.end().catch(() => {}) }
+  }
+  inspectPrincipals(request: PrincipalRequest) {
+    return this.withPrincipalCatalog(request.sessionId, async (client, query) => {
+      await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY')
+      await client.query('SET LOCAL search_path = pg_catalog')
+      return readPostgresPrincipals(query, request)
+    })
+  }
+  preparePrincipalChange(request: PreparePrincipalChange): Promise<PrincipalPlan> {
+    const { change } = request
+    if ('engine' in change) throw new Error('Select a PostgreSQL principal change.')
+    return this.withPrincipalCatalog(request.sessionId, async (client, query) => {
+      await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY')
+      await client.query('SET LOCAL search_path = pg_catalog')
+      const { database, observer, sql, notes, fingerprint } = await planPostgresPrincipalChange(query, change)
+      return { database, observer, sql, notes, fingerprint }
+    })
+  }
+  applyPrincipalChange(
+    request: PreparePrincipalChange, retained: PrincipalPlan, beforeDispatch: () => void, beforeCommit: () => void
+  ): Promise<PrincipalChangeResult> {
+    const { change } = request
+    if ('engine' in change) throw new Error('Select a PostgreSQL principal change.')
+    return this.withPrincipalCatalog(request.sessionId, async (client, query) => {
+      await client.query('BEGIN ISOLATION LEVEL READ COMMITTED')
+      await client.query('SET LOCAL search_path = pg_catalog')
+      if (change.action === 'drop') {
+        // DROP ROLE removes memberships automatically. Keep the name and
+        // membership dependency check stable through the native statement.
+        await client.query('LOCK TABLE pg_authid, pg_auth_members IN SHARE ROW EXCLUSIVE MODE')
+      }
+      const fresh = await planPostgresPrincipalChange(query, change)
+      if (fresh.fingerprint !== retained.fingerprint || fresh.sql !== retained.sql) {
+        throw new Error('The reviewed principal or grant changed. Refresh its details and prepare a new review.')
+      }
+      beforeDispatch()
+      let committing = false
+      try {
+        await client.query(retained.sql)
+        await fresh.verify()
+        beforeCommit()
+        committing = true
+        const result = await client.query('COMMIT')
+        if (result.command !== 'COMMIT') return { status: 'rolled-back', message: 'PostgreSQL rolled back the principal change.' }
+        return { status: 'applied', message: 'PostgreSQL committed the reviewed principal change.' }
+      } catch (error) {
+        if (!committing) {
+          try {
+            await client.query('ROLLBACK')
+            const reason = error instanceof Error ? error.message : 'The database rejected the change.'
+            return { status: 'rolled-back', message: `PostgreSQL rolled back the principal change. ${reason}` }
+          } catch { /* A lost connection cannot confirm rollback. */ }
+        }
+        return { status: 'unknown', message: 'PostgreSQL did not confirm the outcome. Refresh the catalog and verify the state before preparing any further change.' }
+      }
+    })
+  }
+  async explore(id: string, object?: CatalogObject, diagram?: DiagramScope, page?: import('../catalog/paging').CatalogRead) {
     const session = this.session(id), client = new pg.Client(this.config(session.config))
     client.on('error', () => {})
     try {
       await client.connect(); await client.query('SET statement_timeout = 10000'); await client.query("SET search_path = pg_catalog")
       const query: import('../catalog/common').CatalogQuery = async (text, values = []) => (await client.query({ text, values, rowMode: 'array' })).rows.map(row => row.map((cell: unknown) => cell == null ? null : String(cell)))
       const adapter=postgresCatalog(query)
-      return diagram ? { diagram: await readDiagram(adapter,query,'postgres',diagram,'catalog-connection') } : await inspect(adapter,object)
+      return diagram ? { diagram: await readDiagram(adapter,query,'postgres',diagram,'catalog-connection') } : page ? await readCatalog(adapter, query, 'postgres', page, 'catalog-connection') : await inspect(adapter,object)
     } finally { await client.end().catch(() => {}) }
   }
   async schema(id: string) {

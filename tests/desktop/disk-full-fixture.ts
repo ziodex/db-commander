@@ -23,9 +23,12 @@ export function verifyDiskImageDetached(image: string, mount: string, execute = 
 }
 
 export function detachDiskImage(mount: string, execute = execFileSync, pause = (ms: number) => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms) }, verifyDetached?: (deadline: number) => boolean, now = Date.now) {
-  const deadline = now() + 30000
+  const budget = 30000, deadline = now() + budget
+  let remaining = budget
   for (;;) {
-    try { execute('hdiutil', ['detach', mount], { stdio: 'pipe', timeout: 5000 }); return }
+    // Let the eject client wait for a slow native flush. Killing it after five
+    // seconds can leave the image attached for the rest of the same deadline.
+    try { execute('hdiutil', ['detach', mount], { stdio: 'pipe', timeout: Math.min(15000, remaining) }); return }
     catch (error) {
       // An earlier native detach can already have removed the mount. Accept
       // that result only after hdiutil confirms both this image and mount are
@@ -46,8 +49,11 @@ export function detachDiskImage(mount: string, execute = execFileSync, pause = (
       // Native filesystem handles can outlast app exit on hosted macOS. Allow
       // bounded teardown time for this owned volume, without forced eject or
       // relaxing any application recovery/performance assertion.
-      if (now() >= deadline || !/Resource busy/i.test(String((error as { stderr?: unknown }).stderr))) throw error
-      pause(500)
+      remaining = deadline - now()
+      if (remaining <= 0 || !/Resource busy/i.test(String((error as { stderr?: unknown }).stderr))) throw error
+      pause(Math.min(500, remaining))
+      remaining = deadline - now()
+      if (remaining <= 0) throw error
     }
   }
 }

@@ -1,8 +1,13 @@
-import { DatabaseHostClient } from './database-host-client'
+import { entraAttemptSchema, type EntraAttempt } from '../shared/entra'
+import { EntraGrants } from './entra'
+import { applyPrincipalChangeSchema, preparePrincipalChangeSchema } from '../shared/principal-changes'
+import { DatabaseHostClient, DatabaseHostExitedError } from './database-host-client'
 import { SqlFiles } from '../files/sql-files'
 import { openSqlFileSchema, saveSqlFileSchema, reloadSqlFileSchema, finishSqlFileReloadSchema, type SaveSqlFileRequest } from '../shared/sql-files'
 import { rollbackRequestSchema } from '../shared/rollback'
+import { applyScheduleChangeSchema, prepareScheduleChangeSchema } from '../shared/scheduler'
 import { prepareActivityActionSchema, applyActivityActionSchema } from '../shared/activity-control'
+import { principalRequestSchema } from '../shared/principals'
 import { activityRequestSchema, activitySnapshotSchema } from '../shared/activity'
 import { dataCompareSchema } from '../shared/data-compare'
 import { prepareBuilderSchema } from '../shared/query-builder'
@@ -18,9 +23,10 @@ import { compareSchemaSchema } from '../shared/schema-compare'
 import { diagramRequestSchema, diagramExportSchema, diagramSvg } from '../shared/diagram'
 import { historySearchSchema, historySettingsSchema, snippetSchema, snippetSearchSchema } from '../shared/query-library'
 import { explainRequestSchema, PLAN_LIMIT } from '../shared/explain'
-import { inspectObjectSchema } from '../shared/catalog'
+import { catalogPageSchema, inspectObjectSchema } from '../shared/catalog'
 import { sshSecretsSchema } from '../shared/connection-options'
 import { prepareSchemaChangeSchema, applySchemaChangeSchema } from '../shared/schema-changes'
+import { prepareAdministrationSchema, applyAdministrationSchema } from '../shared/database-administration'
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, MenuItem, net, powerMonitor, shell, utilityProcess, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron'
 import { UpdateChecker } from './update-checker'
 import { DesktopSettings } from './desktop-settings'
@@ -44,6 +50,7 @@ import { passwordEligible } from '../shared/credentials'
 import { layoutCommands, layoutCommandForInput } from '../shared/layout-commands'
 import { backupCapabilities, backupRequestSchema, type BackupJob } from '../shared/backup'
 import { BackupJournal } from '../backup/journal'
+import { OperationHistory } from './operation-history'
 import { BackupHistory } from '../backup/history'
 import { dataFileSchema, importSourceSchema, transferRequestSchema, type TransferJob } from '../shared/transfer'
 import { transferMappingSchema } from '../shared/transfer-mappings'
@@ -115,7 +122,7 @@ async function saveSqlFile(request: SaveSqlFileRequest, track = true): Promise<i
   const doc = sqlFiles.document(request.tabId)
   let target: string | undefined
   if (request.saveAs || !doc) {
-    const chosen = await dialog.showSaveDialog(window!, { title: 'Save SQL file as', defaultPath: doc?.path ?? 'query.sql', filters: [{ name: 'SQL', extensions: ['sql'] }] })
+    const chosen = await dialog.showSaveDialog(window!, { title: 'Save SQL file as', defaultPath: doc?.path ?? (track && sqlFiles.projectPath ? join(sqlFiles.projectPath, 'query.sql') : 'query.sql'), filters: [{ name: 'SQL', extensions: ['sql'] }] })
     if (chosen.canceled || !chosen.filePath) return null
     target = chosen.filePath
   }
@@ -135,16 +142,31 @@ function credentialOperation<T>(action: () => Promise<T>): Promise<T> {
   return pending
 }
 const sessionCredentials = new Map<string, ConnectionConfig>()
+const entra = new EntraGrants(url => shell.openExternal(url), undefined,
+  progress => { if (window && !window.isDestroyed()) window.webContents.send('sql:entra-sign-in', progress) })
+const entraSessions = new Map<string, string>()
+function forgetSessionCredentials(id: string) {
+  sessionCredentials.delete(id)
+  entra.release(entraSessions.get(id))
+  entraSessions.delete(id)
+}
 async function savedProfile(id: string): Promise<{ workspace: Workspace; profile: SavedConnectionProfile }> {
   const workspace: Workspace | null = await rpc('loadWorkspace')
   const profile = workspace?.profiles.find(profile => profile.id === id)
   if (!workspace || !profile) throw new Error('Saved profile no longer exists.')
   return { workspace, profile }
 }
-async function openSession(config: ConnectionConfig): Promise<SessionInfo> {
+async function openSession(config: ConnectionConfig, sourceGrant?: string, attempt?: EntraAttempt): Promise<SessionInfo> {
   let session: SessionInfo
-  try { session = await rpc('connect', config) }
-  catch (error) {
+  let grantId: string | undefined
+  try {
+    if (config.authentication === 'entra-interactive') {
+      if (sourceGrant) { entra.retain(sourceGrant); grantId = sourceGrant }
+      else grantId = await entra.open(config.entra!, config.user, attempt)
+    }
+    session = grantId ? await rpc('connectEntra', { config, grantId }) : await rpc('connect', config)
+  } catch (error) {
+    entra.release(grantId)
     let message = error instanceof Error ? error.message : 'Connection failed.'
     for (const secret of [config.password, config.accessToken, config.sshSecrets?.password, config.sshSecrets?.passphrase]) if (secret) message = message.split(secret).join('[redacted]')
     throw new Error(message)
@@ -155,6 +177,7 @@ async function openSession(config: ConnectionConfig): Promise<SessionInfo> {
   // Follow actual context for cloning, including SQL-driven USE changes.
   retained.database = ['sqlite', 'duckdb'].includes(config.engine) ? config.database : session.database
   sessionCredentials.set(session.id, retained)
+  if (grantId) entraSessions.set(session.id, grantId)
   sessions.set(session.id, session); recoveryNotice = undefined
   return session
 }
@@ -165,11 +188,17 @@ let recoveryNotice: string | undefined
 let checkingClose = false
 const saveRequests = new Map<string, (saved: boolean) => void>()
 const sessions = new Map<string, SessionInfo>()
-const backupJobs = new BackupHistory(new BackupJournal(join(directory, 'backup-jobs.json')), job => window?.webContents.send('sql:backup-job', job))
+const notifyOperations = () => window?.webContents.send('sql:operation-history-changed')
+const operations = new OperationHistory(notifyOperations)
+const backupJobs = new BackupHistory(new BackupJournal(join(directory, 'backup-jobs.json')), job => {
+  window?.webContents.send('sql:backup-job', job)
+  notifyOperations()
+})
 function publishBackup(job: BackupJob) { backupJobs.publish(job) }
 const running = new Map<string, string>()
 const transferJobs = new Map<string, TransferJob>()
 function publishTransfer(job: TransferJob) {
+  operations.transfer(job, sessions.get(job.sessionId)?.engine)
   transferJobs.set(job.id, job)
   for (const [id, previous] of transferJobs) if (transferJobs.size > 40 && previous.status !== 'running') transferJobs.delete(id)
   if (job.reviewOnly) { window?.webContents.send('sql:transfer-job', job); return }
@@ -196,6 +225,7 @@ const host = new DatabaseHostClient(
     return utilityProcess.fork(join(__dirname, 'database-host.cjs'), [directory, String(process.pid), String(created === null ? 0 : Math.floor(created))], { serviceName: 'Db Commander database host' })
   },
   {
+    entraToken: id => entra.token(id),
     event(event, token) {
       if (event.type === 'complete' && running.get(event.sessionId) === event.queryId) {
         running.delete(event.sessionId)
@@ -209,14 +239,17 @@ const host = new DatabaseHostClient(
           }
         }
       }
-      if (event.type === 'session-lost') { running.delete(event.sessionId); sessions.delete(event.sessionId); sessionCredentials.delete(event.sessionId) }
+      if (event.type === 'session-lost') { running.delete(event.sessionId); sessions.delete(event.sessionId); forgetSessionCredentials(event.sessionId) }
       window?.webContents.send('sql:event', event, token)
     },
+    operation: entry => operations.update(entry),
     backup: publishBackup,
     transfer: publishTransfer,
     exited(startupFailure) {
       for (const job of transferJobs.values()) if (job.status === 'running') publishTransfer({ ...job, status: 'unknown', phase: 'Database host stopped. Reconnect and inspect transaction state and the destination before retrying. Nothing was replayed.' })
       for (const job of backupJobs.values()) if (job.status === 'running') publishBackup({ ...job, status: 'unknown', finishedAt: new Date().toISOString(), phase: 'Database host stopped. The backup or restore outcome is unknown. Inspect the artifact and target before retrying.' })
+      operations.interrupt()
+      entra.clear(); entraSessions.clear()
       sessions.clear(); sessionCredentials.clear(); running.clear()
       if (!closing) window?.webContents.send('sql:event', { type: 'host-lost', message: startupFailure ?? 'Database host stopped. The editor is preserved; reconnect explicitly. In-flight outcomes may be unknown.' })
     }
@@ -267,21 +300,54 @@ function registerIpc(): void {
     await writeGeneratedFile(result.filePath, request.text, { replace: true }); return result.filePath
   })
   handle('saveValue', async value => {
-    const request=z.object({text:z.string().max(1_000_000),format:z.enum(['json','xml','text'])}).strict().parse(value)
-    const extension=request.format==='text'?'txt':request.format
-    const result=await dialog.showSaveDialog(window!,{title:'Save displayed value',defaultPath:`value.${extension}`,filters:[{name:'Displayed value',extensions:[extension]}]})
-    if(result.canceled||!result.filePath)return null
-    await writeGeneratedFile(result.filePath,request.text,{replace:true});return result.filePath
+    const request=z.object({text:z.string().max(1_000_000),format:z.enum(['json','xml','text','synchronization-plan'])}).strict().parse(value)
+    const plan = request.format === 'synchronization-plan'
+    const extension = plan ? 'json' : request.format === 'text' ? 'txt' : request.format
+    const name = plan ? 'Synchronization plan' : 'Displayed value'
+    if (plan && Buffer.byteLength(request.text, 'utf8') > 1_000_000) throw new Error('The synchronization plan exceeds 1 MB. Select fewer rows.')
+    const result = await dialog.showSaveDialog(window!, {
+      title: `Save ${name.toLowerCase()}`,
+      defaultPath: plan ? 'dbcommander-synchronization-plan.json' : `value.${extension}`,
+      filters: [{ name, extensions: [extension] }]
+    })
+    if (result.canceled || !result.filePath) return null
+    if (plan && !result.filePath.toLowerCase().endsWith('.json')) throw new Error('Choose a new filename ending in .json.')
+    await writeGeneratedFile(result.filePath, request.text, { replace: !plan })
+    return result.filePath
   })
   handle('sessionSafety', async value => rpc('sessionSafety', idSchema.parse(value)))
   handle('lockSession', async value => rpc('lockSession', idSchema.parse(value)))
   handle('unlockSession', async value => rpc('unlockSession', z.object({ sessionId: idSchema, confirmation: z.string().max(100) }).strict().parse(value)))
   handle('chooseSshKey', async () => { const result = await dialog.showOpenDialog(window!, { title: 'Choose SSH private key', properties: ['openFile'] }); return result.canceled ? null : result.filePaths[0] ?? null })
   handle('prepareSchemaChange', async value => rpc('prepareSchemaChange', prepareSchemaChangeSchema.parse(value)))
+  handle('prepareAdministration', async value => rpc('prepareAdministration', prepareAdministrationSchema.parse(value)))
+  handle('applyAdministration', async value => {
+    const request = applyAdministrationSchema.parse(value)
+    if (running.has(request.sessionId)) throw new Error('This tab already has a running operation.')
+    running.set(request.sessionId, `administration:${request.reviewId}`)
+    try { return await rpc('applyAdministration', request) }
+    catch (error) {
+      if (!(error instanceof DatabaseHostExitedError)) throw error
+      return { status: 'unknown', message: 'The database host stopped before confirming this operation. Reconnect and inspect the reviewed target before deciding whether to retry.' } as const
+    }
+    finally { running.delete(request.sessionId) }
+  })
   handle('prepareActivityAction', async value => rpc('prepareActivityAction',prepareActivityActionSchema.parse(value)))
   handle('applyActivityAction', async value => rpc('applyActivityAction',applyActivityActionSchema.parse(value)))
   handle('inspectRollback', async value => rpc('inspectRollback',rollbackRequestSchema.parse(value)))
+  handle('preparePrincipalChange', async value => rpc('preparePrincipalChange', preparePrincipalChangeSchema.parse(value)))
+  handle('applyPrincipalChange', async value => rpc('applyPrincipalChange', applyPrincipalChangeSchema.parse(value)))
+  handle('inspectPrincipals', async value => rpc('inspectPrincipals', principalRequestSchema.parse(value)))
   handle('inspectActivity', async value => rpc('inspectActivity',activityRequestSchema.parse(value)))
+  handle('inspectPerformance', async value => rpc('inspectPerformance', idSchema.parse(value)))
+  handle('inspectScheduler', async value => rpc('inspectScheduler', idSchema.parse(value)))
+  handle('prepareScheduleChange', async value => rpc('prepareScheduleChange', prepareScheduleChangeSchema.parse(value)))
+  handle('applyScheduleChange', async value => {
+    const request = applyScheduleChangeSchema.parse(value), id = request.sessionId
+    if (running.has(id)) throw new Error('This tab already has a running operation.')
+    running.set(id, `scheduler:${request.reviewId}`)
+    try { return await rpc('applyScheduleChange', request) } finally { running.delete(id) }
+  })
   handle('saveActivity', async value => {
     const snapshot=activitySnapshotSchema.parse(value)
     const result=await dialog.showSaveDialog(window!,{title:'Save session and lock report',defaultPath:'dbcommander-activity.json',filters:[{name:'JSON report',extensions:['json']}]})
@@ -321,6 +387,7 @@ function registerIpc(): void {
     if(result.canceled||!result.filePath)return null
     await writeGeneratedFile(result.filePath,svg,{replace:true});return result.filePath
   })
+  handle('catalogPage', async value => rpc('catalogPage', catalogPageSchema.parse(value)))
   handle('inspectObject', async value => rpc('inspectObject', inspectObjectSchema.parse(value)))
   handle('inspectImport', async value => {
     const request = importSourceSchema.parse(value)
@@ -353,6 +420,7 @@ function registerIpc(): void {
   })
   handle('startBackup', async value => rpc('startBackup', backupRequestSchema.parse(value)))
   handle('inspectBackup', async value => rpc('inspectBackup', backupRequestSchema.parse(value)))
+  handle('operationHistory', async value => { z.undefined().parse(value); return operations.list(backupJobs.list()) })
   handle('backupJobs', async () => backupJobs.list())
   handle('retryBackupHistory', async () => backupJobs.retry())
   handle('cancelBackup', async value => rpc('cancelBackup', idSchema.parse(value)))
@@ -395,13 +463,25 @@ function registerIpc(): void {
     const source = sessionCredentials.get(job.sessionId)
     if (!source || !sessions.has(job.sessionId) || source.engine !== job.engine) throw new Error('The original connection is no longer open. Connect to the restored database explicitly.')
     const embedded = ['sqlite', 'duckdb'].includes(job.engine)
-    return openSession({ ...source, name: `${source.name} · restored`.slice(0, 100), database: embedded ? source.database : job.target, ...(embedded ? { filePath: job.target, sqliteMode: 'read-write', duckdbMode: 'read-write' } : {}) })
+    return openSession({ ...source, name: `${source.name} · restored`.slice(0, 100), database: embedded ? source.database : job.target, ...(embedded ? { filePath: job.target, sqliteMode: 'read-write', duckdbMode: 'read-write' } : {}) }, entraSessions.get(job.sessionId))
+  })
+  handle('cancelEntraSignIn', async value => { entra.cancel(z.uuid().parse(value)) })
+  handle('renewEntraSession', async value => {
+    const { sessionId: id, attempt } = z.object({ sessionId: idSchema, attempt: entraAttemptSchema }).strict().parse(value)
+    const grant = entraSessions.get(id), config = sessionCredentials.get(id)
+    if (!grant || !config?.entra || !sessions.has(id)) throw new Error('Connect using interactive Microsoft Entra first.')
+    await entra.renew(grant, config.entra, attempt)
+  })
+  handle('connectInteractive', async value => {
+    const { config, attempt } = z.object({ config: connectionSchema, attempt: entraAttemptSchema }).strict().parse(value)
+    if (config.authentication !== 'entra-interactive') throw new Error('Expected an interactive Microsoft Entra connection.')
+    return openSession(config, undefined, attempt)
   })
   handle('connect', async value => openSession(connectionSchema.parse(value)))
   handle('cloneSession', async value => {
     const id = idSchema.parse(value), config = sessionCredentials.get(id)
     if (!config || !sessions.has(id)) throw new Error('Source session is no longer connected.')
-    return openSession({ ...config })
+    return openSession({ ...config }, entraSessions.get(id))
   })
   handle('exportConnectionProfiles', value => fileOperation(async () => {
     const ids = z.array(idSchema).min(1).max(100).optional().parse(value)
@@ -449,7 +529,7 @@ function registerIpc(): void {
     })
   })
   handle('removeProfilePassword', async value => credentialOperation(() => credentialWorkspace.removePassword(idSchema.parse(value))))
-  handle('disconnect', async value => { const id = idSchema.parse(value); await rpc('disconnect', id); sessions.delete(id); sessionCredentials.delete(id) })
+  handle('disconnect', async value => { const id = idSchema.parse(value); await rpc('disconnect', id); sessions.delete(id); forgetSessionCredentials(id) })
   handle('switchDatabase', async value => {
     const request = switchDatabaseSchema.parse(value)
     if (running.has(request.sessionId)) throw new Error('This tab already has a running operation.')
@@ -458,7 +538,9 @@ function registerIpc(): void {
       const session: SessionInfo = await rpc('switchDatabase', request)
       const config = sessionCredentials.get(request.sessionId)
       if (config) sessionCredentials.set(session.id, { ...config, database: session.database })
-      if (!request.retainSource && session.id !== request.sessionId) { sessionCredentials.delete(request.sessionId); sessions.delete(request.sessionId) }
+      const grant = entraSessions.get(request.sessionId)
+      if (grant && session.id !== request.sessionId) { entra.retain(grant); entraSessions.set(session.id, grant) }
+      if (!request.retainSource && session.id !== request.sessionId) { forgetSessionCredentials(request.sessionId); sessions.delete(request.sessionId) }
       sessions.set(session.id, session)
       return session
     } finally { running.delete(request.sessionId) }
@@ -482,7 +564,10 @@ function registerIpc(): void {
     return workspace ? { ...workspace, recoveryNotice: [recoveryNotice, workspace.recoveryNotice, credentialNotice].filter(Boolean).join(' ') || undefined } : null
   }))
   handle('history',async()=>rpc('history'))
-  handle('clearHistory',async value=>rpc('clearHistory',z.boolean().optional().parse(value)))
+  handle('clearHistory', async value => {
+    await rpc('clearHistory', z.boolean().optional().parse(value))
+    operations.clearQueryEntries()
+  })
   handle('searchHistory',async value=>rpc('searchHistory',historySearchSchema.parse(value)))
   handle('historySettings',async()=>rpc('historySettings'))
   handle('saveHistorySettings',async value=>rpc('saveHistorySettings',historySettingsSchema.parse(value)))
@@ -534,6 +619,13 @@ function registerIpc(): void {
   handle('checkSqlFiles', () => fileOperation(() => sqlFiles.check()))
   handle('forgetSqlFile', value => fileOperation(() => sqlFiles.forget(idSchema.parse(value))))
   handle('clearRecentSqlFiles', () => fileOperation(() => sqlFiles.clearRecent()))
+  handle('chooseSqlProject', () => fileOperation(async () => {
+    const chosen = await dialog.showOpenDialog(window!, { title: 'Choose SQL project folder', properties: ['openDirectory'] })
+    if (chosen.canceled || !chosen.filePaths[0]) return null
+    return sqlFiles.chooseProject(chosen.filePaths[0])
+  }))
+  handle('listSqlProject', () => fileOperation(() => sqlFiles.listProject()))
+  handle('closeSqlProject', () => fileOperation(() => sqlFiles.closeProject()))
   handle('reloadSqlFile', value => fileOperation(async () => {
     const request = reloadSqlFileSchema.parse(value)
     if (sqlFiles.dirty(request.tabId, request.sql)) {
@@ -560,6 +652,7 @@ function registerIpc(): void {
   })
   handle('openSql', value => fileOperation(async () => {
     const request = openSqlFileSchema.parse(value)
+    if (request.projectEntryId) return sqlFiles.openProjectFile(request.tabId, request.projectEntryId)
     let path: string
     if (request.recentId) path = sqlFiles.recentPath(request.recentId)
     else {
@@ -615,6 +708,7 @@ async function createWindow(): Promise<void> {
     recoveryNotice = 'Your editor was recovered after a renderer crash. Database connections were ended; any in-flight operation may have an unknown outcome. Reconnect explicitly. No SQL was replayed.'
     // The lost renderer owned these sessions. End them and recover only saved
     // editor state; never reconnect or replay SQL after a crash.
+    entra.clear()
     const stopped = host.stop()
     // Detach before destruction: native close notifications can arrive later
     // than the host exit, or even after the replacement has been created.
@@ -680,7 +774,7 @@ async function createWindow(): Promise<void> {
     if (window !== createdWindow) return
     window = null
     if (!recovering) {
-      closing = true; host.kill(); windows.delete(record.id)
+      closing = true; entra.clear(); host.kill(); windows.delete(record.id)
       ipcMain.removeListener('sql:ack', acknowledge); ipcMain.removeListener('sql:workspace-flushed', flushed)
     }
   })
@@ -689,7 +783,7 @@ async function createWindow(): Promise<void> {
   await backupJobs.load()
   await sqlFiles.load()
   registerIpc()
-  const controller = { focus: () => { if (window?.isMinimized()) window.restore(); window?.show(); window?.focus() }, stop: () => { closing = true; host.kill() }, recovering: () => recovering }
+  const controller = { focus: () => { if (window?.isMinimized()) window.restore(); window?.show(); window?.focus() }, stop: () => { closing = true; entra.clear(); host.kill() }, recovering: () => recovering }
   windows.set(record.id, controller)
   try { await createWindow() } catch (error) { closing = true; const failed = window as BrowserWindow | null; failed?.destroy(); windows.delete(record.id); throw error }
 }

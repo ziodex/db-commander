@@ -1,8 +1,11 @@
+import type { AdministrationPlan } from '../administration/reviews'
+import type { AdministrationChange, AdministrationResult } from '../shared/database-administration'
+import { quoteIdentifier } from '../shared/sql/common'
 import { executionUnits, failureSource } from '../language/execution'
 import type { DiagramScope } from '../shared/diagram'
 import { readDiagram } from '../catalog/diagram'
 import { bindRequest, boundValue } from './parameters'
-import { inspect } from '../catalog/common'
+import { readCatalog, inspect } from '../catalog/common'
 import { duckdbCatalog } from '../catalog/duckdb'
 import type { CatalogObject } from '../shared/catalog'
 import type { DriverRunRequest } from './driver'
@@ -25,7 +28,7 @@ import { exportResultCsv, type Completion, type DatabaseDriver, type Emit } from
 const MAX_BYTES = 8 * 1024 * 1024
 interface Database { instance: DuckDBInstance; readOnly: boolean; references: number }
 interface Operation { cancelled: boolean; native: boolean; done?: Promise<void> }
-interface Session { editor?: TableEditor; client: DuckDBConnection; database: Database; key?: string; info: SessionInfo; busy?: Operation; metadata?: Promise<SchemaTable[]>; inspection?: Promise<SchemaSnapshot> }
+interface Session { editor?: TableEditor; client: DuckDBConnection; database: Database; key?: string; openedDatabase: string; info: SessionInfo; busy?: Operation; metadata?: Promise<SchemaTable[]>; inspection?: Promise<SchemaSnapshot> }
 const options = (readOnly: boolean) => ({ access_mode: readOnly ? 'READ_ONLY' : 'READ_WRITE',
   // Local analytical queries must not unexpectedly download extensions. Users
   // can explicitly INSTALL/LOAD signed extensions or opt in with SET.
@@ -42,6 +45,55 @@ function duckdbCell(value: DuckDBValue): Cell {
 /** Async native DuckDB runs in the existing database utility process. Each
  * console retains a connection; file instances are shared and reference counted. */
 export class DuckDBDriver implements DatabaseDriver {
+  private async checkpointPlan(session: Session, client: DuckDBConnection, change: AdministrationChange): Promise<AdministrationPlan> {
+    if (change.action !== 'checkpoint-database' || !session.key || session.database.readOnly ||
+      change.database !== session.openedDatabase || session.info.database !== session.openedDatabase) {
+      throw new Error('Checkpoint requires the opened writable DuckDB database file. Attached, read-only and memory databases are outside this workflow.')
+    }
+    const file = await stat(session.info.host, { bigint: true })
+    if (!file.isFile() || `${file.dev}:${file.ino}` !== session.key) throw new Error('The DuckDB database file changed. Reconnect before reviewing maintenance.')
+    const rows = (await client.runAndReadAll(`SELECT database_oid FROM system.main.duckdb_databases()
+      WHERE database_name=? AND path=? AND type='duckdb' AND NOT internal AND NOT readonly`, [change.database, session.info.host])).getRows()
+    if (rows.length !== 1 || typeof rows[0][0] !== 'bigint') throw new Error('Could not verify the opened native DuckDB database.')
+    const target = quoteIdentifier(change.database, 'duckdb')
+    return {
+      database: change.database, observer: 'local', scope: 'DuckDB · opened file', target,
+      sql: `CHECKPOINT ${target};`,
+      notes: ['Synchronizes committed changes from the write-ahead log to this file. It can reclaim some space after deletes.',
+        'Uses a separate connection to the open instance. Active transactions can block the operation. The app does not force a checkpoint.'],
+      fingerprint: JSON.stringify([session.key, session.info.host, change.database, String(rows[0][0])])
+    }
+  }
+  async prepareAdministration(id: string, change: AdministrationChange): Promise<AdministrationPlan> {
+    const session = this.session(id), client = await session.database.instance.connect()
+    try { return await this.checkpointPlan(session, client, change) }
+    finally { client.closeSync() }
+  }
+  async applyAdministration(id: string, change: AdministrationChange, reviewed: AdministrationPlan, beforeDispatch: () => void): Promise<AdministrationResult> {
+    const session = this.session(id), client = await session.database.instance.connect()
+    let expired = false
+    const timer = setTimeout(() => { expired = true; client.interrupt() }, 65_000)
+    try {
+      const fresh = await this.checkpointPlan(session, client, change)
+      if (expired || fresh.fingerprint !== reviewed.fingerprint || fresh.sql !== reviewed.sql) throw new Error('The reviewed DuckDB file changed or timed out. Prepare a new review.')
+      beforeDispatch()
+      if ([...this.sessions.values()].some(other => other !== session && other.database === session.database &&
+        (other.busy || other.info.transaction !== 'idle'))) {
+        return { status: 'rejected', message: 'Another tab is using this database file. Finish its query or transaction before reviewing again.' }
+      }
+      try {
+        await client.run(reviewed.sql)
+        if (!expired && (await this.checkpointPlan(session, client, change)).fingerprint === reviewed.fingerprint) {
+          return { status: 'applied', message: 'DuckDB confirmed the checkpoint for the opened database file.' }
+        }
+      } catch (error) {
+        if (error instanceof Error && /Cannot checkpoint.*transaction|transaction.*prevent.*checkpoint/i.test(error.message)) {
+          return { status: 'rejected', message: 'DuckDB refused the checkpoint because another transaction is active. Settle it before reviewing again.' }
+        }
+      }
+      return { status: 'unknown', message: 'DuckDB did not confirm the checkpoint. Inspect the opened database file before trying again.' }
+    } finally { clearTimeout(timer); client.closeSync() }
+  }
   async backup(request: BackupRequest, context: BackupContext) {
     const session = this.session(request.sessionId)
     if (request.action === 'restore') {
@@ -109,7 +161,7 @@ export class DuckDBDriver implements DatabaseDriver {
       const row = (await client.runAndReadAll('SELECT system.main.current_database()')).getRows()[0]
       const info: SessionInfo = { id: randomUUID(), engine: 'duckdb', name: config.name, database: String(row[0]),
         user: 'local', host: path, port: 0, tls: false, transaction: 'idle', autocommit: true, version: version() }
-      this.sessions.set(info.id, { client, database, key, info })
+      this.sessions.set(info.id, { client, database, key, openedDatabase: info.database, info })
       return { ...info }
     } catch (error) {
       client?.closeSync()
@@ -258,11 +310,11 @@ export class DuckDBDriver implements DatabaseDriver {
     if (operation.native) session.client.interrupt()
     return { requested: true }
   }
-  async explore(id: string, object?: CatalogObject, diagram?: DiagramScope) {
+  async explore(id: string, object?: CatalogObject, diagram?: DiagramScope, page?: import('../catalog/paging').CatalogRead) {
     const session = this.session(id)
     if (session.busy || session.metadata || session.inspection) throw new Error('Wait for the DuckDB operation to finish before inspecting objects.')
     const query: import('../catalog/common').CatalogQuery=async(sql,values=[])=>(await session.client.runAndReadAll(sql,values)).getRows().map(row=>row.map(duckdbCell)),adapter=duckdbCatalog(query)
-    return diagram?{diagram:await readDiagram(adapter,query,'duckdb',diagram,'session')}:inspect(adapter,object,'session')
+    return diagram?{diagram:await readDiagram(adapter,query,'duckdb',diagram,'session')}:page ? await readCatalog(adapter, query, 'duckdb', page, 'session') : inspect(adapter,object,'session')
   }
   async schema(id: string): Promise<SchemaSnapshot> {
     const session = this.session(id)

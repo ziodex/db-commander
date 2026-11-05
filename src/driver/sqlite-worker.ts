@@ -1,7 +1,8 @@
+import { applySqliteAdministration, planSqliteAdministration } from '../administration/sqlite'
 import { executionUnits, failureSource } from '../language/execution'
 import { readDiagram } from '../catalog/diagram'
 import { boundValue } from './parameters'
-import { inspect } from '../catalog/common'
+import { readCatalog, inspect } from '../catalog/common'
 import { sqliteCatalog } from '../catalog/sqlite'
 import { TableEditor, runGridOperation } from './table-editor'
 import type { SessionInfo } from '../shared/contracts'
@@ -161,7 +162,7 @@ process.on('message', async (message: { id: string; method: string; payload: any
       try { const query: import('../catalog/common').CatalogQuery=async(sql,values=[])=>{
         const statement = db!.prepare(sql); statement.setReturnArrays(true); statement.setReadBigInts(true)
         return (statement.all(...values) as unknown as unknown[][]).map(row => row.map(cell))
-      };const adapter=sqliteCatalog(query);value=payload.diagram?{diagram:await readDiagram(adapter,query,'sqlite',payload.diagram,'session')}:await inspect(adapter,payload.object,'session') } finally { active = false }
+      };const adapter=sqliteCatalog(query);value=payload.diagram?{diagram:await readDiagram(adapter,query,'sqlite',payload.diagram,'session')}:payload.page ? await readCatalog(adapter, query, 'sqlite', payload.page, 'session') : await inspect(adapter,payload.object,'session') } finally { active = false }
     }
     else if (method === 'cancelBackup') backupController?.abort()
     else if (method === 'cancelImport') importController?.abort(new Error('Cancellation requested.'))
@@ -186,6 +187,14 @@ process.on('message', async (message: { id: string; method: string; payload: any
           } })
         })
       } finally { if (owned) source.close(); active = false; backupController = undefined }
+    }
+    else if (method === 'prepareAdministration' || method === 'applyAdministration') {
+      if (active || db!.isTransaction) throw new Error('Finish SQLite queries and settle the transaction before maintenance.')
+      if (method === 'prepareAdministration') value = planSqliteAdministration(db!, payload.database, readOnly, payload.change)
+      else {
+        editor?.invalidate()
+        value = applySqliteAdministration(db!, payload.database, readOnly, payload.change, payload.reviewed)
+      }
     }
     else if (method === 'editGrid') {
       if (active) throw new Error('Wait for the query to finish before editing data.')

@@ -2,7 +2,19 @@
 
 ## Unreleased — beta preparation
 
-No beta release has been declared. Package version 0.2.3 remains a developer preview; signed distribution and the final beta version are pending the [release gates](docs/PLAN.md#beta-release-checklist).
+- Added server-engine security-principal inspection, role membership and privilege views, and copyable manual SQL previews for role, membership and table privilege changes. PostgreSQL, MySQL, MariaDB, SQL Server, Azure SQL and Oracle also support reviewed role and account changes, with engine-specific grant and removal rules.
+
+- Added reviewed database lifecycle and maintenance actions with engine-specific availability, permission checks, and outcome reporting.
+- Added performance and lock diagnostics, reviewed SQL Server Agent and Oracle scheduler controls, and window-scoped operation history for query and administration work.
+
+- Added editor SQL diagnostics, scoped completion, catalog signatures, definition and reference navigation, and reviewed alias rename.
+- Extended plan trees across engines and added captured-plan comparison, saved ER diagram layouts and a SQL project-folder browser.
+
+- Added scoped schema inventories and focused definition review, larger exact data comparisons, dependency ordering for reviewed table drops, and reviewed JSON synchronization plans.
+
+- Added server-side catalog search, forward/backward object pages and lazy table children, with targeted inspection beyond the completion preview. Existing permissions, session ownership and metadata limits remain explicit.
+
+No beta release has been declared. Package version 0.2.5 remains a developer preview; signed distribution and the final beta version are pending the [release gates](docs/PLAN.md#beta-release-checklist).
 
 - Added guided backup/restore configuration and advisory checks, native file/tools-folder choices with remembered folders, clearer server-side locations, searchable job history and explicit connections to successful restored targets without SQL replay. Existing target, transaction, cancellation and recovery protections remain in force.
 
@@ -12,6 +24,7 @@ No beta release has been declared. Package version 0.2.3 remains a developer pre
 
 - Shortened the SQL opened by Browse data to `SELECT *`, retaining identifier quoting, sorting and paging. Browser display conversions still preserve exact values.
 - Added SQL Server Windows Authentication with the current Windows account, using the Windows SQL client without storing a password. This mode requires a direct connection and uses the Windows certificate store for TLS.
+- Added experimental Azure SQL browser sign-in using an existing Microsoft Entra desktop app registration, with in-memory tokens and same-account renewal for new physical connections. Live Azure qualification is pending.
 - Added **Help → About Db Commander**, showing the actual running version and a short application description.
 
 - Updated the workbench with the VS Code 2026 Dark theme, Material file/object icons, a Windows title-bar application menu, clearer typography and a compact results toolbar.
@@ -34,4 +47,4 @@ No beta release has been declared. Package version 0.2.3 remains a developer pre
 - Added opt-in minimize to tray, replaced the default application icon and fixed retained editor state after closing scratch tabs.
 - Added packaged dependency inventories, complete unpacked-file hashes and notice sidecars. Installed verification rejects missing or extra unpacked files and redirected paths. Oracle packages include the supported Thin implementation and exclude unused Thick-mode binaries. Electron's upstream license/notices are now included and verified in application payloads. Native/vendor composition and redistribution review remain open.
 
-Catalog pagination and automatic updates are deferred. Preview, workspace, recovery, engine and authentication limits are documented in [beta notes](docs/BETA_NOTES.md). Updates are manual, and downgrade compatibility is not guaranteed. Support and private reporting use [post@detego.no](mailto:post@detego.no); see [support guidance](SUPPORT.md).
+Automatic updates are deferred. Preview, workspace, recovery, engine and authentication limits are documented in [beta notes](docs/BETA_NOTES.md). Updates are manual, and downgrade compatibility is not guaranteed. Support and private reporting use [post@detego.no](mailto:post@detego.no); see [support guidance](SUPPORT.md).

@@ -1,3 +1,6 @@
+import { verifyOraclePrincipalChanges } from './oracle-principal-changes-contract'
+import { verifyOraclePrincipals } from './oracle-principals-contract'
+import { verifyOracleAdministration } from './oracle-administration-contract'
 import { verifyTransferWorkflows } from './transfer-workflows-contract'
 import { verifyInsertExport } from './insert-export-contract'
 import { verifyJsonImport } from './json-import-contract'
@@ -54,6 +57,10 @@ describe('Docker Oracle driver contracts', () => {
   beforeAll(async () => { driver = new DriverRegistry(event => { events.push(event) }); session = await driver.connect(config) })
   afterAll(async () => { await driver?.close() })
 
+  it('applies reviewed Oracle principal changes with dependency and transaction guards', () => verifyOraclePrincipalChanges(config), 120000)
+  it('inspects security principals with Oracle dictionary visibility and active roles', async () => { await verifyOraclePrincipals(config) }, 120000)
+
+  it('reviews Oracle table statistics and individual native index rebuilds', () => verifyOracleAdministration(config), 120000)
   // This contract runs multiple cold Data Pump exports/imports plus refusal paths.
   it('backs up and restores native schema/data with target protection, constraints and cancellation', async () => { await verifyBackups(config) }, 360000)
   it('isolates concurrent tab sessions, transaction state and cached exports', async () => { await verifySessionIsolation(config) })
@@ -72,6 +79,36 @@ describe('Docker Oracle driver contracts', () => {
   it('protects production sessions and verifies SSH transport where supported', async () => { await verifyConnectionSafeguards(config) }, 180000)
   it('inspects rollback progress without changing or retargeting transactions', async () => { await verifyRollbackInspection(config) }, 180000)
   it('reviews cancellation and termination with identity revalidation', async () => { await verifyActivityControls(config) }, 180000)
+  it('reviews native scheduler job changes without exposing the job action', async () => {
+    const native = await oracledb.getConnection(oracleConnectionOptions(config))
+    const admin = await oracledb.getConnection(oracleConnectionOptions({ ...config, user: 'system', password: 'Local-Admin-Only2026' }))
+    const job = 'DBC_A3_CONTRACT'
+    try {
+      await admin.execute('GRANT CREATE JOB TO DBCOMMANDER')
+      await native.execute(`BEGIN DBMS_SCHEDULER.CREATE_JOB(job_name => '${job}',job_type => 'PLSQL_BLOCK',
+        job_action => 'BEGIN /* scheduler-action-private */ NULL; END;',
+        start_date => SYSTIMESTAMP + INTERVAL '200' DAY,enabled => FALSE,auto_drop => FALSE); END;`)
+      const read = async () => {
+        const snapshot = await driver.inspectScheduler(session.id)
+        expect(snapshot.status, JSON.stringify(snapshot)).toBe('available')
+        expect(JSON.stringify(snapshot)).not.toContain('scheduler-action-private')
+        const row = snapshot.entries.find(entry => entry.name === job)
+        expect(row, JSON.stringify(snapshot)).toMatchObject({ changeAllowed: true, owner: 'DBCOMMANDER' })
+        return row!
+      }
+      for (const enabled of [false, true]) {
+        const row = await read()
+        expect(row.enabled).toBe(enabled)
+        const review = driver.prepareScheduleChange({ sessionId: session.id, targetId: row.id })
+        expect(await driver.applyScheduleChange({ sessionId: session.id, reviewId: review.id, confirmation: review.confirmation, acknowledge: true }))
+          .toMatchObject({ status: 'completed' })
+      }
+      expect((await read()).enabled).toBe(false)
+    } finally {
+      try { await native.execute(`BEGIN DBMS_SCHEDULER.DROP_JOB(job_name => '${job}'); END;`) }
+      finally { await native.close(); await admin.close() }
+    }
+  }, 180000)
   it('inspects sessions and real lock waits without changing query state', async () => { await verifyActivity(config) }, 180000)
   it('builds visual SELECT queries with native joins, grouping and parameters', async () => { await verifyQueryBuilder(config) }, 180000)
   it('exports reviewed migration files with native DDL semantics', async () => { await verifyMigrations(config) }, 180000)

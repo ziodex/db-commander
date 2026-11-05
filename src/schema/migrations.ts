@@ -1,11 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto'
 import type { DatabaseEngine } from '../shared/contracts'
 import type { SchemaChangePlan } from '../shared/schema-changes'
+import { orderMigrationDrops } from '../shared/migration-order'
 import { transactionalDdl } from '../shared/schema-changes'
 import { sqlComment, type SchemaComparison } from '../shared/schema-compare'
 import { prepareMigrationSchema, saveMigrationSchema, type PrepareMigration, type SaveMigration, type MigrationPreview } from '../shared/migrations'
 
-interface Unit { key: string; title: string; statements: string[]; destructive: string[]; notes: string[] }
+interface Unit { key: string; name: string; requiredDrops?: { key: string; name: string }[]; title: string; statements: string[]; destructive: string[]; notes: string[] }
 interface Source { engine: DatabaseEngine; sessions: string[]; target: string; captured: string; expires: number; units: Unit[]; notes: string[]; requiresAutocommit?: boolean }
 const ttl = 10 * 60_000, fileLimit = 1_000_000
 
@@ -31,13 +32,14 @@ export class MigrationExports {
   }
   retainChange(plan: SchemaChangePlan, commands: string[], target = `${plan.connection} / ${plan.database}`) {
     return this.retain(plan.id, { engine: plan.engine, sessions: [plan.sessionId], target, captured: new Date().toISOString(), expires: Date.parse(plan.expiresAt), requiresAutocommit: plan.transaction === 'nontransactional',
-      units: [{ key: 'change', title: 'Guided schema change', statements: plan.destructive ? [] : commands, destructive: plan.destructive ? commands : [], notes: [] }],
+      units: [{ key: 'change', name: 'Guided schema change', title: 'Guided schema change', statements: plan.destructive ? [] : commands, destructive: plan.destructive ? commands : [], notes: [] }],
       // The interactive review's automatic rollback/leave-open promises do not apply to an external runner.
       notes: plan.warnings.slice(1) })
   }
   retainComparison(result: SchemaComparison) {
+    if (result.mode === 'inventory' || !result.objects.some(item => item.sql.length || item.destructiveSql.length)) return undefined
     return this.retain(randomUUID(), { engine: result.engine, sessions: [result.source.sessionId, result.target.sessionId], target: result.targetLabel, captured: result.fetchedAt, expires: Date.now() + ttl,
-      units: result.objects.filter(o => !['matching','unknown'].includes(o.status)).map(o => ({ key: o.key, title: `${o.status}: ${o.kind} ${o.name}`, statements: o.sql, destructive: o.destructiveSql, notes: o.notices })),
+      units: result.objects.map(o => ({ key: o.key, name: o.name, requiredDrops: o.requiredDrops, title: `${o.status}: ${o.kind} ${o.name}`, statements: o.sql, destructive: o.destructiveSql, notes: o.notices })),
       notes: [`Source: ${result.sourceLabel}`, 'Partial schema-comparison suggestions only. This file does not reproduce the complete source schema; unsupported differences and dependencies need manual SQL.', ...result.notices] })
   }
   prepare(input: PrepareMigration): MigrationPreview {
@@ -50,16 +52,24 @@ export class MigrationExports {
     if (units.length !== request.selected.length) throw new Error('The selection is not part of this schema review. Review the schema again.')
     const statements = units.flatMap(unit => [...unit.statements, ...(request.includeDestructive ? unit.destructive : [])])
     for (const unit of units) if (!unit.statements.length && !(request.includeDestructive && unit.destructive.length)) throw new Error(`No included executable SQL for ${unit.title}. Deselect this object or explicitly include its destructive SQL; reference definitions cannot be exported as migrations.`)
-    const destructive = request.includeDestructive && units.some(u => u.destructive.length > 0)
+    const drops = request.includeDestructive ? orderMigrationDrops(units.filter(unit => unit.destructive.length)) : []
+    const destructive = drops.length > 0
     const warnings = [
       'Export only: no SQL has been executed. This is a captured review, not a fresh schema check. Verify the target, permissions, dependencies and backups before running it.',
       'Forward migration only; no rollback script, migration ledger, idempotency or automatic retries are provided. Do not run it twice.',
       source.requiresAutocommit ? 'This change requires an idle autocommit connection. Do not wrap it in a transaction; a failed concurrent index build can leave an invalid index.' : !transactionalDdl(source.engine) ? 'DDL commits implicitly and can partially succeed. A failure does not undo earlier changes.' : request.transaction === 'transaction' ? 'Run in an idle connection using a runner that stops on the first error. BEGIN and COMMIT are included; on error stop and explicitly ROLLBACK. The file has no automatic error handler.' : 'No transaction commands are included. Configure transaction and error handling in your migration runner; statements may commit individually.',
       'Connect to the stated database and establish required namespaces/attachments yourself. The file does not switch databases or include credentials.',
-      ...(destructive ? ['DESTRUCTIVE SQL INCLUDED: running this file can remove data or database safeguards.'] : []), ...source.notes
+      ...(destructive ? ['DESTRUCTIVE SQL INCLUDED: running this file can remove data or database safeguards. Comparison drops follow captured foreign-key order. Verify references outside the comparison before running them.'] : []), ...source.notes
     ]
     const at = new Date(), filename = `${at.toISOString().replace(/[-:TZ.]/g, '')}_${request.name.toLowerCase().replace(/[ _-]+/g, '_')}.sql`
-    const body = units.map(unit => [sqlComment(`${unit.title}\n${unit.notes.join('\n')}`), ...[...unit.statements, ...(request.includeDestructive ? unit.destructive : [])].map(sql => sql.trimEnd().endsWith(';') ? sql : sql + ';')].join('\n\n')).join('\n\n')
+    const renderUnit = (unit: Unit, statements: string[]) => [
+      sqlComment(`${unit.title}\n${unit.notes.join('\n')}`),
+      ...statements.map(sql => sql.trimEnd().endsWith(';') ? sql : sql + ';')
+    ].join('\n\n')
+    const body = [
+      ...units.filter(unit => unit.statements.length).map(unit => renderUnit(unit, unit.statements)),
+      ...drops.map(unit => renderUnit(unit, unit.destructive))
+    ].join('\n\n')
     const begin = ['sqlserver','azure-sql'].includes(source.engine) ? 'BEGIN TRANSACTION;' : source.engine === 'sqlite' ? 'BEGIN IMMEDIATE;' : 'BEGIN;'
     const sql = [sqlComment(`Db Commander forward migration: ${request.name}\nEngine: ${source.engine}\nTarget: ${source.target}\nReview captured: ${source.captured}\nFile generated: ${at.toISOString()}\n\n${warnings.join('\n')}`), ...(request.transaction === 'transaction' ? [begin] : []), body, ...(request.transaction === 'transaction' ? ['COMMIT;'] : [])].join('\n\n') + '\n'
     if (Buffer.byteLength(sql, 'utf8') > fileLimit) throw new Error('Migration exceeds 1,000,000 UTF-8 bytes. Select fewer changes.')

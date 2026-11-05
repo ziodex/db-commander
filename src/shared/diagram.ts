@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { catalogObjectSchema, type CatalogObject } from './catalog'
-import { idSchema, type GridTable } from './contracts'
+import type { GridTable } from './contracts'
+import { idSchema } from './id-schema'
 
 export const DIAGRAM_TABLE_LIMIT = 40
 export const DIAGRAM_COLUMN_LIMIT = 100
