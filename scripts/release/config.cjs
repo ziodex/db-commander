@@ -115,7 +115,11 @@ function builderConfig(env = process.env) {
     forceCodeSigning: signed && process.platform !== 'linux',
     mac: {
       icon: 'build/icons/icon.icns',
-      extraResources: vendorNoticeSources(vendorProvenance.electronVersion, 'darwin').map(file => ({ from: file.sourcePath, to: file.destination })),
+      extendInfo: { CFBundleIconName: 'DbCommanderIcon' },
+      extraResources: [
+        { from: 'build/macos-icon/Assets.car', to: 'Assets.car' },
+        ...vendorNoticeSources(vendorProvenance.electronVersion, 'darwin').map(file => ({ from: file.sourcePath, to: file.destination }))
+      ],
       target: ['dmg', 'zip'], category: 'public.app-category.developer-tools',
       // builder v26 chooses the certificate type itself and rejects its prefix
       // in the qualifier. Retain the full identity separately for verification.

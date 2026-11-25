@@ -1,0 +1,28 @@
+{
+  "fill-specializations": [
+    { "value": { "solid": "extended-srgb:0.65098,0.87451,0.75686,1.00000" } },
+    { "appearance": "dark", "value": "system-dark" },
+    { "appearance": "tinted", "value": "automatic" }
+  ],
+  "groups": [
+    {
+      "layers": [
+        {
+          "name": "Database prompt",
+          "image-name": "mark.svg",
+          "glass-specializations": [
+            { "value": false },
+            { "appearance": "tinted", "value": true }
+          ],
+          "position": { "scale": 1.18, "translation-in-points": [0, 0] },
+          "fill-specializations": [
+            { "value": { "solid": "extended-srgb:0.09412,0.16471,0.16863,1.00000" } },
+            { "appearance": "dark", "value": { "solid": "extended-srgb:0.65098,0.87451,0.75686,1.00000" } },
+            { "appearance": "tinted", "value": { "solid": "extended-gray:1.00000,1.00000" } }
+          ]
+        }
+      ]
+    }
+  ],
+  "supported-platforms": { "squares": ["macOS"] }
+}

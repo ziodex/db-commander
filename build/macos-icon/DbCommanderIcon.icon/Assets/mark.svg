@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <mask id="prompt">
+    <rect width="1024" height="1024" fill="white"/>
+    <ellipse cx="512" cy="326" rx="184" ry="48" fill="black"/>
+    <path d="M326 674c39 25 107 40 186 40s147-15 186-40" fill="none" stroke="black" stroke-width="28" stroke-linecap="round"/>
+    <path d="m394 444 74 74-74 74m148 0h88" fill="none" stroke="black" stroke-width="44" stroke-linecap="round" stroke-linejoin="round"/>
+  </mask>
+  <path d="M272 326c0-54 107-98 240-98s240 44 240 98v372c0 54-107 98-240 98s-240-44-240-98Z" fill="black" mask="url(#prompt)"/>
+</svg>
