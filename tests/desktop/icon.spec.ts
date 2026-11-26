@@ -1,6 +1,6 @@
 import { waitForWorkspaceReady } from './workspace-ready'
 import { _electron as electron, test, expect } from '@playwright/test'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -22,17 +22,23 @@ test('application icon: runtime image and packaged Finder identity use the Db Co
       return { name: app.getName(), packaged: app.isPackaged, size: image.getSize(), resources: process.resourcesPath, bundlePath: path.join(process.resourcesPath, '../..') }
     })
     await app.close()
-    let bundleIcon: string | undefined, brandedFraction: number | undefined
+    let bundleIcon: string | undefined, finder: { markTileContrast: number; markCutoutContrast: number } | undefined
     if (report.packaged && process.platform === 'darwin') {
       bundleIcon = execFileSync('/usr/libexec/PlistBuddy', ['-c', 'Print CFBundleIconFile', join(report.resources, '../Info.plist')], { encoding: 'utf8', timeout: 5000 }).trim()
+      const catalogIcon = execFileSync('/usr/libexec/PlistBuddy', ['-c', 'Print CFBundleIconName', join(report.resources, '../Info.plist')], { encoding: 'utf8', timeout: 5000 }).trim()
+      expect(catalogIcon).toBe('DbCommanderIcon')
+      expect(statSync(join(report.resources, 'Assets.car')).size).toBeGreaterThan(0)
       expect(readFileSync(join(report.resources, bundleIcon)).subarray(0, 4).toString()).toBe('icns')
+      expect(bundleIcon).not.toContain('electron')
       const file = info.outputPath('finder-icon.png')
-      const finder = JSON.parse(execFileSync('/usr/bin/osascript', ['-l', 'JavaScript', resolve('tests/desktop/read-icon.jxa'), report.bundlePath, file], { timeout: 15_000, encoding: 'utf8' }))
-      brandedFraction = finder.brandedFraction
+      const resolved = JSON.parse(execFileSync('/usr/bin/osascript', ['-l', 'JavaScript', resolve('tests/desktop/read-icon.jxa'), report.bundlePath, file], { timeout: 15_000, encoding: 'utf8' }))
+      // Clear and Tinted can omit mint. The mark and its cutouts should still stand out.
+      expect(resolved.markTileContrast).toBeGreaterThan(0.18)
+      expect(resolved.markCutoutContrast).toBeGreaterThan(0.18)
+      finder = resolved
     }
     expect(report.name).toBe('Db Commander')
     expect(report.size).toEqual({ width: 1024, height: 1024 })
-    if (report.packaged && process.platform === 'darwin') { expect(bundleIcon).not.toContain('electron'); expect(brandedFraction).toBeGreaterThan(0.2) }
-    writeFileSync(info.outputPath('icon.json'), JSON.stringify({ ...report, bundleIcon, brandedFraction }, null, 2))
+    writeFileSync(info.outputPath('icon.json'), JSON.stringify({ ...report, bundleIcon, finder }, null, 2))
   } finally { if (ownedProcess.exitCode === null) ownedProcess.kill('SIGKILL'); await app.close().catch(() => {}); rmSync(directory, { recursive: true, force: true }) }
 })

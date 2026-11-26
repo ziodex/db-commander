@@ -8,10 +8,12 @@ function run(args) {
   const png = bitmap.representationUsingTypeProperties($.NSBitmapImageFileTypePNG, $.NSDictionary.dictionary)
   if (!png.writeToFileAtomically(args[1], true)) throw new Error('Could not save the resolved Finder icon.')
   const width = Number(bitmap.pixelsWide), height = Number(bitmap.pixelsHigh)
-  let branded = 0
-  for (let row = 0; row < 16; row++) for (let column = 0; column < 16; column++) {
-    const color = bitmap.colorAtXY(Math.floor((column + .5) * width / 16), Math.floor((row + .5) * height / 16)).colorUsingColorSpace($.NSColorSpace.deviceRGBColorSpace)
-    if (Number(color.alphaComponent) > .8 && Number(color.greenComponent) > Number(color.redComponent) + .078 && Number(color.greenComponent) > Number(color.blueComponent) + .078) branded++
+  const brightness = (x, y) => {
+    const color = bitmap.colorAtXY(Math.floor(x * width), Math.floor(y * height)).colorUsingColorSpace($.NSColorSpace.deviceRGBColorSpace)
+    return (Number(color.redComponent) + Number(color.greenComponent) + Number(color.blueComponent)) / 3
   }
-  return JSON.stringify({ width, height, brandedFraction: branded / 256 })
+  const mark = brightness(.5, .43)
+  const markTileContrast = Math.abs(mark - brightness(.5, .17))
+  const markCutoutContrast = Math.min(Math.abs(mark - brightness(.5, .326)), Math.abs(mark - brightness(.57, .58)))
+  return JSON.stringify({ width, height, markTileContrast, markCutoutContrast })
 }

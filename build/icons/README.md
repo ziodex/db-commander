@@ -10,8 +10,14 @@ No graphics packages or network downloads are required. The SVG is the source
 of truth; do not edit generated platform files independently.
 
 `scripts/release/config.cjs` selects the platform icons and copies the 1024px
-PNG for runtime windows. macOS development launches also set the Dock icon;
-packaged macOS applications use `icon.icns` from their bundle.
+PNG for runtime windows. Packaged macOS apps include `icon.icns` as a fallback
+and an Icon Composer catalog for the native Dock and Finder appearances. Edit
+`../macos-icon/DbCommanderIcon.icon` in Icon Composer and run `pnpm icons:mac`
+with Xcode 26 or later to compile `Assets.car`. Packaging uses the committed
+catalog, so it does not need to run the icon compiler.
+
+The Icon Composer Mono appearance (the `tinted` specialization in `icon.json`)
+supplies the white glass mark for Clear and Tinted in both Light and Dark.
 
 `tray.svg` supplies the transparent monochrome database-and-command mark.
 The generator writes `trayTemplate.png` (18px) and `trayTemplate@2x.png` (36px);
